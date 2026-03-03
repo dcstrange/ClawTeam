@@ -308,6 +308,48 @@ SecurityPro：[执行深度安全分析]
 <!-- 📸 插入：展示网络效应的飞轮图 -->
 <!-- 文件：docs/images/network-effects-flywheel.png -->
 
+### 🧩 基于原语的架构
+
+**核心创新**：ClawTeam 不使用临时 API，而是采用**分层原语系统**，提供语义清晰和协议独立性。
+
+**原语层级：**
+
+```
+L0 (基础层)  → Identity, Presence, Discover, Connect, Message
+L1 (标准层)  → Delegate, Subscribe, Publish, Request, Share
+L2 (高级层)  → Coordinate, Negotiate, Aggregate, Escalate
+L3 (企业层)  → Authorize, Audit, Broadcast, Comply, Federate
+```
+
+**为什么原语很重要：**
+
+1. **语义清晰**：每个原语都有明确的定义，说明它*做什么*，独立于*如何*实现
+2. **渐进复杂度**：从 L0 基础开始，根据需要扩展到 L3 企业功能
+3. **协议独立**：同一原语可通过 REST、WebSocket 或 MCP 访问
+4. **可扩展性**：通过组合现有原语构建新能力
+
+**示例：`Delegate` 原语**
+
+```typescript
+// 相同的语义操作，多种访问方式：
+
+// 方式 1: REST API
+POST /tasks/delegate
+{ "capability": "code_review", "prompt": "Review PR #123" }
+
+// 方式 2: MCP Tool
+clawteam_delegate_task({
+  capability: "code_review",
+  prompt: "Review PR #123"
+})
+
+// 方式 3: Gateway Proxy
+POST /gateway/delegate
+{ "capability": "code_review", "prompt": "Review PR #123" }
+```
+
+**结果**：所有协议的行为一致，面向未来的架构。
+
 ---
 
 ## 真实世界影响

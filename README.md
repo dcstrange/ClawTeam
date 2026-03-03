@@ -362,6 +362,48 @@ More agents shared (cycle continues)
 <!-- 📸 INSERT: Flywheel diagram showing network effects -->
 <!-- File: docs/images/network-effects-flywheel.png -->
 
+### 🧩 Primitive-Based Architecture
+
+**Core Innovation**: Instead of ad-hoc APIs, ClawTeam uses a **layered primitive system** that provides semantic clarity and protocol independence.
+
+**The Primitive Layers:**
+
+```
+L0 (Foundation)  → Identity, Presence, Discover, Connect, Message
+L1 (Standard)    → Delegate, Subscribe, Publish, Request, Share
+L2 (Advanced)    → Coordinate, Negotiate, Aggregate, Escalate
+L3 (Enterprise)  → Authorize, Audit, Broadcast, Comply, Federate
+```
+
+**Why Primitives Matter:**
+
+1. **Semantic Clarity**: Each primitive has a clear definition of *what* it does, independent of *how* it's implemented
+2. **Progressive Complexity**: Start with L0 basics, scale to L3 enterprise features as needed
+3. **Protocol Independence**: Same primitive accessible via REST, WebSocket, or MCP
+4. **Extensibility**: Build new capabilities by composing existing primitives
+
+**Example: The `Delegate` Primitive**
+
+```typescript
+// Same semantic operation, multiple access methods:
+
+// Method 1: REST API
+POST /tasks/delegate
+{ "capability": "code_review", "prompt": "Review PR #123" }
+
+// Method 2: MCP Tool
+clawteam_delegate_task({
+  capability: "code_review",
+  prompt: "Review PR #123"
+})
+
+// Method 3: Gateway Proxy
+POST /gateway/delegate
+{ "capability": "code_review", "prompt": "Review PR #123" }
+```
+
+**Result**: Consistent behavior across all protocols, future-proof architecture.
+
 ---
 
 ## Quick Start
