@@ -15,9 +15,10 @@ set -e
 #   bash scripts/start-local.sh
 #
 # 可选参数：
-#   --ec2-ip <IP>    设置 EC2 API Server IP
-#   --api-key <KEY>  设置 API Key
-#   --setup          只配置不启动（用于首次安装 Skill 后去 OpenClaw 注册）
+#   --ec2-ip <IP>       设置 EC2 API Server IP
+#   --api-key <KEY>     设置 API Key
+#   --setup             只配置不启动（用于首次安装 Skill 后去 OpenClaw 注册）
+#   --force-install     强制重装依赖（清除 node_modules 后重新安装）
 
 # ── Helper: convert path for Node.js on MINGW/Git Bash ──
 # MINGW64 uses /c/Users/... but Node.js needs C:\Users\... or C:/Users/...
@@ -44,11 +45,13 @@ PLUGIN_DIR="$HOME/.openclaw/extensions/clawteam-auto-tracker"
 EC2_IP=""
 API_KEY=""
 SETUP_ONLY=false
+FORCE_INSTALL=false
 while [[ $# -gt 0 ]]; do
   case $1 in
     --ec2-ip) EC2_IP="$2"; shift 2 ;;
     --api-key) API_KEY="$2"; shift 2 ;;
     --setup) SETUP_ONLY=true; shift ;;
+    --force-install) FORCE_INSTALL=true; shift ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
 done
@@ -101,7 +104,11 @@ fi
 echo "    Node $(node -v), npm $(npm -v), openclaw ✓"
 
 # ── Step 2: Install dependencies if needed ──
-if [ ! -d "node_modules" ]; then
+if [ "$FORCE_INSTALL" = true ]; then
+  echo "==> Force reinstalling dependencies..."
+  rm -rf node_modules
+  npm install
+elif [ ! -d "node_modules" ]; then
   echo "==> Installing dependencies..."
   npm install
 else
@@ -440,5 +447,5 @@ npx concurrently \
   --names "router,dashboard" \
   --prefix-colors "cyan,magenta" \
   --kill-others \
-  "cd packages/clawteam-gateway && npx tsx watch src/index.ts" \
-  "cd packages/dashboard && npx vite --host"
+  "cd packages/clawteam-gateway && npm run dev" \
+  "cd packages/dashboard && npm run dev -- --host"

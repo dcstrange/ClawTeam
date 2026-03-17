@@ -41,10 +41,13 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/api/, '/api/v1'),
       },
       '/ws': {
-        target: 'ws://localhost:3000',
+        target: 'ws://18.179.251.234:3000',
         ws: true,
         configure: (proxy) => {
-          proxy.on('error', () => {}); // suppress ws connection errors
+          proxy.on('error', () => {});
+          proxy.on('proxyReqWs', (_proxyReq, _req, socket) => {
+            socket.on('error', () => {});
+          });
         },
       },
       // Router API proxy
