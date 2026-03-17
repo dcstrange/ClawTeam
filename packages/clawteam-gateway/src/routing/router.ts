@@ -63,7 +63,7 @@ export class TaskRouter extends EventEmitter {
       };
     }
 
-    // followup or correction
+    // sub-task
     const targetSessionKey = task.parameters?.targetSessionKey as string | undefined;
 
     if (targetSessionKey) {
@@ -691,7 +691,7 @@ export class TaskRouter extends EventEmitter {
    * Uses param-based flow: spawn with _clawteam_role/_clawteam_taskId params -> plugin auto-tracks -> send details.
    */
   private async buildFallbackMessage(task: Task): Promise<string> {
-    const taskType = task.type || 'followup';
+    const taskType = task.type || 'sub-task';
     let parentContext = '';
 
     if (task.parentTaskId) {

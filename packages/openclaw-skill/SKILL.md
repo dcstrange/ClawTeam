@@ -194,7 +194,7 @@ Non-ClawTeam spawns (no `_clawteam_role` param) are not affected.
 | Type | Description | Session Strategy |
 |------|-------------|-----------------|
 | `new` | Brand new independent task | `sessions_spawn` (create new sub-agent) |
-| `sub-task` | Sub-task of a previous task (followup, correction, etc.) | `sessions_send` (route to existing sub-agent) |
+| `sub-task` | Related work under a parent task | `sessions_send` (route to existing sub-agent) |
 
 ### Delegation as Sender
 
