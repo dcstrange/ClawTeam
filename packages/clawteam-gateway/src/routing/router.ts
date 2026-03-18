@@ -456,18 +456,21 @@ export class TaskRouter extends EventEmitter {
       ? `Task ID: ${taskId} (pre-created by dashboard)`
       : 'No taskId yet. The plugin will auto-create it when spawning.';
 
+    const taskLines = taskValue.split('\n').map(line => `     ${line}`).join('\n');
+
     return [
       '[ClawTeam Delegate Intent]',
       `From Bot: ${fromBotId}`,
       `Intent: ${intentText.trim()}`,
       taskIdLine,
       '',
-      'ACTION REQUIRED: Spawn a sub-session with these params:',
+      'ACTION REQUIRED: Spawn a sub-session with this task value:',
       '',
-      `   task: ${JSON.stringify(taskValue)}`,
+      taskLines,
+      '',
       `   label: "${intentText.trim().substring(0, 60)}"`,
       '',
-      'Copy the task value exactly as shown above. The plugin handles the rest automatically.',
+      'The task value above is a multi-line string. Pass it exactly as shown (without the leading spaces).',
       'No follow-up sessions_send is needed — all task details are included in the task value.',
     ].join('\n');
   }
@@ -593,6 +596,8 @@ export class TaskRouter extends EventEmitter {
 
     const executorTaskValue = `${buildClawTeamMetaBlock('executor', task.id, task.fromBotId)}\n${taskContent}`;
 
+    const taskLines = executorTaskValue.split('\n').map(line => `     ${line}`).join('\n');
+
     return [
       '[ClawTeam Task Received]',
       `Task ID: ${task.id}`,
@@ -602,13 +607,14 @@ export class TaskRouter extends EventEmitter {
       `Priority: ${task.priority}`,
       ...(task.prompt ? [`Prompt: ${task.prompt}`, ''] : ['']),
       '',
-      'ACTION REQUIRED: Spawn a sub-session with these params:',
+      'ACTION REQUIRED: Spawn a sub-session with this task value:',
       'DO NOT call any /tasks/ API endpoints yourself. The plugin handles tracking automatically.',
       '',
-      `   task: ${JSON.stringify(executorTaskValue)}`,
+      taskLines,
+      '',
       `   label: "${(task.prompt || task.capability || '').slice(0, 60)}"`,
       '',
-      'Copy the task value exactly as shown above. The plugin injects execution context automatically.',
+      'The task value above is a multi-line string. Pass it exactly as shown (without the leading spaces).',
       'No follow-up sessions_send is needed — all task details are included in the task value.',
     ].join('\n');
   }
@@ -677,6 +683,8 @@ export class TaskRouter extends EventEmitter {
 
     const executorTaskValue = `${buildClawTeamMetaBlock('executor', task.id, task.fromBotId)}\n${taskContent}`;
 
+    const taskLines = executorTaskValue.split('\n').map(line => `     ${line}`).join('\n');
+
     return [
       `[ClawTeam Task Received]`,
       `Task ID: ${task.id}`,
@@ -687,13 +695,14 @@ export class TaskRouter extends EventEmitter {
       `From Bot: ${task.fromBotId}`,
       `Priority: ${task.priority}`,
       '',
-      'ACTION REQUIRED: Spawn a sub-session with these params:',
+      'ACTION REQUIRED: Spawn a sub-session with this task value:',
       'DO NOT call any /tasks/ API endpoints yourself. The plugin handles tracking automatically.',
       '',
-      `   task: ${JSON.stringify(executorTaskValue)}`,
+      taskLines,
+      '',
       `   label: "${(task.prompt || task.capability || '').slice(0, 60)}"`,
       '',
-      'Copy the task value exactly as shown above. The plugin injects execution context automatically.',
+      'The task value above is a multi-line string. Pass it exactly as shown (without the leading spaces).',
       'No follow-up sessions_send is needed — all task details are included in the task value.',
     ].join('\n');
   }
