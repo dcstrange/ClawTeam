@@ -25,6 +25,9 @@ import {
   formatInboxResponse,
   formatAckResponse,
   formatErrorResponse,
+  formatSubmitResultResponse,
+  formatApproveResponse,
+  formatRejectResponse,
 } from './response-formatter.js';
 
 function textReply(reply: FastifyReply, text: string, status = 200): void {
@@ -292,20 +295,98 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
   });
 
   // 7. POST /gateway/tasks/:taskId/complete — complete + untrack session
+  // Backward compat: if called by executor (toBotId), redirect to submit-result logic
   server.post<{ Params: { taskId: string } }>('/gateway/tasks/:taskId/complete', async (req, reply) => {
     const { taskId } = req.params;
     const body = (req.body || {}) as Record<string, any>;
     try {
+      // Try complete first (delegator path)
       const res = await proxyFetch(`${apiBase}/api/v1/tasks/${taskId}/complete`, {
         method: 'POST',
         headers: authHeaders(key, deps.clawteamBotId),
         body: JSON.stringify(body),
       });
+
+      if (!res.ok && res.status === 403) {
+        // Backward compat: executor called /complete but only delegator can now.
+        // Auto-redirect to submit-result.
+        log.warn({ taskId }, 'DEPRECATION: executor called /complete, redirecting to /submit-result');
+        const submitRes = await proxyFetch(`${apiBase}/api/v1/tasks/${taskId}/submit-result`, {
+          method: 'POST',
+          headers: authHeaders(key, deps.clawteamBotId),
+          body: JSON.stringify({ result: body.result || { summary: body.result } }),
+        });
+        if (!submitRes.ok) { textReply(reply, formatErrorResponse(`Submit-result failed (HTTP ${submitRes.status})`), submitRes.status); return; }
+
+        deps.sessionTracker.untrack(taskId);
+        log.info({ taskId }, 'Task submitted for review via /complete backward compat');
+        textReply(reply, formatSubmitResultResponse(taskId));
+        return;
+      }
+
       if (!res.ok) { textReply(reply, formatErrorResponse(`Complete failed (HTTP ${res.status})`), res.status); return; }
 
       deps.sessionTracker.untrack(taskId);
       log.info({ taskId, status: body.status }, 'Task completed via gateway proxy');
       textReply(reply, formatCompleteResponse(taskId, body.status || 'completed'));
+    } catch (err) {
+      textReply(reply, formatErrorResponse((err as Error).message), 502);
+    }
+  });
+
+  // 7a. POST /gateway/tasks/:taskId/submit-result — executor submits result for review
+  server.post<{ Params: { taskId: string } }>('/gateway/tasks/:taskId/submit-result', async (req, reply) => {
+    const { taskId } = req.params;
+    const body = (req.body || {}) as Record<string, any>;
+    try {
+      const res = await proxyFetch(`${apiBase}/api/v1/tasks/${taskId}/submit-result`, {
+        method: 'POST',
+        headers: authHeaders(key, deps.clawteamBotId),
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) { textReply(reply, formatErrorResponse(`Submit-result failed (HTTP ${res.status})`), res.status); return; }
+
+      deps.sessionTracker.untrack(taskId);
+      log.info({ taskId }, 'Task submitted for review via gateway proxy');
+      textReply(reply, formatSubmitResultResponse(taskId));
+    } catch (err) {
+      textReply(reply, formatErrorResponse((err as Error).message), 502);
+    }
+  });
+
+  // 7a2. POST /gateway/tasks/:taskId/approve — delegator approves pending_review task
+  server.post<{ Params: { taskId: string } }>('/gateway/tasks/:taskId/approve', async (req, reply) => {
+    const { taskId } = req.params;
+    const body = (req.body || {}) as Record<string, any>;
+    try {
+      const res = await proxyFetch(`${apiBase}/api/v1/tasks/${taskId}/approve`, {
+        method: 'POST',
+        headers: authHeaders(key, deps.clawteamBotId),
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) { textReply(reply, formatErrorResponse(`Approve failed (HTTP ${res.status})`), res.status); return; }
+
+      log.info({ taskId }, 'Task approved via gateway proxy');
+      textReply(reply, formatApproveResponse(taskId));
+    } catch (err) {
+      textReply(reply, formatErrorResponse((err as Error).message), 502);
+    }
+  });
+
+  // 7a3. POST /gateway/tasks/:taskId/reject — delegator rejects pending_review task
+  server.post<{ Params: { taskId: string } }>('/gateway/tasks/:taskId/reject', async (req, reply) => {
+    const { taskId } = req.params;
+    const body = (req.body || {}) as Record<string, any>;
+    try {
+      const res = await proxyFetch(`${apiBase}/api/v1/tasks/${taskId}/reject`, {
+        method: 'POST',
+        headers: authHeaders(key, deps.clawteamBotId),
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) { textReply(reply, formatErrorResponse(`Reject failed (HTTP ${res.status})`), res.status); return; }
+
+      log.info({ taskId, reason: body.reason }, 'Task rejected via gateway proxy');
+      textReply(reply, formatRejectResponse(taskId, body.reason || 'Rejected'));
     } catch (err) {
       textReply(reply, formatErrorResponse((err as Error).message), 502);
     }

@@ -437,7 +437,24 @@ echo "    ~/.openclaw/openclaw.json  → OpenClaw skill config (auto-synced)"
 echo "    ~/.openclaw/skills/clawteam/SKILL.md → Skill definition (auto-synced)"
 echo "    ~/.openclaw/extensions/clawteam-auto-tracker/ → Plugin (auto-synced)"
 
-# ── Step 7: Start services ──
+# ── Step 7: Clean up old processes ──
+echo "==> Checking for existing processes..."
+GATEWAY_PID=$(lsof -ti:3100 2>/dev/null || true)
+DASHBOARD_PID=$(lsof -ti:5173 2>/dev/null || true)
+
+if [ -n "$GATEWAY_PID" ]; then
+  echo "    Found Gateway process on port 3100 (PID: $GATEWAY_PID), stopping..."
+  kill -9 $GATEWAY_PID 2>/dev/null || true
+  sleep 1
+fi
+
+if [ -n "$DASHBOARD_PID" ]; then
+  echo "    Found Dashboard process on port 5173 (PID: $DASHBOARD_PID), stopping..."
+  kill -9 $DASHBOARD_PID 2>/dev/null || true
+  sleep 1
+fi
+
+# ── Step 8: Start services ──
 echo ""
 echo "==> Starting Dashboard (:5173) + Gateway (:3100)..."
 echo "    Press Ctrl+C to stop both services."
@@ -447,5 +464,5 @@ npx concurrently \
   --names "router,dashboard" \
   --prefix-colors "cyan,magenta" \
   --kill-others \
-  "cd packages/clawteam-gateway && npm run dev" \
-  "cd packages/dashboard && npm run dev -- --host"
+  "npm run dev --workspace=@clawteam/gateway" \
+  "npm run dev --workspace=@clawteam/dashboard -- --host"

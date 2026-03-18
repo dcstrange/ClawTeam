@@ -29,6 +29,10 @@ export function TaskDetail() {
   const [continuePrompt, setContinuePrompt] = useState('');
   const [continueLoading, setContinueLoading] = useState(false);
   const [continueError, setContinueError] = useState<string | null>(null);
+  const [approveLoading, setApproveLoading] = useState(false);
+  const [rejectLoading, setRejectLoading] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
+  const [reviewError, setReviewError] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const rawTask = tasks.find(t => t.id === taskId);
@@ -257,6 +261,85 @@ export function TaskDetail() {
           </div>
           );
         })()}
+
+        {/* Pending Review Banner — shown when executor submitted result for review */}
+        {task.status === 'pending_review' && (
+          <div className="bg-indigo-50 rounded-xl p-6">
+            <div className="flex items-start gap-3">
+              <div className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse mt-2" />
+              <div className="flex-1">
+                <h3 className="text-sm font-semibold text-indigo-800 mb-1">Pending Review</h3>
+                <p className="text-sm text-indigo-700 mb-3">The executor has submitted a result. Review and approve or reject.</p>
+                {task.submittedResult !== undefined && task.submittedResult !== null && (
+                  <div className="mb-3">
+                    <p className="text-xs font-medium text-indigo-600 mb-1">Submitted Result:</p>
+                    <pre className="bg-indigo-100 rounded p-3 text-xs overflow-x-auto max-h-48">
+                      {typeof task.submittedResult === 'object' ? JSON.stringify(task.submittedResult, null, 2) : String(task.submittedResult)}
+                    </pre>
+                  </div>
+                )}
+                {task.submittedAt && (
+                  <p className="text-xs text-indigo-500 mb-3">Submitted at: {formatDate(task.submittedAt)}</p>
+                )}
+                {task.rejectionReason && (
+                  <p className="text-xs text-red-600 mb-3">Previous rejection: {task.rejectionReason}</p>
+                )}
+                {reviewError && (
+                  <p className="text-sm text-red-600 mb-3">{reviewError}</p>
+                )}
+                <div className="flex gap-2">
+                  <button
+                    onClick={async () => {
+                      setApproveLoading(true);
+                      setReviewError(null);
+                      try {
+                        await routerApi.approveTask(task.id);
+                        queryClient.invalidateQueries({ queryKey: ['tasks'] });
+                      } catch (err) {
+                        setReviewError(`Approve failed: ${(err as Error).message}`);
+                      } finally {
+                        setApproveLoading(false);
+                      }
+                    }}
+                    disabled={approveLoading || rejectLoading}
+                    className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-50"
+                  >
+                    {approveLoading ? 'Approving...' : 'Approve'}
+                  </button>
+                  <div className="flex-1 flex gap-2">
+                    <input
+                      type="text"
+                      value={rejectReason}
+                      onChange={(e) => setRejectReason(e.target.value)}
+                      placeholder="Rejection reason (optional)..."
+                      className="flex-1 px-3 py-2 text-sm bg-indigo-50 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-400"
+                      disabled={rejectLoading || approveLoading}
+                    />
+                    <button
+                      onClick={async () => {
+                        setRejectLoading(true);
+                        setReviewError(null);
+                        try {
+                          await routerApi.rejectTask(task.id, rejectReason || undefined);
+                          setRejectReason('');
+                          queryClient.invalidateQueries({ queryKey: ['tasks'] });
+                        } catch (err) {
+                          setReviewError(`Reject failed: ${(err as Error).message}`);
+                        } finally {
+                          setRejectLoading(false);
+                        }
+                      }}
+                      disabled={rejectLoading || approveLoading}
+                      className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50"
+                    >
+                      {rejectLoading ? 'Rejecting...' : 'Reject'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Continue Task Banner — shown for completed/failed/timeout tasks */}
         {['completed', 'failed', 'timeout'].includes(task.status) && (

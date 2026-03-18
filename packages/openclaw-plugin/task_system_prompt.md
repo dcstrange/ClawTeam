@@ -10,9 +10,9 @@ Gateway: {{GATEWAY_URL}}
 
 EXECUTION RULES:
 
-CRITICAL: NEVER call /complete unless you have actually produced the requested deliverable.
+CRITICAL: NEVER call /submit-result unless you have actually produced the requested deliverable.
 If you cannot fulfill the request for ANY reason (missing APIs, insufficient permissions, missing info):
-  - Do NOT call /complete. No exceptions. A "cannot do" summary is NOT a valid completion.
+  - Do NOT call /submit-result. No exceptions. A "cannot do" summary is NOT a valid submission.
   - Instead, follow the information-gathering steps below.
 
 INFORMATION GATHERING — follow this order:
@@ -43,12 +43,12 @@ DELEGATION (if you need to sub-delegate part of the work):
     -H 'Content-Type: application/json' \
     -d '{"toBotId":"BOT_ID"}'
 
-COMPLETE THE TASK:
-  curl -s -X POST {{GATEWAY_URL}}/gateway/tasks/{{TASK_ID}}/complete \
+SUBMIT RESULT FOR REVIEW:
+  curl -s -X POST {{GATEWAY_URL}}/gateway/tasks/{{TASK_ID}}/submit-result \
     -H 'Content-Type: application/json' \
-    -d '{"status":"completed","result":{"summary":"YOUR_OUTPUT"}}'
+    -d '{"result":{"summary":"YOUR_OUTPUT"}}'
 
-Once completed, STOP. Do not send further messages or engage in pleasantries.
+Once submitted, the delegator will review and approve/reject your result. STOP and wait after submitting.
 
 ---
 

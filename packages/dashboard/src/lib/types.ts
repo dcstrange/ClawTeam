@@ -22,7 +22,7 @@ export interface Bot {
 }
 
 // Task types
-export type TaskStatus = 'pending' | 'accepted' | 'processing' | 'waiting_for_input' | 'completed' | 'failed' | 'timeout' | 'cancelled';
+export type TaskStatus = 'pending' | 'accepted' | 'processing' | 'waiting_for_input' | 'pending_review' | 'completed' | 'failed' | 'timeout' | 'cancelled';
 export type TaskPriority = 'urgent' | 'high' | 'normal' | 'low';
 export type TaskType = 'new' | 'sub-task';
 
@@ -52,6 +52,9 @@ export interface Task {
   startedAt?: string;
   completedAt?: string;
   timeoutAt?: string;
+  submittedResult?: unknown;
+  submittedAt?: string;
+  rejectionReason?: string;
 }
 
 // Message types

@@ -288,6 +288,87 @@ export function createTaskRoutes(deps: TaskRoutesDeps): FastifyPluginAsync {
       }
     );
 
+    /** POST /:taskId/submit-result — Executor submits result for review */
+    fastify.post<{ Params: TaskParams; Body: { result?: any } }>(
+      '/:taskId/submit-result',
+      { preHandler: authPreHandlers },
+      async (request, reply) => {
+        const traceId = randomUUID();
+        const botId = getBotId(request);
+        const body = (request.body || {}) as any;
+
+        try {
+          await coordinator.submitResult(request.params.taskId, body.result, botId);
+
+          return reply.send({
+            success: true,
+            data: {
+              taskId: request.params.taskId,
+              status: 'pending_review',
+              submittedAt: new Date().toISOString(),
+            },
+            traceId,
+          });
+        } catch (error) {
+          return handleError(error, reply, traceId);
+        }
+      }
+    );
+
+    /** POST /:taskId/approve — Delegator approves pending_review task */
+    fastify.post<{ Params: TaskParams; Body: { result?: any } }>(
+      '/:taskId/approve',
+      { preHandler: authPreHandlers },
+      async (request, reply) => {
+        const traceId = randomUUID();
+        const botId = getBotId(request);
+        const body = (request.body || {}) as any;
+
+        try {
+          await coordinator.approve(request.params.taskId, botId, body.result);
+
+          return reply.send({
+            success: true,
+            data: {
+              taskId: request.params.taskId,
+              status: 'completed',
+              approvedAt: new Date().toISOString(),
+            },
+            traceId,
+          });
+        } catch (error) {
+          return handleError(error, reply, traceId);
+        }
+      }
+    );
+
+    /** POST /:taskId/reject — Delegator rejects pending_review task */
+    fastify.post<{ Params: TaskParams; Body: { reason?: string } }>(
+      '/:taskId/reject',
+      { preHandler: authPreHandlers },
+      async (request, reply) => {
+        const traceId = randomUUID();
+        const botId = getBotId(request);
+        const body = (request.body || {}) as any;
+
+        try {
+          await coordinator.reject(request.params.taskId, botId, body.reason || 'Rejected');
+
+          return reply.send({
+            success: true,
+            data: {
+              taskId: request.params.taskId,
+              status: 'processing',
+              rejectedAt: new Date().toISOString(),
+            },
+            traceId,
+          });
+        } catch (error) {
+          return handleError(error, reply, traceId);
+        }
+      }
+    );
+
     /** POST /:taskId/cancel */
     fastify.post<{ Params: TaskParams; Body: CancelBody }>(
       '/:taskId/cancel',
@@ -607,7 +688,7 @@ export function createTaskRoutes(deps: TaskRoutesDeps): FastifyPluginAsync {
 
           const result = await deps.db.query(
             `UPDATE tasks SET status = 'cancelled', error = $1, completed_at = NOW(), updated_at = NOW()
-             WHERE id = $2 AND status IN ('pending', 'accepted', 'processing', 'waiting_for_input')
+             WHERE id = $2 AND status IN ('pending', 'accepted', 'processing', 'waiting_for_input', 'pending_review')
              RETURNING id, status, to_bot_id`,
             [JSON.stringify({ code: 'CANCELLED', message: reason }), taskId],
           );
@@ -644,6 +725,108 @@ export function createTaskRoutes(deps: TaskRoutesDeps): FastifyPluginAsync {
       }
     );
 
+    /** POST /all/:taskId/approve (public — dashboard admin approve) */
+    fastify.post<{ Params: TaskParams; Body: { result?: any } }>(
+      '/all/:taskId/approve',
+      async (request, reply) => {
+        const traceId = randomUUID();
+
+        if (!deps.db) {
+          return reply.status(501).send({
+            success: false,
+            error: { code: 'NOT_IMPLEMENTED', message: 'Database not available' },
+            traceId,
+          });
+        }
+
+        try {
+          const taskId = request.params.taskId;
+          const body = (request.body || {}) as any;
+
+          // Use provided result override, or copy submitted_result to result
+          const result = await deps.db.query(
+            `UPDATE tasks
+             SET status = 'completed',
+                 result = COALESCE($1::jsonb, submitted_result),
+                 completed_at = NOW(),
+                 updated_at = NOW()
+             WHERE id = $2 AND status = 'pending_review'
+             RETURNING id, status`,
+            [body.result ? JSON.stringify(body.result) : null, taskId],
+          );
+
+          if (result.rowCount === 0) {
+            return reply.status(404).send({
+              success: false,
+              error: { code: 'TASK_NOT_FOUND', message: `Task not found or not in pending_review: ${taskId}` },
+              traceId,
+            });
+          }
+
+          // Clean up Redis
+          if (deps.redis) {
+            await deps.redis.zrem(REDIS_KEYS.PROCESSING_SET, taskId);
+            await deps.redis.del(`${REDIS_KEYS.TASK_CACHE}:${taskId}`);
+          }
+
+          return reply.send({
+            success: true,
+            data: { taskId, status: 'completed', approvedAt: new Date().toISOString() },
+            traceId,
+          });
+        } catch (error) {
+          return handleError(error, reply, traceId);
+        }
+      }
+    );
+
+    /** POST /all/:taskId/reject (public — dashboard admin reject) */
+    fastify.post<{ Params: TaskParams; Body: { reason?: string } }>(
+      '/all/:taskId/reject',
+      async (request, reply) => {
+        const traceId = randomUUID();
+
+        if (!deps.db) {
+          return reply.status(501).send({
+            success: false,
+            error: { code: 'NOT_IMPLEMENTED', message: 'Database not available' },
+            traceId,
+          });
+        }
+
+        try {
+          const taskId = request.params.taskId;
+          const reason = (request.body as any)?.reason || 'Rejected from dashboard';
+
+          const result = await deps.db.query(
+            `UPDATE tasks
+             SET status = 'processing',
+                 rejection_reason = $1,
+                 updated_at = NOW()
+             WHERE id = $2 AND status = 'pending_review'
+             RETURNING id, status`,
+            [reason, taskId],
+          );
+
+          if (result.rowCount === 0) {
+            return reply.status(404).send({
+              success: false,
+              error: { code: 'TASK_NOT_FOUND', message: `Task not found or not in pending_review: ${taskId}` },
+              traceId,
+            });
+          }
+
+          return reply.send({
+            success: true,
+            data: { taskId, status: 'processing', rejectedAt: new Date().toISOString() },
+            traceId,
+          });
+        } catch (error) {
+          return handleError(error, reply, traceId);
+        }
+      }
+    );
+
     /** GET /all (public — list all tasks for dashboard) */
     fastify.get(
       '/all',
@@ -653,7 +836,7 @@ export function createTaskRoutes(deps: TaskRoutesDeps): FastifyPluginAsync {
         if (deps.db) {
           try {
             const result = await deps.db.query(
-              'SELECT id, from_bot_id, to_bot_id, prompt, capability, parameters, status, priority, type, title, parent_task_id, sender_session_key, executor_session_key, result, error, created_at, accepted_at, started_at, completed_at, updated_at, timeout_seconds, retry_count, max_retries FROM tasks ORDER BY created_at DESC LIMIT 100'
+              'SELECT id, from_bot_id, to_bot_id, prompt, capability, parameters, status, priority, type, title, parent_task_id, sender_session_key, executor_session_key, result, error, created_at, accepted_at, started_at, completed_at, updated_at, timeout_seconds, retry_count, max_retries, submitted_result, submitted_at, rejection_reason FROM tasks ORDER BY created_at DESC LIMIT 100'
             );
 
             const tasks = result.rows.map((row: any) => ({
@@ -680,6 +863,9 @@ export function createTaskRoutes(deps: TaskRoutesDeps): FastifyPluginAsync {
               timeoutSeconds: row.timeout_seconds,
               retryCount: row.retry_count,
               maxRetries: row.max_retries,
+              submittedResult: row.submitted_result,
+              submittedAt: row.submitted_at,
+              rejectionReason: row.rejection_reason,
             }));
 
             return reply.send(tasks);

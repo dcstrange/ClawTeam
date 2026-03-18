@@ -89,12 +89,13 @@ export class TaskCompleter {
   async complete(taskId: string, req: TaskCompleteRequest, botId: string): Promise<void> {
     const task = await this.loadTask(taskId);
 
-    // Allow fromBotId to fail tasks (e.g. recovery loop), but only toBotId can complete successfully
+    // Only fromBotId (delegator) can call complete directly (skip review).
+    // Also allow fromBotId to fail tasks (e.g. recovery loop).
     const isFailing = req.status === 'failed' || (!req.status && req.error);
-    if (task.toBotId !== botId && !(isFailing && task.fromBotId === botId)) {
+    if (task.fromBotId !== botId && !(isFailing && task.toBotId === botId)) {
       throw new UnauthorizedTaskError(taskId, botId);
     }
-    const validStates = ['accepted', 'processing', 'waiting_for_input'];
+    const validStates = ['accepted', 'processing', 'waiting_for_input', 'pending_review'];
     if (!validStates.includes(task.status)) {
       throw new InvalidTaskStateError(taskId, task.status, validStates);
     }
@@ -113,7 +114,7 @@ export class TaskCompleter {
     const updateResult = await this.db.query(
       `UPDATE tasks
        SET status = $1, result = $2, error = $3, completed_at = $4
-       WHERE id = $5 AND status IN ('accepted', 'processing', 'waiting_for_input')`,
+       WHERE id = $5 AND status IN ('accepted', 'processing', 'waiting_for_input', 'pending_review')`,
       [
         finalStatus,
         req.result ? JSON.stringify(req.result) : null,
@@ -472,13 +473,130 @@ export class TaskCompleter {
     this.logger.info('Wrote continuation message to target bot inbox', { taskId: task.id, targetBotId });
   }
 
+  async submitResult(taskId: string, result: any, botId: string): Promise<void> {
+    const task = await this.loadTask(taskId);
+
+    // Only executor (toBotId) can submit result
+    if (task.toBotId !== botId) {
+      throw new UnauthorizedTaskError(taskId, botId);
+    }
+    const validStates = ['accepted', 'processing', 'waiting_for_input'];
+    if (!validStates.includes(task.status)) {
+      throw new InvalidTaskStateError(taskId, task.status, validStates);
+    }
+
+    const now = new Date();
+
+    const updateResult = await this.db.query(
+      `UPDATE tasks
+       SET status = 'pending_review', submitted_result = $1, submitted_at = $2, updated_at = NOW()
+       WHERE id = $3 AND status IN ('accepted', 'processing', 'waiting_for_input')`,
+      [JSON.stringify(result), now, taskId],
+    );
+
+    if (updateResult.rowCount === 0) {
+      throw new InvalidTaskStateError(taskId, task.status, validStates);
+    }
+
+    // Keep in processing ZSET (timeout still applies until approved)
+    await this.updateCacheStatus(taskId, 'pending_review');
+
+    // Notify delegator
+    await this.safePublish('task_pending_review', {
+      taskId,
+      status: 'pending_review',
+      submittedResult: result,
+      submittedAt: now.toISOString(),
+    }, task.fromBotId);
+
+    this.logger.info('Task submitted for review', { taskId, botId });
+  }
+
+  async approve(taskId: string, botId: string, resultOverride?: any): Promise<void> {
+    const task = await this.loadTask(taskId);
+
+    // Only delegator (fromBotId) can approve
+    if (task.fromBotId !== botId) {
+      throw new UnauthorizedTaskError(taskId, botId);
+    }
+    if (task.status !== 'pending_review') {
+      throw new InvalidTaskStateError(taskId, task.status, ['pending_review']);
+    }
+
+    const now = new Date();
+    const finalResult = resultOverride ?? task.submittedResult;
+
+    const updateResult = await this.db.query(
+      `UPDATE tasks
+       SET status = 'completed', result = $1, completed_at = $2, updated_at = NOW()
+       WHERE id = $3 AND status = 'pending_review'`,
+      [finalResult ? JSON.stringify(finalResult) : null, now, taskId],
+    );
+
+    if (updateResult.rowCount === 0) {
+      throw new InvalidTaskStateError(taskId, task.status, ['pending_review']);
+    }
+
+    // Record metrics
+    tasksCompletedTotal.inc({ status: 'completed', capability: task.capability });
+    const durationSeconds = (now.getTime() - new Date(task.createdAt).getTime()) / 1000;
+    taskDuration.observe({ capability: task.capability, status: 'completed' }, durationSeconds);
+
+    // Clean up Redis
+    await this.redis.zrem(REDIS_KEYS.PROCESSING_SET, taskId);
+    await this.redis.del(`${REDIS_KEYS.TASK_CACHE}:${taskId}`);
+
+    // Notify executor
+    await this.safePublish('task_completed', {
+      taskId,
+      status: 'completed',
+      result: finalResult,
+    }, task.toBotId);
+
+    this.logger.info('Task approved', { taskId, botId });
+  }
+
+  async reject(taskId: string, botId: string, reason: string): Promise<void> {
+    const task = await this.loadTask(taskId);
+
+    // Only delegator (fromBotId) can reject
+    if (task.fromBotId !== botId) {
+      throw new UnauthorizedTaskError(taskId, botId);
+    }
+    if (task.status !== 'pending_review') {
+      throw new InvalidTaskStateError(taskId, task.status, ['pending_review']);
+    }
+
+    const updateResult = await this.db.query(
+      `UPDATE tasks
+       SET status = 'processing', rejection_reason = $1, updated_at = NOW()
+       WHERE id = $2 AND status = 'pending_review'`,
+      [reason, taskId],
+    );
+
+    if (updateResult.rowCount === 0) {
+      throw new InvalidTaskStateError(taskId, task.status, ['pending_review']);
+    }
+
+    await this.updateCacheStatus(taskId, 'processing');
+
+    // Notify executor with rejection details
+    await this.safePublish('task_rejected', {
+      taskId,
+      status: 'processing',
+      rejectionReason: reason,
+    }, task.toBotId);
+
+    this.logger.info('Task rejected', { taskId, botId, reason });
+  }
+
   async cancel(taskId: string, reason: string, botId: string): Promise<void> {
     const task = await this.loadTask(taskId);
 
     if (task.fromBotId !== botId) {
       throw new UnauthorizedTaskError(taskId, botId);
     }
-    const cancellableStates = ['pending', 'accepted', 'processing', 'waiting_for_input'];
+    const cancellableStates = ['pending', 'accepted', 'processing', 'waiting_for_input', 'pending_review'];
     if (!cancellableStates.includes(task.status)) {
       throw new InvalidTaskStateError(taskId, task.status, cancellableStates);
     }
@@ -488,7 +606,7 @@ export class TaskCompleter {
     const updateResult = await this.db.query(
       `UPDATE tasks
        SET status = 'cancelled', error = $1, completed_at = $2
-       WHERE id = $3 AND status IN ('pending', 'accepted', 'processing', 'waiting_for_input')`,
+       WHERE id = $3 AND status IN ('pending', 'accepted', 'processing', 'waiting_for_input', 'pending_review')`,
       [
         JSON.stringify({ code: 'CANCELLED', message: reason }),
         now,
@@ -545,7 +663,7 @@ export class TaskCompleter {
   }
 
   private async safePublish(
-    event: 'task_assigned' | 'task_completed' | 'task_failed' | 'task_continued',
+    event: 'task_assigned' | 'task_completed' | 'task_failed' | 'task_continued' | 'task_pending_review' | 'task_rejected',
     payload: unknown,
     targetBotId: string
   ): Promise<void> {

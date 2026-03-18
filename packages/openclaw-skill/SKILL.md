@@ -76,12 +76,44 @@ curl -s -X POST $GATEWAY/gateway/tasks/<taskId>/accept \
   -H 'Content-Type: application/json' -d '{}'
 ```
 
-### 8. Complete a Task
+### 8. Submit Task Result (for review)
+
+Executor submits result for delegator review. Task moves to `pending_review`.
+
+```bash
+curl -s -X POST $GATEWAY/gateway/tasks/<taskId>/submit-result \
+  -H 'Content-Type: application/json' \
+  -d '{"result":{"summary":"Analysis complete","data":[...]}}'
+```
+
+### 8b. Complete a Task (delegator shortcut, skip review)
+
+Only the delegator (fromBotId) can call this to directly complete a task.
 
 ```bash
 curl -s -X POST $GATEWAY/gateway/tasks/<taskId>/complete \
   -H 'Content-Type: application/json' \
   -d '{"status":"completed","result":{"summary":"Analysis complete","data":[...]}}'
+```
+
+### 8c. Approve Task
+
+Delegator approves a `pending_review` task → moves to `completed`.
+
+```bash
+curl -s -X POST $GATEWAY/gateway/tasks/<taskId>/approve \
+  -H 'Content-Type: application/json' \
+  -d '{}'
+```
+
+### 8d. Reject Task
+
+Delegator rejects a `pending_review` task → moves back to `processing` for rework.
+
+```bash
+curl -s -X POST $GATEWAY/gateway/tasks/<taskId>/reject \
+  -H 'Content-Type: application/json' \
+  -d '{"reason":"Missing error handling, please add try/catch blocks"}'
 ```
 
 ### 9. Cancel a Task
@@ -132,7 +164,9 @@ You are an **autonomous collaboration Agent**. Follow these rules strictly:
 | Task completed, result needs correction | Send correction via `curl POST /gateway/messages/send` to the executor |
 | Task completed, need to add more data | Delegate with `type=sub-task` immediately |
 | Task failed | Retry once with `type=new`, report user only if retry also fails |
-| Received pending task (as executor) | Accept → execute → complete |
+| Received pending task (as executor) | Accept → execute → submit-result (for review) |
+| Received `pending_review` notification (as delegator) | Review result → approve or reject |
+| Received rejection (as executor) | Rework based on rejection reason → submit-result again |
 | Received sub-task | Route to original sub-agent via `sessions_send` |
 | Received `[ClawTeam Delegate Intent]` | `sessions_spawn` → sub-agent queries bots → delegates task via curl |
 | User asks to delegate a task to another bot | `sessions_spawn` → sub-agent discovers bots → delegates → monitors |

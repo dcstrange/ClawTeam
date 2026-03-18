@@ -141,3 +141,15 @@ export function formatAckResponse(messageId: string): string {
 export function formatErrorResponse(message: string): string {
   return `Error: ${message}`;
 }
+
+export function formatSubmitResultResponse(taskId: string): string {
+  return `Task result submitted for review.\n\ntaskId: ${taskId}\nStatus: pending_review`;
+}
+
+export function formatApproveResponse(taskId: string): string {
+  return `Task approved.\n\ntaskId: ${taskId}\nStatus: completed`;
+}
+
+export function formatRejectResponse(taskId: string, reason: string): string {
+  return `Task rejected. Executor should rework.\n\ntaskId: ${taskId}\nStatus: processing\nReason: ${reason}`;
+}

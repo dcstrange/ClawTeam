@@ -12,6 +12,7 @@ const columns: { label: string; statuses: TaskStatus[]; dotColor: string; bgTint
   { label: 'Pending', statuses: ['pending', 'accepted'], dotColor: 'bg-blue-400', bgTint: 'kanban-tint-blue' },
   { label: 'Processing', statuses: ['processing'], dotColor: 'bg-purple-500', bgTint: 'kanban-tint-purple' },
   { label: 'Waiting for Input', statuses: ['waiting_for_input'], dotColor: 'bg-amber-500', bgTint: 'kanban-tint-amber' },
+  { label: 'Pending Review', statuses: ['pending_review'], dotColor: 'bg-indigo-500', bgTint: 'kanban-tint-indigo' },
   { label: 'Completed', statuses: ['completed'], dotColor: 'bg-green-500', bgTint: 'kanban-tint-green' },
   { label: 'Failed', statuses: ['failed', 'timeout', 'cancelled'], dotColor: 'bg-red-500', bgTint: 'kanban-tint-red' },
 ];
@@ -20,7 +21,7 @@ export function TaskKanban({ tasks }: TaskKanbanProps) {
   const navigate = useNavigate();
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
       {columns.map((col) => {
         const colTasks = tasks.filter(t => col.statuses.includes(t.status));
         return (
