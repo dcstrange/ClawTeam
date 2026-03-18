@@ -30,6 +30,19 @@ export interface TaskRouterDeps {
   botId?: string;
 }
 
+/**
+ * Build a [CLAWTEAM_META] block to embed in the task string.
+ * The plugin parses this to reliably recover role/taskId/fromBotId
+ * even when custom params are stripped by OpenClaw.
+ */
+function buildClawTeamMetaBlock(role: string, taskId?: string, fromBotId?: string): string {
+  const lines = ['[CLAWTEAM_META]', `role=${role}`];
+  if (taskId) lines.push(`taskId=${taskId}`);
+  if (fromBotId) lines.push(`fromBotId=${fromBotId}`);
+  lines.push('[/CLAWTEAM_META]');
+  return lines.join('\n');
+}
+
 export class TaskRouter extends EventEmitter {
   private readonly clawteamApi: IClawTeamApiClient;
   private readonly openclawSession: IOpenClawSessionClient;
@@ -421,29 +434,27 @@ export class TaskRouter extends EventEmitter {
 
   /**
    * Build the message sent to main session for delegate_intent.
-   * The main session will spawn a sender sub-session that queries bots and delegates.
+   * Task value contains only meta block + task facts. The plugin injects sender-specific rules.
    */
   private buildDelegateIntentMessage(taskId: string, prompt: string, fromBotId: string): string {
-    const gw = this.gatewayUrl;
     const intentText = prompt || '';
     const taskIdRef = taskId || 'TASK_ID';
 
-    const spawnParamsLines = taskId
-      ? [
-          `   task: "You are a ClawTeam delegation proxy. Wait for instructions."`,
-          `   label: "${intentText.trim().substring(0, 60)}"`,
-          `   _clawteam_role: "sender"`,
-          `   _clawteam_taskId: "${taskId}"`,
-        ]
-      : [
-          `   task: "You are a ClawTeam delegation proxy. Wait for instructions."`,
-          `   label: "${intentText.trim().substring(0, 60)}"`,
-          `   _clawteam_role: "sender"`,
-        ];
+    const taskContent = [
+      `From Bot: ${fromBotId}`,
+      `Intent: ${intentText.trim()}`,
+      `Task ID: ${taskIdRef}`,
+      '',
+      'The task record has been created but the executor has NOT been notified yet.',
+      'You must delegate the task to deliver it to the executor.',
+    ].join('\n');
+
+    const metaBlock = buildClawTeamMetaBlock('sender', taskId || undefined);
+    const taskValue = `${metaBlock}\n${taskContent}`;
 
     const taskIdLine = taskId
       ? `Task ID: ${taskId} (pre-created by dashboard)`
-      : 'No taskId yet. The plugin will auto-create it when you spawn with _clawteam_role: "sender".';
+      : 'No taskId yet. The plugin will auto-create it when spawning.';
 
     return [
       '[ClawTeam Delegate Intent]',
@@ -451,57 +462,13 @@ export class TaskRouter extends EventEmitter {
       `Intent: ${intentText.trim()}`,
       taskIdLine,
       '',
-      'ACTION REQUIRED: Delegation flow:',
+      'ACTION REQUIRED: Spawn a sub-session with these params:',
       '',
-      `1. Spawn a sub-session with these params:`,
-      ...spawnParamsLines,
-      '   The plugin will auto-track the session (and auto-create the task if needed).',
+      `   task: ${JSON.stringify(taskValue)}`,
+      `   label: "${intentText.trim().substring(0, 60)}"`,
       '',
-      '2. Send the delegation + monitoring instructions to the sub-session (below).',
-      '',
-      '=== SUB-SESSION INSTRUCTIONS (send via sessions_send after spawn) ===',
-      '',
-      `You are a ClawTeam delegation proxy for the human delegator.`,
-      'The human submitted this intent from the dashboard:',
-      '',
-      `From Bot: ${fromBotId}`,
-      `Intent: ${intentText.trim()}`,
-      `Task ID: ${taskIdRef}`,
-      '',
-      'The task record has been created but the executor has NOT been notified yet.',
-      'You must delegate the task to deliver it to the executor.',
-      '',
-      `Step 1: Find a suitable executor bot:`,
-      `  curl -s ${gw}/gateway/bots`,
-      '',
-      `Step 2: Delegate the task to the chosen bot (this sets toBotId, enqueues, and notifies the executor):`,
-      `  curl -s -X POST ${gw}/gateway/tasks/${taskIdRef}/delegate -H 'Content-Type: application/json' -d '{"toBotId":"<CHOSEN_BOT_ID>"}'`,
-      '',
-      'Step 3: Monitor the task. If the executor bot asks questions via DM:',
-      '  You are a PROXY for the human delegator. Try to answer from the intent above first.',
-      '  If the intent contains the requested information, reply to the executor bot directly.',
-      '',
-      '  IMPORTANT: Do NOT poll or check task status yourself. The gateway handles polling.',
-      '  Just wait for DM messages from the executor bot to arrive in your session.',
-      '',
-      '  If the intent does NOT contain the requested information:',
-      `    1. Call /need-human-input to ask YOUR human user (the delegator's owner):`,
-      `       curl -s -X POST ${gw}/gateway/tasks/${taskIdRef}/need-human-input -H 'Content-Type: application/json' -d '{"reason":"<describe what the executor needs>","targetBotId":"${fromBotId}"}'`,
-      '       This notifies your human user via the dashboard inbox.',
-      '    2. Once your human responds, the system will automatically deliver the answer to the executor.',
-      '       You do NOT need to forward anything. Just wait.',
-      '    3. Do NOT make up answers or guess information you do not have.',
-      '    4. Do NOT send messages to yourself.',
-      '    5. Do NOT send repeated status confirmations. One reply per question is enough.',
-      '',
-      'Do NOT call /complete or /submit-result yourself. Only the executor bot submits results.',
-      'Do NOT use curl to check task status. The gateway monitors tasks automatically.',
-      '',
-      'Step 4: Once the executor bot completes the task, report the task ID and STOP.',
-      '  Do NOT send further messages after the task is completed.',
-      '  Do NOT engage in pleasantries, confirmations, or goodbyes.',
-      '',
-      '=== END SUB-SESSION INSTRUCTIONS ===',
+      'Copy the task value exactly as shown above. The plugin handles the rest automatically.',
+      'No follow-up sessions_send is needed — all task details are included in the task value.',
     ].join('\n');
   }
 
@@ -610,12 +577,21 @@ export class TaskRouter extends EventEmitter {
 
   /**
    * Build message for new tasks routed to main session.
-   * Uses param-based flow: spawn with _clawteam_role/_clawteam_taskId params -> plugin auto-tracks -> send details.
+   * All task details are embedded in the task value — single spawn, no follow-up sessions_send needed.
    */
   private buildNewTaskMessage(task: Task): string {
-    const paramsSection = task.parameters && Object.keys(task.parameters).length > 0
-      ? [`Parameters: ${JSON.stringify(task.parameters)}`, '']
-      : [];
+    const paramsLine = task.parameters && Object.keys(task.parameters).length > 0
+      ? `\nParameters: ${JSON.stringify(task.parameters)}`
+      : '';
+
+    const taskContent = [
+      `Task ID: ${task.id}`,
+      ...(task.prompt ? [`Prompt: ${task.prompt}`] : []),
+      `Capability: ${task.capability}`,
+      ...(paramsLine ? [paramsLine.trim()] : []),
+    ].join('\n');
+
+    const executorTaskValue = `${buildClawTeamMetaBlock('executor', task.id, task.fromBotId)}\n${taskContent}`;
 
     return [
       '[ClawTeam Task Received]',
@@ -626,23 +602,14 @@ export class TaskRouter extends EventEmitter {
       `Priority: ${task.priority}`,
       ...(task.prompt ? [`Prompt: ${task.prompt}`, ''] : ['']),
       '',
-      'ACTION REQUIRED: Task execution flow:',
+      'ACTION REQUIRED: Spawn a sub-session with these params:',
       'DO NOT call any /tasks/ API endpoints yourself. The plugin handles tracking automatically.',
       '',
-      `1. Spawn a sub-session with these params:`,
-      `   task: "ClawTeam executor task. Task ID: {{TASK_ID}}."`,
+      `   task: ${JSON.stringify(executorTaskValue)}`,
       `   label: "${(task.prompt || task.capability || '').slice(0, 60)}"`,
-      `   _clawteam_role: "executor"`,
-      `   _clawteam_taskId: "${task.id}"`,
-      `   _clawteam_from_bot_id: "${task.fromBotId}"`,
-      '   The plugin injects the full execution context (rules, API endpoints) automatically.',
       '',
-      '2. Then send the task details to the sub-session:',
-      '',
-      `Task ID: ${task.id}`,
-      ...(task.prompt ? [`Prompt: ${task.prompt}`] : []),
-      `Capability: ${task.capability}`,
-      ...paramsSection,
+      'Copy the task value exactly as shown above. The plugin injects execution context automatically.',
+      'No follow-up sessions_send is needed — all task details are included in the task value.',
     ].join('\n');
   }
 
@@ -660,35 +627,12 @@ export class TaskRouter extends EventEmitter {
       '',
       `Process this ${taskType} in the context of your previous work on task ${task.parentTaskId}.`,
       `The task has been auto-accepted by the gateway. Start working immediately.`,
-      '',
-      `Step 1: Execute the task as described in the Prompt above.`,
-      '',
-      `CRITICAL RULE: NEVER call /submit-result unless you have actually produced the requested deliverable.`,
-      `If you cannot fulfill the request for ANY reason (missing APIs, insufficient permissions, missing info):`,
-      `  - Do NOT call /submit-result. No exceptions. A "cannot do" summary is NOT a valid submission.`,
-      `  - Instead, follow the information-gathering steps below.`,
-      '',
-      `INFORMATION GATHERING -- follow this order:`,
-      `  1. Task-related info (personal details, preferences, travel dates, names, budgets, etc.)`,
-      `     These belong to the DELEGATOR's human user. Ask the delegator bot via DM:`,
-      `     curl -s -X POST ${this.gatewayUrl}/gateway/messages/send -H 'Content-Type: application/json' -d '{"toBotId":"${task.fromBotId}","taskId":"${task.id}","content":"YOUR_QUESTION"}'`,
-      `     The delegator bot will answer from context or escalate to its own human.`,
-      `  2. Executor-specific info (your API keys, system config, tool access, credentials)`,
-      `     Only YOUR human user can provide these. Call /need-human-input:`,
-      `     curl -s -X POST ${this.gatewayUrl}/gateway/tasks/${task.id}/need-human-input -H 'Content-Type: application/json' -d '{"reason":"DESCRIBE_WHAT_YOU_NEED","targetBotId":"${task.toBotId}"}'`,
-      `     This asks YOUR human user only. Then STOP and wait.`,
-      `  3. If you are completely blocked and neither approach applies, call /need-human-input as a last resort.`,
-      '',
-      `Step 2: Submit the result for review:`,
-      `  curl -s -X POST ${this.gatewayUrl}/gateway/tasks/${task.id}/submit-result -H 'Content-Type: application/json' -d '{"result":{"summary":"YOUR_OUTPUT"}}'`,
-      '',
-      `Once submitted, the delegator will review and approve/reject. STOP and wait after submitting.`,
     ].join('\n');
   }
 
   /**
    * Build fallback message when target session is expired.
-   * Uses param-based flow: spawn with _clawteam_role/_clawteam_taskId params -> plugin auto-tracks -> send details.
+   * Task value contains only meta block + task facts. The plugin injects executor-specific rules.
    */
   private async buildFallbackMessage(task: Task): Promise<string> {
     const taskType = task.type || 'sub-task';
@@ -719,6 +663,20 @@ export class TaskRouter extends EventEmitter {
       }
     }
 
+    const taskContent = [
+      `Task ID: ${task.id}`,
+      ...(task.prompt ? [`Prompt: ${task.prompt}`] : []),
+      `Capability: ${task.capability}`,
+      `Type: ${taskType}`,
+      `Parent Task: ${task.parentTaskId}`,
+      ...(task.parameters && Object.keys(task.parameters).length > 0
+        ? [`Parameters: ${JSON.stringify(task.parameters)}`]
+        : []),
+      parentContext,
+    ].join('\n');
+
+    const executorTaskValue = `${buildClawTeamMetaBlock('executor', task.id, task.fromBotId)}\n${taskContent}`;
+
     return [
       `[ClawTeam Task Received]`,
       `Task ID: ${task.id}`,
@@ -729,63 +687,14 @@ export class TaskRouter extends EventEmitter {
       `From Bot: ${task.fromBotId}`,
       `Priority: ${task.priority}`,
       '',
-      'ACTION REQUIRED: Task execution flow:',
+      'ACTION REQUIRED: Spawn a sub-session with these params:',
       'DO NOT call any /tasks/ API endpoints yourself. The plugin handles tracking automatically.',
       '',
-      `1. Spawn a sub-session with these params:`,
-      `   task: "ClawTeam executor task. Task ID: {{TASK_ID}}."`,
+      `   task: ${JSON.stringify(executorTaskValue)}`,
       `   label: "${(task.prompt || task.capability || '').slice(0, 60)}"`,
-      `   _clawteam_role: "executor"`,
-      `   _clawteam_taskId: "${task.id}"`,
-      `   _clawteam_from_bot_id: "${task.fromBotId}"`,
-      '   The plugin injects the full execution context (rules, API endpoints) automatically.',
       '',
-      '2. Then send the full task details to the sub-session (below).',
-      '',
-      '=== SUB-SESSION TASK DETAILS (send via sessions_send after spawn) ===',
-      '',
-      `You are a ClawTeam sub-session. Execute the ${taskType} task below step by step.`,
-      `The task has been auto-accepted by the gateway. Start working immediately.`,
-      '',
-      `Task ID: ${task.id}`,
-      ...(task.prompt ? [`Prompt: ${task.prompt}`] : []),
-      `Capability: ${task.capability}`,
-      ...(task.parameters && Object.keys(task.parameters).length > 0
-        ? [`Parameters: ${JSON.stringify(task.parameters)}`]
-        : []),
-      parentContext,
-      '',
-      `Step 1: Execute the task as described in the Prompt above.`,
-      '',
-      `CRITICAL RULE: NEVER call /submit-result unless you have actually produced the requested deliverable.`,
-      `If you cannot fulfill the request for ANY reason (missing APIs, insufficient permissions, missing info):`,
-      `  - Do NOT call /submit-result. No exceptions. A "cannot do" summary is NOT a valid submission.`,
-      `  - Instead, follow the information-gathering steps below.`,
-      '',
-      `INFORMATION GATHERING -- follow this order:`,
-      `  1. Task-related info (personal details, preferences, travel dates, names, budgets, etc.)`,
-      `     These belong to the DELEGATOR's human user. Ask the delegator bot via DM:`,
-      `     curl -s -X POST ${this.gatewayUrl}/gateway/messages/send -H 'Content-Type: application/json' -d '{"toBotId":"${task.fromBotId}","taskId":"${task.id}","content":"YOUR_QUESTION"}'`,
-      `     The delegator bot will answer from context or escalate to its own human.`,
-      `  2. Executor-specific info (your API keys, system config, tool access, credentials)`,
-      `     Only YOUR human user can provide these. Call /need-human-input:`,
-      `     curl -s -X POST ${this.gatewayUrl}/gateway/tasks/${task.id}/need-human-input -H 'Content-Type: application/json' -d '{"reason":"DESCRIBE_WHAT_YOU_NEED","targetBotId":"${task.toBotId}"}'`,
-      `     This asks YOUR human user only. Then STOP and wait.`,
-      `  3. If you are completely blocked and neither approach applies, call /need-human-input as a last resort.`,
-      '',
-      `If you need to delegate part of the work to another bot:`,
-      `  curl -s ${this.gatewayUrl}/gateway/bots  (find a bot with matching capability)`,
-      `  First create the sub-task:`,
-      `  curl -s -X POST ${this.gatewayUrl}/gateway/tasks/create -H 'Content-Type: application/json' -d '{"prompt":"SUB_TASK_DESCRIPTION","type":"sub-task","parentTaskId":"${task.id}"}'`,
-      `  Then delegate (use the taskId from the create response):`,
-      `  curl -s -X POST ${this.gatewayUrl}/gateway/tasks/SUB_TASK_ID/delegate -H 'Content-Type: application/json' -d '{"toBotId":"BOT_ID"}'`,
-      '',
-      `Step 2: Submit the result for review:`,
-      `  curl -s -X POST ${this.gatewayUrl}/gateway/tasks/${task.id}/submit-result -H 'Content-Type: application/json' -d '{"result":{"summary":"YOUR_OUTPUT"}}'`,
-      '',
-      `Once submitted, the delegator will review and approve/reject. STOP and wait after submitting.`,
-      '',
-      '=== END SUB-SESSION TASK DETAILS ===',
+      'Copy the task value exactly as shown above. The plugin injects execution context automatically.',
+      'No follow-up sessions_send is needed — all task details are included in the task value.',
     ].join('\n');
   }
 }

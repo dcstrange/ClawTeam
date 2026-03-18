@@ -118,7 +118,7 @@ X-Bot-Id: <botId>
 | 端点 | 调用者 |
 |------|--------|
 | `POST /gateway/register` | **无代码调用者**。仅 `SKILL.md` curl 文档供 LLM 参考 |
-| `GET /gateway/bots` | **Prompt 模板**：`routing/router.ts:616` → fallback 委托 prompt；`server/router-api.ts:425` → delegate-intent prompt；`openclaw-plugin/task_system_prompt.md:36` → 插件注入 sub-session 的 prompt。**文档**：`SKILL.md` curl 示例 |
+| `GET /gateway/bots` | **Prompt 模板**：`routing/router.ts:616` → fallback 委托 prompt；`server/router-api.ts:425` → delegate-intent prompt；`openclaw-plugin/task_system_prompt_sender.md` → 插件注入 sender sub-session 的 prompt。**文档**：`SKILL.md` curl 示例 |
 | `GET /gateway/bots/:botId` | **无代码调用者**。仅 `SKILL.md` curl 文档供 LLM 参考 |
 
 ### 任务生命周期
@@ -140,13 +140,13 @@ X-Bot-Id: <botId>
 
 | 端点 | 调用者 |
 |------|--------|
-| `POST /gateway/tasks/create` | **Dashboard**：`dashboard/src/lib/router-api.ts` → `routerApi.createTask()`；、`dashboard/src/components/CreateTaskModal.tsx:39` → 任务创建流程第 1 步。<br />**插件**：`openclaw-plugin/index.ts:89` → auto-tracker 为 sender role 自动创建 task。<br />**local-client**：`local-client/src/api/router-client.ts:67` → `createTask()`。<br />**Prompt 模板**：`routing/router.ts:618` → sub-delegation prompt；`task_system_prompt.md:38` |
-| `POST /gateway/tasks/:id/delegate` | **Prompt 模板**：`server/router-api.ts:428` → delegate-intent prompt；`routing/router.ts:620` → fallback 委托 prompt；`task_system_prompt.md:42` → 插件注入 prompt。<br />**文档**：`SKILL.md` curl 示例 |
+| `POST /gateway/tasks/create` | **Dashboard**：`dashboard/src/lib/router-api.ts` → `routerApi.createTask()`；、`dashboard/src/components/CreateTaskModal.tsx:39` → 任务创建流程第 1 步。<br />**插件**：`openclaw-plugin/index.ts:89` → auto-tracker 为 sender role 自动创建 task。<br />**local-client**：`local-client/src/api/router-client.ts:67` → `createTask()`。<br />**Prompt 模板**：`routing/router.ts:618` → sub-delegation prompt；`task_system_prompt_executor.md` → 插件注入 executor prompt |
+| `POST /gateway/tasks/:id/delegate` | **Prompt 模板**：`server/router-api.ts:428` → delegate-intent prompt；`routing/router.ts:620` → fallback 委托 prompt；`task_system_prompt_sender.md` → 插件注入 sender prompt。<br />**文档**：`SKILL.md` curl 示例 |
 | `POST /gateway/track-session` | **插件**：`openclaw-plugin/index.ts:176` → auto-tracker `after_tool_call` hook。<br />**Prompt 模板**：`recovery/stale-task-recovery-loop.ts:749` → recovery fallback prompt |
 | `POST /gateway/tasks/:id/accept` | **无活跃代码调用者**。保留作为 sub-session 可能调用的 fallback 入口。<br />**文档**：`SKILL.md` curl 示例 |
-| `POST /gateway/tasks/:id/complete` | **Prompt 模板**：`routing/router.ts:522,623` → 新任务 prompt 和 fallback prompt；`recovery/stale-task-recovery-loop.ts:715,781` → recovery fallback prompt；`task_system_prompt.md:47` → 插件注入 prompt。<br />**文档**：`SKILL.md` curl 示例 |
+| `POST /gateway/tasks/:id/complete` | **Prompt 模板**：`routing/router.ts:522,623` → 新任务 prompt 和 fallback prompt；`recovery/stale-task-recovery-loop.ts:715,781` → recovery fallback prompt；`task_system_prompt_executor.md` → 插件注入 executor prompt。<br />**文档**：`SKILL.md` curl 示例 |
 | `POST /gateway/tasks/:id/cancel` | **无活跃代码调用者**。仅 `SKILL.md` curl 文档供 LLM 参考 |
-| `POST /gateway/tasks/:id/need-human-input` | **Prompt 模板**：`routing/router.ts:517,611` → 新任务 prompt；`recovery/stale-task-recovery-loop.ts:712,776` → recovery fallback prompt；`server/router-api.ts:439` → delegate-intent prompt；`task_system_prompt.md:28` → 插件注入 prompt |
+| `POST /gateway/tasks/:id/need-human-input` | **Prompt 模板**：`routing/router.ts:517,611` → 新任务 prompt；`recovery/stale-task-recovery-loop.ts:712,776` → recovery fallback prompt；`server/router-api.ts:439` → delegate-intent prompt；`task_system_prompt_executor.md` → 插件注入 executor prompt |
 | `POST /gateway/tasks/:id/resume` | **无调用者**。Dashboard 通过 Router API `/tasks/:taskId/resume` 间接到达 API，不走 gateway proxy |
 | `GET /gateway/tasks/pending` | **无活跃代码调用者**（TaskPollingLoop 直接调用 ClawTeam API 客户端，不走 gateway proxy）。仅 `SKILL.md` curl 文档供 LLM 参考 |
 | `GET /gateway/tasks/:id` | **无活跃代码调用者**。仅 `SKILL.md` curl 文档供 LLM 参考 |
@@ -163,7 +163,7 @@ X-Bot-Id: <botId>
 
 | 端点 | 调用者 |
 |------|--------|
-| `POST /gateway/messages/send` | **Prompt 模板**：`routing/router.ts:304,340,513,607` → DM 回复和任务通信 prompt；`recovery/stale-task-recovery-loop.ts:772` → recovery fallback prompt；`task_system_prompt.md:21` → 插件注入 prompt。**文档**：`SKILL.md` curl 示例 |
+| `POST /gateway/messages/send` | **Prompt 模板**：`routing/router.ts:304,340,513,607` → DM 回复和任务通信 prompt；`recovery/stale-task-recovery-loop.ts:772` → recovery fallback prompt；`task_system_prompt_executor.md` → 插件注入 executor prompt。**文档**：`SKILL.md` curl 示例 |
 | `GET /gateway/messages/inbox` | **无活跃代码调用者**。仅 `SKILL.md` curl 文档供 LLM 参考 |
 | `POST /gateway/messages/:id/ack` | **无活跃代码调用者**。仅 `SKILL.md` curl 文档供 LLM 参考 |
 
@@ -200,7 +200,7 @@ X-Bot-Id: <botId>
 
 ## 调用者全景表
 
-> D = Dashboard UI，L = local-client，P = openclaw-plugin，R = router.ts prompt，S = recovery prompt，I = router-api.ts prompt，T = task_system_prompt.md，K = SKILL.md（LLM 文档）
+> D = Dashboard UI，L = local-client，P = openclaw-plugin，R = router.ts prompt，S = recovery prompt，I = router-api.ts prompt，T = task_system_prompt_executor/sender.md，K = SKILL.md（LLM 文档）
 
 | 端点 | D | L | P | R | S | I | T | K |
 |------|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|

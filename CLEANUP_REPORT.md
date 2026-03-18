@@ -95,7 +95,8 @@ src.bak/
 ### 包级别文档
 ✅ packages/*/README.md - 各包的说明文档
 ✅ packages/openclaw-skill/SKILL.md - Skill 定义
-✅ packages/openclaw-plugin/task_system_prompt.md - 任务系统提示
+✅ packages/openclaw-plugin/task_system_prompt_executor.md - executor 角色系统提示
+✅ packages/openclaw-plugin/task_system_prompt_sender.md - sender 角色系统提示
 
 ## 验证结果
 

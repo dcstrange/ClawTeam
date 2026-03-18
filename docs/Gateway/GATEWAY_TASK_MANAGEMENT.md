@@ -91,7 +91,7 @@ Gateway 是运行在开发者本地的代理服务，介于远程 API Server 和
    │   └── 失败则 block spawn（不 fallback）
    ├── executor 无 taskId → block spawn
    ├── 非 sender 无 _clawteam_from_bot_id → block spawn
-   ├── 加载 task_system_prompt.md 模板，替换占位符:
+   ├── 按角色加载 task_system_prompt_executor.md 或 task_system_prompt_sender.md 模板，替换占位符:
    │   {{TASK_ID}}, {{ROLE}}, {{GATEWAY_URL}}, {{FROM_BOT_ID}}
    └── 将渲染后的模板 prepend 到 task 参数（子 session 收到的内容）
 

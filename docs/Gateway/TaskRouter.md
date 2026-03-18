@@ -59,8 +59,8 @@ task.type === 'sub-task'
 新任务发送到 main session，指示 LLM spawn sub-session 执行。
 
 关键内容：
-- spawn 参数包含 `_clawteam_role: "executor"`、`_clawteam_taskId`、`_clawteam_from_bot_id`
-- 插件 `clawteam-auto-tracker` 自动注入 `task_system_prompt.md` 模板到 task 参数
+- spawn 参数的 task 字符串包含 `[CLAWTEAM_META]` 块和任务事实
+- 插件 `clawteam-auto-tracker` 按角色自动注入 `task_system_prompt_executor.md` 或 `task_system_prompt_sender.md` 模板到 task 参数
 - 插件自动调用 `/gateway/track-session` 完成 accept + start + notify
 - 第二步：通过 `sessions_send` 发送任务详情（prompt、capability、parameters）到子 session
 

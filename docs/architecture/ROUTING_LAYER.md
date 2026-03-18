@@ -304,7 +304,7 @@ Sub-session:   agent:<agentId>:subagent:<uuid>
 
 | Hook | 时机 | 动作 |
 |------|------|------|
-| `before_tool_call` | spawn 执行前 | 检测 `_clawteam_role` 参数；sender 自动创建 task；注入 `task_system_prompt.md` 模板到 task 参数；校验必要参数 |
+| `before_tool_call` | spawn 执行前 | 从 params 或 task 字符串 `[CLAWTEAM_META]` 块检测角色；sender 自动创建 task；按角色注入 `task_system_prompt_executor.md` 或 `task_system_prompt_sender.md` 模板到 task 参数；校验必要参数 |
 | `after_tool_call` | spawn 完成后 | 调用 `POST /gateway/track-session` 建立 taskId↔sessionKey 映射 |
 | `tool_result_persist` | 结果写入前 | 在 spawn 结果中追加 `[ClawTeam] taskId: xxx` |
 

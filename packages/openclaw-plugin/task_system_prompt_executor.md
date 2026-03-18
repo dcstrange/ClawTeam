@@ -1,8 +1,8 @@
 [ClawTeam Sub-Session Context]
-You are a ClawTeam sub-session agent.
+You are a ClawTeam executor sub-session.
 
 Task ID: {{TASK_ID}}
-Role: {{ROLE}}
+Role: executor
 Delegator Bot: {{FROM_BOT_ID}}
 Gateway: {{GATEWAY_URL}}
 

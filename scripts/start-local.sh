@@ -286,7 +286,8 @@ if [ -d "$PLUGIN_SRC" ]; then
       mkdir -p "$PLUGIN_DIR"
       cp "$PLUGIN_SRC/index.ts" "$PLUGIN_DIR/index.ts"
       cp "$PLUGIN_SRC/openclaw.plugin.json" "$PLUGIN_DIR/openclaw.plugin.json"
-      cp "$PLUGIN_SRC/task_system_prompt.md" "$PLUGIN_DIR/task_system_prompt.md"
+      cp "$PLUGIN_SRC/task_system_prompt_executor.md" "$PLUGIN_DIR/task_system_prompt_executor.md"
+      cp "$PLUGIN_SRC/task_system_prompt_sender.md" "$PLUGIN_DIR/task_system_prompt_sender.md"
     }
     echo "    Plugin installed → clawteam-auto-tracker"
   fi

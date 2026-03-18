@@ -2,17 +2,16 @@
  * ClawTeam Auto Tracker Plugin
  *
  * Hooks into sessions_spawn to automatically:
- * - Detect ClawTeam spawns via _clawteam_role param (set by LLM)
- * - Create tasks for sender role when no _clawteam_taskId is provided
- * - Inject task_system_prompt.md into the task param (prepended), replacing placeholders
+ * - Detect ClawTeam spawns via [CLAWTEAM_META] block in task string (or _clawteam_role param for backward compat)
+ * - Create tasks for sender role when no taskId is provided
+ * - Inject role-specific system prompt (task_system_prompt_executor.md or task_system_prompt_sender.md) into the task param (prepended), replacing placeholders
  * - Track sessions via /gateway/track-session after spawn completes
  *
- * Supported params on sessions_spawn:
- *   _clawteam_role        "executor" | "sender"
- *   _clawteam_taskId      UUID (required for executor, auto-created for sender)
- *   _clawteam_from_bot_id fromBotId for {{FROM_BOT_ID}} placeholder
+ * Detection sources (checked in order):
+ *   1. _clawteam_role / _clawteam_taskId / _clawteam_from_bot_id params (backward compat)
+ *   2. [CLAWTEAM_META] block parsed from task string (primary)
  *
- * Placeholders in task_system_prompt.md:
+ * Placeholders in role-specific templates:
  *   {{TASK_ID}}      → real taskId
  *   {{ROLE}}         → executor | sender
  *   {{GATEWAY_URL}}  → gateway base URL (from pluginConfig.gatewayUrl)
@@ -28,20 +27,53 @@ const ROLE_KEY = '_clawteam_role';
 const FROM_BOT_ID_KEY = '_clawteam_from_bot_id';
 const TAG = '[clawteam-auto-tracker]';
 
+/** Parsed ClawTeam metadata from a task string's [CLAWTEAM_META] block */
+interface ClawTeamMeta {
+  role: string;
+  taskId?: string;
+  fromBotId?: string;
+  cleanTask: string;
+}
+
+const META_RE = /\[CLAWTEAM_META\]\n([\s\S]*?)\n\[\/CLAWTEAM_META\]\n?/;
+
+/** Parse [CLAWTEAM_META]...[/CLAWTEAM_META] from a task string */
+function parseClawTeamMeta(task: string): ClawTeamMeta | null {
+  const m = META_RE.exec(task);
+  if (!m) return null;
+  const kvs: Record<string, string> = {};
+  for (const line of m[1].split('\n')) {
+    const eq = line.indexOf('=');
+    if (eq > 0) kvs[line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
+  }
+  if (!kvs.role) return null;
+  return {
+    role: kvs.role,
+    taskId: kvs.taskId || undefined,
+    fromBotId: kvs.fromBotId || undefined,
+    cleanTask: task.replace(META_RE, ''),
+  };
+}
+
+/** Strip [CLAWTEAM_META] block from a task string (idempotent) */
+function stripMetaBlock(task: string): string {
+  return task.replace(META_RE, '');
+}
+
 /** Shared headers for gateway JSON API calls */
 const JSON_HEADERS = {
   'Content-Type': 'application/json',
   'Accept': 'application/json',
 };
 
-/** Load task_system_prompt.md from the plugin directory */
-function loadSystemPromptTemplate(): string {
+/** Load a template file from the plugin directory */
+function loadTemplate(filename: string): string {
   try {
     const dir = path.dirname(fileURLToPath(import.meta.url));
-    const templatePath = path.join(dir, 'task_system_prompt.md');
+    const templatePath = path.join(dir, filename);
     return fs.readFileSync(templatePath, 'utf-8');
   } catch (err) {
-    console.warn(`${TAG} failed to load task_system_prompt.md:`, (err as Error).message);
+    console.warn(`${TAG} failed to load ${filename}:`, (err as Error).message);
     return '';
   }
 }
@@ -64,8 +96,12 @@ export default {
     if (config.enabled === false) return;
     const gw = config.gatewayUrl || 'http://localhost:3100';
 
-    const systemPromptTemplate = loadSystemPromptTemplate();
-    console.log(`${TAG} registered (gateway: ${gw}, template: ${systemPromptTemplate ? 'loaded' : 'missing'})`);
+    const templates: Record<string, string> = {
+      executor: loadTemplate('task_system_prompt_executor.md'),
+      sender: loadTemplate('task_system_prompt_sender.md'),
+    };
+    const hasTemplates = Object.values(templates).some(Boolean);
+    console.log(`${TAG} registered (gateway: ${gw}, templates: ${hasTemplates ? 'loaded' : 'missing'})`);
 
     // Cross-hook state: last taskId set by before_tool_call, consumed by tool_result_persist
     let pendingTaskId: string | null = null;
@@ -75,16 +111,29 @@ export default {
     api.on('before_tool_call', async (event: any, _ctx: any) => {
       if (event.toolName !== 'sessions_spawn') return;
 
-      const role = event.params?.[ROLE_KEY];
+      // --- Source 1: explicit params (backward compat with old sessions) ---
+      let role = event.params?.[ROLE_KEY];
+      let taskId = event.params?.[TASK_ID_KEY];
+      let fromBotId = String(event.params?.[FROM_BOT_ID_KEY] ?? '');
+
+      // --- Source 2: parse [CLAWTEAM_META] from task string ---
+      const rawTask = String(event.params?.task ?? '');
+      const meta = parseClawTeamMeta(rawTask);
+
+      if (!role && meta) {
+        role = meta.role;
+        if (!taskId && meta.taskId) taskId = meta.taskId;
+        if (!fromBotId && meta.fromBotId) fromBotId = meta.fromBotId;
+        console.log(`${TAG} before_tool_call: resolved from task meta block: role=${role}, taskId=${taskId || '(none)'}, fromBotId=${fromBotId || '(none)'}`);
+      }
+
       if (!role) return; // Not a ClawTeam spawn, skip
 
-      let taskId = event.params?.[TASK_ID_KEY];
-      const fromBotId = String(event.params?.[FROM_BOT_ID_KEY] ?? '');
       console.log(`${TAG} before_tool_call: role=${role}, taskId=${taskId || '(none)'}, fromBotId=${fromBotId || '(none)'}`);
 
       // Sender without taskId: auto-create task via gateway (block spawn on failure)
       if (!taskId && role === 'sender') {
-        const task = String(event.params?.task ?? '');
+        const task = stripMetaBlock(rawTask);
         const label = String(event.params?.label ?? '');
         console.log(`${TAG} creating task via ${gw}/gateway/tasks/create`);
         try {
@@ -113,29 +162,35 @@ export default {
 
       // Executor without taskId: block spawn
       if (!taskId && role === 'executor') {
-        console.error(`${TAG} executor role requires _clawteam_taskId`);
-        return { block: true, blockReason: 'Executor spawn requires _clawteam_taskId param.' };
+        console.error(`${TAG} executor role requires taskId (via param or meta block)`);
+        return { block: true, blockReason: 'Executor spawn requires _clawteam_taskId param or taskId in [CLAWTEAM_META] block.' };
       }
 
-      // Non-sender roles require _clawteam_from_bot_id
+      // Non-sender roles require fromBotId
       if (role !== 'sender' && !fromBotId) {
-        console.error(`${TAG} role="${role}" requires _clawteam_from_bot_id`);
-        return { block: true, blockReason: `Role "${role}" requires _clawteam_from_bot_id param.` };
+        console.error(`${TAG} role="${role}" requires fromBotId (via param or meta block)`);
+        return { block: true, blockReason: `Role "${role}" requires _clawteam_from_bot_id param or fromBotId in [CLAWTEAM_META] block.` };
       }
 
-      // Inject system prompt into task content
-      const originalTask = String(event.params?.task ?? '');
-      const injectedParams: Record<string, any> = { [TASK_ID_KEY]: taskId };
+      // Strip meta block from task content so sub-session doesn't see raw markers
+      const cleanTask = stripMetaBlock(rawTask);
+      const injectedParams: Record<string, any> = {
+        [TASK_ID_KEY]: taskId,
+        [ROLE_KEY]: role,
+      };
 
-      if (systemPromptTemplate) {
-        const rendered = renderTemplate(systemPromptTemplate, {
+      const template = templates[role] || '';
+      if (template) {
+        const rendered = renderTemplate(template, {
           taskId: taskId!,
           role,
           gatewayUrl: gw,
           fromBotId,
         });
-        injectedParams.task = rendered + originalTask;
-        console.log(`${TAG} injected system prompt into task (taskId=${taskId})`);
+        injectedParams.task = rendered + cleanTask;
+        console.log(`${TAG} injected ${role} system prompt into task (taskId=${taskId})`);
+      } else {
+        injectedParams.task = cleanTask;
       }
 
       pendingTaskId = taskId!;
