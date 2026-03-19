@@ -139,8 +139,8 @@ export function loadConfig(): GatewayConfig {
     heartbeatIntervalMs: parseInt(process.env.HEARTBEAT_INTERVAL_MS || '', 10) || yaml.heartbeat?.intervalMs || 30000,
     heartbeatEnabled: process.env.HEARTBEAT_ENABLED !== undefined ? process.env.HEARTBEAT_ENABLED !== 'false' : yaml.heartbeat?.enabled ?? true,
     recoveryEnabled: process.env.RECOVERY_ENABLED !== undefined ? process.env.RECOVERY_ENABLED !== 'false' : yaml.recovery?.enabled ?? true,
-    recoveryIntervalMs: parseInt(process.env.RECOVERY_INTERVAL_MS || '', 10) || yaml.recovery?.intervalMs || 30000,
-    stalenessThresholdMs: parseInt(process.env.STALENESS_THRESHOLD_MS || '', 10) || yaml.recovery?.stalenessThresholdMs || 60000,
+    recoveryIntervalMs: parseInt(process.env.RECOVERY_INTERVAL_MS || '', 10) || yaml.recovery?.intervalMs || 120000,
+    stalenessThresholdMs: parseInt(process.env.STALENESS_THRESHOLD_MS || '', 10) || yaml.recovery?.stalenessThresholdMs || 300000,
     maxRecoveryAttempts: parseInt(process.env.MAX_RECOVERY_ATTEMPTS || '', 10) || yaml.recovery?.maxAttempts || 3,
     toolCallingTimeoutMs: parseInt(process.env.TOOL_CALLING_TIMEOUT_MS || '', 10) || yaml.recovery?.toolCallingTimeoutMs || 600_000,
     gatewayEnabled: process.env.GATEWAY_ENABLED !== undefined

@@ -238,6 +238,14 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
   server.post<{ Params: { taskId: string } }>('/gateway/tasks/:taskId/delegate', async (req, reply) => {
     const { taskId } = req.params;
     const body = autoTrack((req.body || {}) as Record<string, any>, taskId);
+
+    // Block self-delegation
+    if (deps.clawteamBotId && body.toBotId === deps.clawteamBotId) {
+      log.warn({ taskId, toBotId: body.toBotId }, 'Blocked self-delegation attempt');
+      textReply(reply, formatErrorResponse('Self-delegation is not allowed. You cannot delegate a task to yourself. Pick a DIFFERENT bot.'), 400);
+      return;
+    }
+
     try {
       const res = await proxyFetch(`${apiBase}/api/v1/tasks/${taskId}/delegate`, {
         method: 'POST',

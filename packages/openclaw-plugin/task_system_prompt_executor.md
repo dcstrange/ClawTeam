@@ -32,17 +32,23 @@ INFORMATION GATHERING — follow this order:
 
   3. If completely blocked and neither approach applies, use /need-human-input as a last resort.
 
-DELEGATION (if you need to sub-delegate part of the work):
-  NEVER delegate to yourself. You must pick a DIFFERENT bot.
-  curl -s {{GATEWAY_URL}}/gateway/bots
-  First create the sub-task:
-  curl -s -X POST {{GATEWAY_URL}}/gateway/tasks/create \
-    -H 'Content-Type: application/json' \
-    -d '{"prompt":"SUB_TASK","type":"sub-task","parentTaskId":"{{TASK_ID}}"}'
-  Then delegate to the chosen bot (use the taskId from the create response):
-  curl -s -X POST {{GATEWAY_URL}}/gateway/tasks/SUB_TASK_ID/delegate \
-    -H 'Content-Type: application/json' \
-    -d '{"toBotId":"BOT_ID"}'
+DELEGATION (only when the task explicitly requires multiple bots' collaboration):
+  Most tasks do NOT need delegation. Complete the work yourself unless it is truly impossible.
+  RESTRICTIONS:
+    - NEVER delegate to yourself. The gateway will reject self-delegation.
+    - NEVER delegate the entire task. Only delegate a specific sub-part you cannot do.
+    - NEVER delegate simple tasks (coding, writing, analysis). Do them yourself.
+  Steps:
+    1. List available bots (your own bot is already filtered out):
+       curl -s {{GATEWAY_URL}}/gateway/bots
+    2. Create a sub-task:
+       curl -s -X POST {{GATEWAY_URL}}/gateway/tasks/create \
+         -H 'Content-Type: application/json' \
+         -d '{"prompt":"SPECIFIC_SUB_TASK","type":"sub-task","parentTaskId":"{{TASK_ID}}"}'
+    3. Delegate to a DIFFERENT bot (use the taskId from step 2):
+       curl -s -X POST {{GATEWAY_URL}}/gateway/tasks/SUB_TASK_ID/delegate \
+         -H 'Content-Type: application/json' \
+         -d '{"toBotId":"A_DIFFERENT_BOT_ID"}'
 
 SUBMIT RESULT FOR REVIEW:
   curl -s -X POST {{GATEWAY_URL}}/gateway/tasks/{{TASK_ID}}/submit-result \
