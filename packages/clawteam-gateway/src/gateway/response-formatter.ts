@@ -42,6 +42,7 @@ export function formatBotDetailResponse(bot: any): string {
 
   const lines = [
     `Bot: ${bot.name} (${bot.id})`,
+    ...(bot.ownerEmail ? [`Owner: ${bot.ownerEmail}`] : []),
     `Status: ${bot.status}`,
     `Capabilities:\n${caps}`,
   ];

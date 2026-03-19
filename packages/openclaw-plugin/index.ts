@@ -12,10 +12,15 @@
  * The gateway auto-tracks when it receives sessionKey + taskId in a request body.
  *
  * Placeholders in role-specific templates:
- *   {{TASK_ID}}      → real taskId
- *   {{ROLE}}         → executor | sender
- *   {{GATEWAY_URL}}  → gateway base URL (from pluginConfig.gatewayUrl)
- *   {{FROM_BOT_ID}}  → delegator bot ID
+ *   {{TASK_ID}}        → real taskId
+ *   {{ROLE}}           → executor | sender
+ *   {{GATEWAY_URL}}    → gateway base URL (from pluginConfig.gatewayUrl)
+ *   {{FROM_BOT_ID}}    → delegator bot ID
+ *   {{FROM_BOT_NAME}}  → delegator bot name (fetched at spawn time)
+ *   {{FROM_OWNER}}     → delegator bot owner (fetched at spawn time)
+ *   {{MY_BOT_ID}}      → this bot's ID
+ *   {{MY_BOT_NAME}}    → this bot's name
+ *   {{MY_OWNER}}       → this bot's owner
  */
 
 import * as fs from 'node:fs';
@@ -139,6 +144,39 @@ const JSON_HEADERS = {
   'Accept': 'application/json',
 };
 
+/** Fetch bot info from gateway. Returns { id, name, ownerEmail } or null. */
+async function fetchBotInfo(gatewayUrl: string, botId: string): Promise<{ id: string; name: string; ownerEmail?: string } | null> {
+  try {
+    const res = await fetch(`${gatewayUrl}/gateway/bots/${botId}`, {
+      headers: { 'Accept': 'text/plain' },
+    });
+    if (!res.ok) return null;
+    const text = await res.text();
+    // Response is formatted text: "Bot: <name> (<id>)\nOwner: <email>\n..."
+    const nameMatch = text.match(/^Bot:\s*(.+?)\s*\([\w-]+\)/m);
+    const ownerMatch = text.match(/^Owner:\s*(.+)/m);
+    return {
+      id: botId,
+      name: nameMatch?.[1]?.trim() || botId,
+      ownerEmail: ownerMatch?.[1]?.trim(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Fetch self bot info from /gateway/me (returns JSON). */
+async function fetchSelfBotInfo(gatewayUrl: string): Promise<{ id: string; name: string; ownerEmail?: string } | null> {
+  try {
+    const res = await fetch(`${gatewayUrl}/gateway/me`);
+    if (!res.ok) return null;
+    const data = await res.json() as any;
+    return { id: data.id, name: data.name, ownerEmail: data.ownerEmail };
+  } catch {
+    return null;
+  }
+}
+
 /** Load a template file from the plugin directory */
 function loadTemplate(filename: string): string {
   try {
@@ -157,7 +195,12 @@ function renderTemplate(template: string, vars: Record<string, string>): string 
     .replaceAll('{{TASK_ID}}', vars.taskId ?? '')
     .replaceAll('{{ROLE}}', vars.role ?? '')
     .replaceAll('{{GATEWAY_URL}}', vars.gatewayUrl ?? '')
-    .replaceAll('{{FROM_BOT_ID}}', vars.fromBotId ?? '');
+    .replaceAll('{{FROM_BOT_ID}}', vars.fromBotId ?? '')
+    .replaceAll('{{FROM_BOT_NAME}}', vars.fromBotName ?? 'unknown')
+    .replaceAll('{{FROM_OWNER}}', vars.fromOwner ?? 'unknown')
+    .replaceAll('{{MY_BOT_ID}}', vars.myBotId ?? '')
+    .replaceAll('{{MY_BOT_NAME}}', vars.myBotName ?? 'unknown')
+    .replaceAll('{{MY_OWNER}}', vars.myOwner ?? 'unknown');
 }
 
 export default {
@@ -175,6 +218,21 @@ export default {
     };
     const hasTemplates = Object.values(templates).some(Boolean);
     console.log(`${TAG} registered (gateway: ${gw}, templates: ${hasTemplates ? 'loaded' : 'missing'})`);
+
+    // Cached self bot info (fetched lazily on first spawn)
+    let selfBot: { id: string; name: string; ownerEmail?: string } | null = null;
+    let selfBotFetched = false;
+
+    async function ensureSelfBot(): Promise<void> {
+      if (selfBotFetched) return;
+      selfBotFetched = true;
+      selfBot = await fetchSelfBotInfo(gw);
+      if (selfBot) {
+        console.log(`${TAG} self bot: ${selfBot.name} (${selfBot.id}), owner: ${selfBot.ownerEmail || 'unknown'}`);
+      } else {
+        console.warn(`${TAG} failed to fetch self bot info from ${gw}/gateway/me`);
+      }
+    }
 
     // Cross-hook state: last taskId set by before_tool_call, consumed by tool_result_persist
     let pendingTaskId: string | null = null;
@@ -244,11 +302,30 @@ export default {
 
         const template = templates[role!] || '';
         if (template) {
+          // Fetch self bot info (lazy, cached)
+          await ensureSelfBot();
+
+          // Fetch from-bot info for executor role
+          let fromBotName = '';
+          let fromOwner = '';
+          if (fromBotId) {
+            const fromBot = await fetchBotInfo(gw, fromBotId);
+            if (fromBot) {
+              fromBotName = fromBot.name;
+              fromOwner = fromBot.ownerEmail || '';
+            }
+          }
+
           const rendered = renderTemplate(template, {
             taskId: taskId!,
             role: role!,
             gatewayUrl: gw,
             fromBotId,
+            fromBotName,
+            fromOwner,
+            myBotId: selfBot?.id || '',
+            myBotName: selfBot?.name || '',
+            myOwner: selfBot?.ownerEmail || '',
           });
           injectedParams.task = rendered + cleanTask;
           console.log(`${TAG} injected ${role} system prompt into task (taskId=${taskId})`);

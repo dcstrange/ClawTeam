@@ -169,6 +169,23 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
     }
   });
 
+  // 1b. GET /gateway/me — return this bot's identity (for plugin self-awareness)
+  server.get('/gateway/me', async (_req: FastifyRequest, reply: FastifyReply) => {
+    if (!deps.clawteamBotId) {
+      textReply(reply, formatErrorResponse('Bot ID not configured'), 500);
+      return;
+    }
+    try {
+      const res = await proxyFetch(`${apiBase}/api/v1/bots/${deps.clawteamBotId}`, {
+        headers: authHeaders(key, deps.clawteamBotId),
+      });
+      if (!res.ok) { textReply(reply, formatErrorResponse(`HTTP ${res.status}`), res.status); return; }
+      reply.type('application/json').send(unwrap(res.data));
+    } catch (err) {
+      textReply(reply, formatErrorResponse((err as Error).message), 502);
+    }
+  });
+
   // 2. GET /gateway/bots
   server.get('/gateway/bots', async (_req: FastifyRequest, reply: FastifyReply) => {
     try {
