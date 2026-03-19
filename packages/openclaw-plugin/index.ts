@@ -32,11 +32,11 @@ interface TaskMarkers {
 
 /** Parse plain-text Role/Task ID/From Bot markers from a task string */
 function parseTaskMarkers(task: string): TaskMarkers | null {
-  const roleMatch = task.match(/^Role:\s*(\S+)/m);
+  const roleMatch = task.match(/^\s*Role:\s*(\S+)/m);
   if (!roleMatch) return null;
 
-  const taskIdMatch = task.match(/^Task ID:\s*(\S+)/m);
-  const fromBotMatch = task.match(/^From Bot:\s*(\S+)/m);
+  const taskIdMatch = task.match(/^\s*Task ID:\s*(\S+)/m);
+  const fromBotMatch = task.match(/^\s*From Bot:\s*(\S+)/m);
 
   return {
     role: roleMatch[1],
@@ -48,9 +48,9 @@ function parseTaskMarkers(task: string): TaskMarkers | null {
 /** Strip the Role/Task ID/From Bot header lines from a task string */
 function stripMarkerLines(task: string): string {
   return task
-    .replace(/^Role:\s*\S+\n?/m, '')
-    .replace(/^Task ID:\s*\S+\n?/m, '')
-    .replace(/^From Bot:\s*\S+\n?/m, '')
+    .replace(/^\s*Role:\s*\S+\n?/m, '')
+    .replace(/^\s*Task ID:\s*\S+\n?/m, '')
+    .replace(/^\s*From Bot:\s*\S+\n?/m, '')
     .replace(/^\n+/, ''); // trim leading blank lines left behind
 }
 
