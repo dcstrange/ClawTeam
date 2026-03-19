@@ -30,19 +30,6 @@ export interface TaskRouterDeps {
   botId?: string;
 }
 
-/**
- * Build a [CLAWTEAM_META] block to embed in the task string.
- * The plugin parses this to reliably recover role/taskId/fromBotId
- * even when custom params are stripped by OpenClaw.
- */
-function buildClawTeamMetaBlock(role: string, taskId?: string, fromBotId?: string): string {
-  const lines = ['[CLAWTEAM_META]', `role=${role}`];
-  if (taskId) lines.push(`taskId=${taskId}`);
-  if (fromBotId) lines.push(`fromBotId=${fromBotId}`);
-  lines.push('[/CLAWTEAM_META]');
-  return lines.join('\n');
-}
-
 export class TaskRouter extends EventEmitter {
   private readonly clawteamApi: IClawTeamApiClient;
   private readonly openclawSession: IOpenClawSessionClient;
@@ -449,8 +436,8 @@ export class TaskRouter extends EventEmitter {
       'You must delegate the task to deliver it to the executor.',
     ].join('\n');
 
-    const metaBlock = buildClawTeamMetaBlock('sender', taskId || undefined);
-    const taskValue = `${metaBlock}\n${taskContent}`;
+    const roleHeader = taskId ? `Role: sender\nTask ID: ${taskId}` : `Role: sender`;
+    const taskValue = `${roleHeader}\n${taskContent}`;
 
     const taskIdLine = taskId
       ? `Task ID: ${taskId} (pre-created by dashboard)`
@@ -594,7 +581,8 @@ export class TaskRouter extends EventEmitter {
       ...(paramsLine ? [paramsLine.trim()] : []),
     ].join('\n');
 
-    const executorTaskValue = `${buildClawTeamMetaBlock('executor', task.id, task.fromBotId)}\n${taskContent}`;
+    const roleHeader = `Role: executor\nTask ID: ${task.id}\nFrom Bot: ${task.fromBotId}`;
+    const executorTaskValue = `${roleHeader}\n${taskContent}`;
 
     const taskLines = executorTaskValue.split('\n').map(line => `     ${line}`).join('\n');
 
@@ -681,7 +669,8 @@ export class TaskRouter extends EventEmitter {
       parentContext,
     ].join('\n');
 
-    const executorTaskValue = `${buildClawTeamMetaBlock('executor', task.id, task.fromBotId)}\n${taskContent}`;
+    const roleHeader = `Role: executor\nTask ID: ${task.id}\nFrom Bot: ${task.fromBotId}`;
+    const executorTaskValue = `${roleHeader}\n${taskContent}`;
 
     const taskLines = executorTaskValue.split('\n').map(line => `     ${line}`).join('\n');
 

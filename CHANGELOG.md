@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-03-19
+
+### Changed
+
+#### Curl SessionKey 自动注入 — 替代 spawn meta block 方案
+
+Session-task 绑定不再依赖 LLM 在 spawn 时传递 `[CLAWTEAM_META]` 块或 `_clawteam_*` 参数。改为 plugin 拦截 sub-session 中的 curl 命令，自动注入 `sessionKey` 到 JSON body，由 gateway 自动建立绑定。
+
+**Plugin (`packages/openclaw-plugin/index.ts`)**
+- 新增 `injectSessionKeyIntoCurl()` — 拦截 curl 命令，自动注入 sessionKey 到 gateway 请求的 JSON body
+- 新增 `parseTaskMarkers()` / `stripMarkerLines()` — 用纯文本 `Role:/Task ID:/From Bot:` 标记替代 `[CLAWTEAM_META]` block 解析
+- `before_tool_call` 新增 curl 拦截路径（Path 2），通过 `ctx.sessionKey` 注入
+- 移除 `parseClawTeamMeta()` / `stripMetaBlock()` / `META_RE` / `ClawTeamMeta` interface
+- 移除 `TASK_ID_KEY` / `ROLE_KEY` / `FROM_BOT_ID_KEY` 常量及 `_clawteam_*` 参数注入
+- 移除整个 `after_tool_call` handler（session tracking 由 curl 注入 + gateway auto-track 完成）
+
+**Gateway (`packages/clawteam-gateway/src/gateway/gateway-proxy.ts`)**
+- 新增 `extractAndTrackSession()` — 从请求 body 提取 sessionKey，自动 track 并持久化到 API server，返回去掉 sessionKey 的 clean body
+- 应用到全部 9 个 POST `/gateway/tasks/:taskId/*` 端点（delegate, accept, complete, submit-result, approve, reject, need-human-input, cancel, resume）
+- 应用到 POST `/gateway/messages/send`（当 body 含 taskId 时）
+
+**Router (`packages/clawteam-gateway/src/routing/router.ts`)**
+- 移除 `buildClawTeamMetaBlock()` 函数
+- `buildNewTaskMessage()` / `buildFallbackMessage()` 改用 `Role: executor\nTask ID: ...\nFrom Bot: ...` 纯文本标记
+- `buildDelegateIntentMessage()` 改用 `Role: sender\nTask ID: ...` 纯文本标记
+
 ## [1.0.0] - 2026-03-03
 
 ### Added

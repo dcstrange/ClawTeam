@@ -574,12 +574,20 @@ export function createTaskRoutes(deps: TaskRoutesDeps): FastifyPluginAsync {
         }
 
         try {
+          const effectiveRole = role || 'executor';
           await deps.db.query(
             `INSERT INTO task_sessions (task_id, session_key, bot_id, role)
              VALUES ($1, $2, $3, $4)
              ON CONFLICT (task_id, bot_id)
              DO UPDATE SET session_key = EXCLUDED.session_key, role = EXCLUDED.role`,
-            [request.params.taskId, sessionKey, botId, role || 'executor'],
+            [request.params.taskId, sessionKey, botId, effectiveRole],
+          );
+
+          // Sync session key into the tasks table for dashboard visibility
+          const column = effectiveRole === 'sender' ? 'sender_session_key' : 'executor_session_key';
+          await deps.db.query(
+            `UPDATE tasks SET ${column} = $1, updated_at = NOW() WHERE id = $2`,
+            [sessionKey, request.params.taskId],
           );
 
           return reply.send({
