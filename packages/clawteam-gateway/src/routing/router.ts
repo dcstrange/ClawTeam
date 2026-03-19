@@ -436,8 +436,10 @@ export class TaskRouter extends EventEmitter {
       'You must delegate the task to deliver it to the executor.',
     ].join('\n');
 
-    const roleHeader = taskId ? `Role: sender\nTask ID: ${taskId}` : `Role: sender`;
-    const taskValue = `${roleHeader}\n${taskContent}`;
+    const tokenData: Record<string, string> = { role: 'sender' };
+    if (taskId) tokenData.taskId = taskId;
+    const token = `<!--CLAWTEAM:${JSON.stringify(tokenData)}-->`;
+    const taskValue = `${token}\n${taskContent}`;
 
     const taskIdLine = taskId
       ? `Task ID: ${taskId} (pre-created by dashboard)`
@@ -451,8 +453,8 @@ export class TaskRouter extends EventEmitter {
       '',
       'ACTION REQUIRED: Spawn a sub-session now.',
       '',
-      'IMPORTANT: The task value MUST begin with the "Role:" / "Task ID:" lines exactly as shown below.',
-      'These marker lines are required for the plugin to inject delegation rules. Copy them verbatim.',
+      'IMPORTANT: The task value MUST include the <!--CLAWTEAM:...--> line exactly as shown.',
+      'This token is required for the plugin to inject delegation rules. Copy it verbatim.',
       '',
       '---TASK VALUE START---',
       taskValue,
@@ -460,7 +462,7 @@ export class TaskRouter extends EventEmitter {
       '',
       `label: "${intentText.trim().substring(0, 60)}"`,
       '',
-      'Pass everything between the START/END markers as the task value. Do NOT omit or reformat the Role/Task ID lines.',
+      'Pass everything between the START/END markers as the task value.',
       'No follow-up sessions_send is needed — all task details are included in the task value.',
     ].join('\n');
   }
@@ -584,8 +586,8 @@ export class TaskRouter extends EventEmitter {
       ...(paramsLine ? [paramsLine.trim()] : []),
     ].join('\n');
 
-    const roleHeader = `Role: executor\nTask ID: ${task.id}\nFrom Bot: ${task.fromBotId}`;
-    const executorTaskValue = `${roleHeader}\n${taskContent}`;
+    const token = `<!--CLAWTEAM:${JSON.stringify({ role: 'executor', taskId: task.id, fromBotId: task.fromBotId })}-->`;
+    const executorTaskValue = `${token}\n${taskContent}`;
 
     return [
       '[ClawTeam Task Received]',
@@ -599,8 +601,8 @@ export class TaskRouter extends EventEmitter {
       'ACTION REQUIRED: Spawn a sub-session now.',
       'DO NOT call any /tasks/ API endpoints yourself. The plugin handles tracking automatically.',
       '',
-      'IMPORTANT: The task value MUST begin with the "Role:" / "Task ID:" / "From Bot:" lines exactly as shown below.',
-      'These marker lines are required for the plugin to inject execution rules. Copy them verbatim.',
+      'IMPORTANT: The task value MUST include the <!--CLAWTEAM:...--> line exactly as shown.',
+      'This token is required for the plugin to inject execution rules. Copy it verbatim.',
       '',
       '---TASK VALUE START---',
       executorTaskValue,
@@ -608,7 +610,7 @@ export class TaskRouter extends EventEmitter {
       '',
       `label: "${(task.prompt || task.capability || '').slice(0, 60)}"`,
       '',
-      'Pass everything between the START/END markers as the task value. Do NOT omit or reformat the Role/Task ID/From Bot lines.',
+      'Pass everything between the START/END markers as the task value.',
       'No follow-up sessions_send is needed — all task details are included in the task value.',
     ].join('\n');
   }

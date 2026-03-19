@@ -386,6 +386,7 @@ export class StaleTaskRecoveryLoop {
         this.sessionTracker.untrack(taskId);
         this.attemptTracker.remove(taskId);
         this.firstSeenAt.delete(taskId);
+        this.exhaustedTaskIds.add(taskId);
         cleaned++;
         printCleanupLine(taskId, `${status} (external) — notified session & removed tracking`);
       } catch (error) {

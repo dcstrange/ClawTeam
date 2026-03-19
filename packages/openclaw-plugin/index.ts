@@ -2,7 +2,8 @@
  * ClawTeam Auto Tracker Plugin
  *
  * Hooks into sessions_spawn and curl commands to automatically:
- * - Detect ClawTeam spawns via plain-text markers (Role/Task ID/From Bot) in task string
+ * - Detect ClawTeam spawns via structured <!--CLAWTEAM:{...}--> token in task string
+ *   (falls back to plain-text Role/Task ID/From Bot markers for legacy compat)
  * - Create tasks for sender role when no taskId is provided
  * - Inject role-specific system prompt into the task param
  * - Inject sessionKey into curl commands targeting gateway endpoints (auto-track)
@@ -23,20 +24,35 @@ import { fileURLToPath } from 'node:url';
 
 const TAG = '[clawteam-auto-tracker]';
 
-/** Parsed task markers from plain-text lines in the task string */
+/** Parsed task markers from the task string */
 interface TaskMarkers {
   role?: string;       // 'executor' | 'sender'
   taskId?: string;
   fromBotId?: string;
 }
 
-/** Parse plain-text Role/Task ID/From Bot markers from a task string */
+/** Structured token format: <!--CLAWTEAM:{"role":"...","taskId":"...","fromBotId":"..."}--> */
+const CLAWTEAM_TOKEN_RE = /<!--CLAWTEAM:(\{.*?\})-->/;
+
+/** Parse ClawTeam markers from a task string.
+ *  Primary: structured JSON token (immune to timestamp/indent/LLM rewrite).
+ *  Fallback: plain-text Role:/Task ID:/From Bot: lines (legacy compat). */
 function parseTaskMarkers(task: string): TaskMarkers | null {
-  const roleMatch = task.match(/^\s*Role:\s*(\S+)/m);
+  // Primary: structured token
+  const tokenMatch = task.match(CLAWTEAM_TOKEN_RE);
+  if (tokenMatch) {
+    try {
+      const parsed = JSON.parse(tokenMatch[1]);
+      if (parsed.role) return parsed as TaskMarkers;
+    } catch { /* fall through to legacy */ }
+  }
+
+  // Fallback: plain-text markers (tolerates leading whitespace and [timestamp] prefixes)
+  const roleMatch = task.match(/^\s*(?:\[.*?\]\s*)?Role:\s*(\S+)/m);
   if (!roleMatch) return null;
 
-  const taskIdMatch = task.match(/^\s*Task ID:\s*(\S+)/m);
-  const fromBotMatch = task.match(/^\s*From Bot:\s*(\S+)/m);
+  const taskIdMatch = task.match(/^\s*(?:\[.*?\]\s*)?Task ID:\s*(\S+)/m);
+  const fromBotMatch = task.match(/^\s*(?:\[.*?\]\s*)?From Bot:\s*(\S+)/m);
 
   return {
     role: roleMatch[1],
@@ -45,12 +61,15 @@ function parseTaskMarkers(task: string): TaskMarkers | null {
   };
 }
 
-/** Strip the Role/Task ID/From Bot header lines from a task string */
+/** Strip ClawTeam markers from a task string so the sub-session doesn't see raw metadata */
 function stripMarkerLines(task: string): string {
   return task
-    .replace(/^\s*Role:\s*\S+\n?/m, '')
-    .replace(/^\s*Task ID:\s*\S+\n?/m, '')
-    .replace(/^\s*From Bot:\s*\S+\n?/m, '')
+    // Remove structured token line
+    .replace(/^.*<!--CLAWTEAM:\{.*?\}-->.*\n?/m, '')
+    // Remove legacy plain-text markers
+    .replace(/^\s*(?:\[.*?\]\s*)?Role:\s*\S+\n?/m, '')
+    .replace(/^\s*(?:\[.*?\]\s*)?Task ID:\s*\S+\n?/m, '')
+    .replace(/^\s*(?:\[.*?\]\s*)?From Bot:\s*\S+\n?/m, '')
     .replace(/^\n+/, ''); // trim leading blank lines left behind
 }
 
