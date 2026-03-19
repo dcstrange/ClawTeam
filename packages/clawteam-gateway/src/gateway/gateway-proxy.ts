@@ -176,7 +176,11 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
         headers: authHeaders(key, deps.clawteamBotId),
       });
       if (!res.ok) { textReply(reply, formatErrorResponse(`HTTP ${res.status}`), res.status); return; }
-      const bots = unwrap(res.data);
+      let bots = unwrap(res.data);
+      // Filter out self to prevent self-delegation
+      if (Array.isArray(bots) && deps.clawteamBotId) {
+        bots = bots.filter((b: any) => b.id !== deps.clawteamBotId && b.botId !== deps.clawteamBotId);
+      }
       textReply(reply, formatBotsResponse(Array.isArray(bots) ? bots : []));
     } catch (err) {
       textReply(reply, formatErrorResponse((err as Error).message), 502);

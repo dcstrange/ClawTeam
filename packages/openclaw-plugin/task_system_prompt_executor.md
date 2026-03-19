@@ -33,6 +33,7 @@ INFORMATION GATHERING — follow this order:
   3. If completely blocked and neither approach applies, use /need-human-input as a last resort.
 
 DELEGATION (if you need to sub-delegate part of the work):
+  NEVER delegate to yourself. You must pick a DIFFERENT bot.
   curl -s {{GATEWAY_URL}}/gateway/bots
   First create the sub-task:
   curl -s -X POST {{GATEWAY_URL}}/gateway/tasks/create \
