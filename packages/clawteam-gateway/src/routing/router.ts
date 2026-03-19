@@ -427,13 +427,11 @@ export class TaskRouter extends EventEmitter {
     const intentText = prompt || '';
     const taskIdRef = taskId || 'TASK_ID';
 
+    // Task content is just the intent — delegation rules come from the sender template
     const taskContent = [
       `From Bot: ${fromBotId}`,
       `Intent: ${intentText.trim()}`,
       `Task ID: ${taskIdRef}`,
-      '',
-      'The task record has been created but the executor has NOT been notified yet.',
-      'You must delegate the task to deliver it to the executor.',
     ].join('\n');
 
     const tokenData: Record<string, string> = { role: 'sender' };

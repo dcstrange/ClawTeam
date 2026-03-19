@@ -371,12 +371,11 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
   });
 
   // 7. POST /gateway/tasks/:taskId/complete — complete + untrack session
-  // Backward compat: if called by executor (toBotId), redirect to submit-result logic
+  // Only the delegator (fromBotId) can call /complete. Executors must use /submit-result.
   server.post<{ Params: { taskId: string } }>('/gateway/tasks/:taskId/complete', async (req, reply) => {
     const { taskId } = req.params;
     const body = autoTrack((req.body || {}) as Record<string, any>, taskId);
     try {
-      // Try complete first (delegator path)
       const res = await proxyFetch(`${apiBase}/api/v1/tasks/${taskId}/complete`, {
         method: 'POST',
         headers: authHeaders(key, deps.clawteamBotId),
@@ -384,19 +383,11 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
       });
 
       if (!res.ok && res.status === 403) {
-        // Backward compat: executor called /complete but only delegator can now.
-        // Auto-redirect to submit-result.
-        log.warn({ taskId }, 'DEPRECATION: executor called /complete, redirecting to /submit-result');
-        const submitRes = await proxyFetch(`${apiBase}/api/v1/tasks/${taskId}/submit-result`, {
-          method: 'POST',
-          headers: authHeaders(key, deps.clawteamBotId),
-          body: JSON.stringify({ result: body.result || { summary: body.result } }),
-        });
-        if (!submitRes.ok) { textReply(reply, formatErrorResponse(`Submit-result failed (HTTP ${submitRes.status})`), submitRes.status); return; }
-
-        deps.sessionTracker.untrack(taskId);
-        log.info({ taskId }, 'Task submitted for review via /complete backward compat');
-        textReply(reply, formatSubmitResultResponse(taskId));
+        // Executor called /complete — return clear error
+        textReply(reply, formatErrorResponse(
+          `Executors cannot call /complete. Only the delegator (task creator) can complete a task. ` +
+          `As an executor, use POST /gateway/tasks/${taskId}/submit-result to submit your work for review.`
+        ), 403);
         return;
       }
 
@@ -420,7 +411,14 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
         headers: authHeaders(key, deps.clawteamBotId),
         body: JSON.stringify(body),
       });
-      if (!res.ok) { textReply(reply, formatErrorResponse(`Submit-result failed (HTTP ${res.status})`), res.status); return; }
+      if (!res.ok) {
+        const errBody = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
+        const hint = res.status === 409
+          ? `. The task may have already been submitted or its status changed. Check task status first.`
+          : '';
+        textReply(reply, formatErrorResponse(`Submit-result failed (HTTP ${res.status})${hint} ${errBody}`), res.status);
+        return;
+      }
 
       deps.sessionTracker.untrack(taskId);
       log.info({ taskId }, 'Task submitted for review via gateway proxy');

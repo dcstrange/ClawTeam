@@ -482,6 +482,10 @@ export class TaskCompleter {
     }
     const validStates = ['accepted', 'processing', 'waiting_for_input'];
     if (!validStates.includes(task.status)) {
+      if (task.status === 'pending_review') {
+        this.logger.info('Task already submitted for review, ignoring duplicate submit', { taskId });
+        return; // Idempotent: already submitted
+      }
       throw new InvalidTaskStateError(taskId, task.status, validStates);
     }
 

@@ -316,10 +316,17 @@ export class SessionStatusResolver {
 /**
  * Derive SessionState from alive status and JSONL analysis.
  *
+ * The `alive` flag is based on session age from the CLI, which can be
+ * misleading for long-running sessions. JSONL analysis takes precedence:
+ * if the JSONL shows the session is actively working (tool_calling, active,
+ * waiting), we trust that over the age-based alive flag.
+ *
  * Truth table:
  * | alive | analysis | lastRole     | stopReason | → State       |
  * |-------|----------|--------------|------------|---------------|
- * | false | *        | *            | *          | dead          |
+ * | false | null     | -            | -          | dead          |
+ * | false | present  | (active*)    | *          | (from JSONL)  |
+ * | false | present  | (inactive)   | *          | dead          |
  * | true  | null     | -            | -          | idle          |
  * | true  | present  | assistant    | error      | errored       |
  * | true  | present  | assistant    | stop       | completed     |
@@ -329,9 +336,20 @@ export class SessionStatusResolver {
  * | true  | present  | null         | *          | idle          |
  */
 export function deriveState(alive: boolean, analysis: JsonlAnalysis | null): SessionState {
-  if (!alive) return 'dead';
+  if (!alive) {
+    // Age-based check says dead, but JSONL might show active work
+    if (!analysis) return 'dead';
+    const jsonlState = deriveFromJsonl(analysis);
+    // If JSONL shows active work, trust it over the age-based flag
+    const activeStates: SessionState[] = ['active', 'tool_calling', 'waiting'];
+    return activeStates.includes(jsonlState) ? jsonlState : 'dead';
+  }
   if (!analysis) return 'idle';
+  return deriveFromJsonl(analysis);
+}
 
+/** Derive state purely from JSONL analysis. */
+function deriveFromJsonl(analysis: JsonlAnalysis): SessionState {
   const { lastMessageRole, lastStopReason } = analysis;
 
   if (!lastMessageRole) return 'idle';
@@ -354,7 +372,8 @@ export function deriveState(alive: boolean, analysis: JsonlAnalysis | null): Ses
 }
 
 /**
- * Parse JSON from CLI output (may contain non-JSON prefix lines).
+ * Parse JSON from CLI output (may contain non-JSON prefix or suffix lines,
+ * e.g. plugin console.log output appended after the JSON).
  */
 function parseJsonOutput(stdout: string): any {
   const trimmed = stdout.trim();
@@ -370,10 +389,14 @@ function parseJsonOutput(stdout: string): any {
         : Math.min(jsonStart, jsonArrayStart);
 
     if (start >= 0) {
-      try {
-        return JSON.parse(trimmed.substring(start));
-      } catch {
-        // ignore
+      const closer = trimmed[start] === '{' ? '}' : ']';
+      const end = trimmed.lastIndexOf(closer);
+      if (end > start) {
+        try {
+          return JSON.parse(trimmed.substring(start, end + 1));
+        } catch {
+          // ignore
+        }
       }
     }
   }
