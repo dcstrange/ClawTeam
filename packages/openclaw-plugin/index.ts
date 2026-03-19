@@ -186,7 +186,9 @@ export default {
       // --- Path 1: sessions_spawn (template injection + sender task creation) ---
       if (event.toolName === 'sessions_spawn') {
         const rawTask = String(event.params?.task ?? '');
+        console.log(`${TAG} sessions_spawn detected, task length=${rawTask.length}, first 200 chars: ${rawTask.slice(0, 200)}`);
         const markers = parseTaskMarkers(rawTask);
+        console.log(`${TAG} parseTaskMarkers result:`, JSON.stringify(markers));
 
         if (!markers?.role) return; // Not a ClawTeam spawn, skip
 
@@ -255,6 +257,7 @@ export default {
         }
 
         pendingTaskId = taskId!;
+        console.log(`${TAG} returning injected params, task length=${injectedParams.task?.length}, first 200 chars: ${String(injectedParams.task).slice(0, 200)}`);
         return { params: injectedParams };
       }
 

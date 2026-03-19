@@ -344,6 +344,11 @@ if [ "$NEEDS_UPDATE" = true ]; then
       if (!cfg.plugins) cfg.plugins = {};
       if (!cfg.plugins.allow) cfg.plugins.allow = [];
       if (!cfg.plugins.allow.includes('clawteam-auto-tracker')) cfg.plugins.allow.push('clawteam-auto-tracker');
+      // Ensure load.paths includes the plugin source so OpenClaw loads from repo (not stale copy)
+      if (!cfg.plugins.load) cfg.plugins.load = {};
+      if (!cfg.plugins.load.paths) cfg.plugins.load.paths = [];
+      const pluginSrc = '$PROJECT_ROOT/packages/openclaw-plugin';
+      if (!cfg.plugins.load.paths.includes(pluginSrc)) cfg.plugins.load.paths.push(pluginSrc);
       fs.writeFileSync(p, JSON.stringify(cfg, null, 2) + '\n');
     "
     echo "    Merged clawteam into existing $OPENCLAW_CONFIG"
@@ -367,6 +372,9 @@ if [ "$NEEDS_UPDATE" = true ]; then
     }
   },
   "plugins": {
+    "load": {
+      "paths": ["$PROJECT_ROOT/packages/openclaw-plugin"]
+    },
     "allow": ["clawteam-auto-tracker"]
   }
 }
