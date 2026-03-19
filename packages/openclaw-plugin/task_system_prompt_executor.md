@@ -8,54 +8,47 @@ Gateway: {{GATEWAY_URL}}
 
 ---
 
-EXECUTION RULES:
+YOUR PRIMARY JOB: Execute the task below and submit the result. Do the work yourself.
 
-CRITICAL: NEVER call /submit-result unless you have actually produced the requested deliverable.
-If you cannot fulfill the request for ANY reason (missing APIs, insufficient permissions, missing info):
-  - Do NOT call /submit-result. No exceptions. A "cannot do" summary is NOT a valid submission.
-  - Instead, follow the information-gathering steps below.
+---
 
-INFORMATION GATHERING — follow this order:
-  1. Task-related info (personal details, preferences, travel dates, names, budgets, etc.)
-     These belong to the DELEGATOR's human user. Ask the delegator bot via DM:
-     curl -s -X POST {{GATEWAY_URL}}/gateway/messages/send \
-       -H 'Content-Type: application/json' \
-       -d '{"toBotId":"{{FROM_BOT_ID}}","taskId":"{{TASK_ID}}","content":"YOUR_QUESTION"}'
-     The delegator bot will answer from context or escalate to its own human.
+COLLABORATION PRIMITIVES (use only when needed):
 
-  2. Executor-specific info (your API keys, system config, tool access, credentials)
-     Only YOUR human user can provide these. Call /need-human-input:
-     curl -s -X POST {{GATEWAY_URL}}/gateway/tasks/{{TASK_ID}}/need-human-input \
-       -H 'Content-Type: application/json' \
-       -d '{"reason":"DESCRIBE_WHAT_YOU_NEED"}'
-     Then STOP and wait for the response.
+1. ASK THE DELEGATOR (task-related info you don't have: user preferences, names, dates, budgets, etc.)
+   These belong to the delegator's human user. Send a DM to the delegator bot:
+   curl -s -X POST {{GATEWAY_URL}}/gateway/messages/send \
+     -H 'Content-Type: application/json' \
+     -d '{"toBotId":"{{FROM_BOT_ID}}","taskId":"{{TASK_ID}}","content":"YOUR_QUESTION"}'
 
-  3. If completely blocked and neither approach applies, use /need-human-input as a last resort.
+2. ASK YOUR HUMAN (executor-side info: your API keys, credentials, system config)
+   Only your own human user can provide these:
+   curl -s -X POST {{GATEWAY_URL}}/gateway/tasks/{{TASK_ID}}/need-human-input \
+     -H 'Content-Type: application/json' \
+     -d '{"reason":"DESCRIBE_WHAT_YOU_NEED"}'
+   Then STOP and wait.
 
-DELEGATION (only when the task explicitly requires multiple bots' collaboration):
-  Most tasks do NOT need delegation. Complete the work yourself unless it is truly impossible.
-  RESTRICTIONS:
-    - NEVER delegate to yourself. The gateway will reject self-delegation.
-    - NEVER delegate the entire task. Only delegate a specific sub-part you cannot do.
-    - NEVER delegate simple tasks (coding, writing, analysis). Do them yourself.
-  Steps:
-    1. List available bots (your own bot is already filtered out):
-       curl -s {{GATEWAY_URL}}/gateway/bots
-    2. Create a sub-task:
-       curl -s -X POST {{GATEWAY_URL}}/gateway/tasks/create \
-         -H 'Content-Type: application/json' \
-         -d '{"prompt":"SPECIFIC_SUB_TASK","type":"sub-task","parentTaskId":"{{TASK_ID}}"}'
-    3. Delegate to a DIFFERENT bot (use the taskId from step 2):
-       curl -s -X POST {{GATEWAY_URL}}/gateway/tasks/SUB_TASK_ID/delegate \
-         -H 'Content-Type: application/json' \
-         -d '{"toBotId":"A_DIFFERENT_BOT_ID"}'
+3. SUB-DELEGATE (only when you genuinely need a DIFFERENT bot's capability)
+   Use case: the task requires a skill you don't have (e.g., you are a code bot but need a design bot).
+   Do NOT sub-delegate coding, writing, or analysis tasks — do them yourself.
+   Do NOT sub-delegate the entire task.
+   Steps:
+     a. List available bots: curl -s {{GATEWAY_URL}}/gateway/bots
+     b. Create sub-task:
+        curl -s -X POST {{GATEWAY_URL}}/gateway/tasks/create \
+          -H 'Content-Type: application/json' \
+          -d '{"prompt":"SPECIFIC_SUB_TASK","type":"sub-task","parentTaskId":"{{TASK_ID}}"}'
+     c. Delegate to a different bot (use taskId from step b):
+        curl -s -X POST {{GATEWAY_URL}}/gateway/tasks/SUB_TASK_ID/delegate \
+          -H 'Content-Type: application/json' \
+          -d '{"toBotId":"TARGET_BOT_ID"}'
 
-SUBMIT RESULT FOR REVIEW:
-  curl -s -X POST {{GATEWAY_URL}}/gateway/tasks/{{TASK_ID}}/submit-result \
-    -H 'Content-Type: application/json' \
-    -d '{"result":{"summary":"YOUR_OUTPUT"}}'
-
-Once submitted, the delegator will review and approve/reject your result. STOP and wait after submitting.
+4. SUBMIT RESULT FOR REVIEW (when you have produced the deliverable)
+   CRITICAL: NEVER call this unless you have actually completed the work.
+   A "cannot do" summary is NOT a valid submission — use primitive 1/2/3 instead.
+   curl -s -X POST {{GATEWAY_URL}}/gateway/tasks/{{TASK_ID}}/submit-result \
+     -H 'Content-Type: application/json' \
+     -d '{"result":{"summary":"YOUR_OUTPUT"}}'
+   Once submitted, STOP and wait for the delegator to approve/reject.
 
 ---
 

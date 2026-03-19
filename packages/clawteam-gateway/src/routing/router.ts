@@ -468,7 +468,14 @@ export class TaskRouter extends EventEmitter {
   }
 
   private async sendToMain(decision: RoutingDecision): Promise<RoutingResult> {
-    const message = this.buildNewTaskMessage(decision.task);
+    // Look up delegator bot name for context
+    let fromBotName: string | undefined;
+    try {
+      const fromBot = await this.clawteamApi.getBot(decision.task.fromBotId);
+      fromBotName = fromBot?.name;
+    } catch { /* best-effort */ }
+
+    const message = this.buildNewTaskMessage(decision.task, fromBotName);
     const success = await this.openclawSession.sendToMainSession(message, decision.taskId);
 
     return {
@@ -571,32 +578,47 @@ export class TaskRouter extends EventEmitter {
   }
 
   /**
+   * Strip delegation prefix from a task prompt so the executor sees only the actual task.
+   * e.g. "Delegate a task to bot abda8113-...: \nPrompt: 写一个消息队列" → "写一个消息队列"
+   */
+  private cleanPromptForExecutor(prompt: string | undefined): string | undefined {
+    if (!prompt) return prompt;
+    // Remove "Delegate a task to bot <UUID>:" prefix (with optional whitespace/newline)
+    let cleaned = prompt.replace(/^Delegate\s+a\s+task\s+to\s+bot\s+[\w-]+:\s*/i, '');
+    // Remove leading "Prompt:" prefix if present
+    cleaned = cleaned.replace(/^Prompt:\s*/i, '');
+    return cleaned.trim() || prompt;
+  }
+
+  /**
    * Build message for new tasks routed to main session.
    * All task details are embedded in the task value — single spawn, no follow-up sessions_send needed.
    */
-  private buildNewTaskMessage(task: Task): string {
+  private buildNewTaskMessage(task: Task, fromBotName?: string): string {
+    const cleanPrompt = this.cleanPromptForExecutor(task.prompt);
     const paramsLine = task.parameters && Object.keys(task.parameters).length > 0
       ? `\nParameters: ${JSON.stringify(task.parameters)}`
       : '';
 
     const taskContent = [
       `Task ID: ${task.id}`,
-      ...(task.prompt ? [`Prompt: ${task.prompt}`] : []),
+      ...(cleanPrompt ? [`Prompt: ${cleanPrompt}`] : []),
       `Capability: ${task.capability}`,
       ...(paramsLine ? [paramsLine.trim()] : []),
     ].join('\n');
 
     const token = `<!--CLAWTEAM:${JSON.stringify({ role: 'executor', taskId: task.id, fromBotId: task.fromBotId })}-->`;
     const executorTaskValue = `${token}\n${taskContent}`;
+    const fromBotLabel = fromBotName ? `${fromBotName} (${task.fromBotId})` : task.fromBotId;
 
     return [
       '[ClawTeam Task Received]',
       `Task ID: ${task.id}`,
       `Capability: ${task.capability}`,
       `Type: ${task.type || 'new'}`,
-      `From Bot: ${task.fromBotId}`,
+      `From Bot: ${fromBotLabel}`,
       `Priority: ${task.priority}`,
-      ...(task.prompt ? [`Prompt: ${task.prompt}`, ''] : ['']),
+      ...(cleanPrompt ? [`Prompt: ${cleanPrompt}`, ''] : ['']),
       '',
       'ACTION REQUIRED: Spawn a sub-session now.',
       'DO NOT call any /tasks/ API endpoints yourself. The plugin handles tracking automatically.',
@@ -608,7 +630,7 @@ export class TaskRouter extends EventEmitter {
       executorTaskValue,
       '---TASK VALUE END---',
       '',
-      `label: "${(task.prompt || task.capability || '').slice(0, 60)}"`,
+      `label: "${(cleanPrompt || task.capability || '').slice(0, 60)}"`,
       '',
       'Pass everything between the START/END markers as the task value.',
       'No follow-up sessions_send is needed — all task details are included in the task value.',

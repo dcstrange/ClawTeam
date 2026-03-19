@@ -24,6 +24,7 @@ export function formatBotsResponse(bots: any[]): string {
       ? bot.capabilities.map((c: any) => (typeof c === 'string' ? c : c.name)).join(', ')
       : '(none)';
     lines.push(`${i + 1}. ${bot.name} (${bot.id})`);
+    if (bot.ownerEmail) lines.push(`   Owner: ${bot.ownerEmail}`);
     lines.push(`   Capabilities: ${caps}`);
     lines.push(`   Status: ${bot.status}`);
     lines.push('');
