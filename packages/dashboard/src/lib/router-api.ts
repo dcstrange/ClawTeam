@@ -47,13 +47,34 @@ export const routerApi = {
       { method: 'POST' },
     ),
 
-  createTask: (prompt: string, priority = 'normal', fromBotId?: string) =>
+  createTask: (
+    prompt: string,
+    priority = 'normal',
+    fromBotId?: string,
+    options?: {
+      title?: string;
+      capability?: string;
+      parameters?: Record<string, any>;
+      type?: string;
+      parentTaskId?: string;
+      timeoutSeconds?: number;
+    },
+  ) =>
     fetchJson<{ success: boolean; taskId?: string; data?: any }>(
       '/api/tasks/create',
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders(), ...(fromBotId ? { 'X-Bot-Id': fromBotId } : {}) },
-        body: JSON.stringify({ prompt, priority }),
+        body: JSON.stringify({
+          prompt,
+          priority,
+          ...(options?.title ? { title: options.title } : {}),
+          ...(options?.capability ? { capability: options.capability } : {}),
+          ...(options?.parameters ? { parameters: options.parameters } : {}),
+          ...(options?.type ? { type: options.type } : {}),
+          ...(options?.parentTaskId ? { parentTaskId: options.parentTaskId } : {}),
+          ...(typeof options?.timeoutSeconds === 'number' ? { timeoutSeconds: options.timeoutSeconds } : {}),
+        }),
       },
     ),
 

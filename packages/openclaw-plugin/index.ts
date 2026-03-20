@@ -34,6 +34,9 @@ interface TaskMarkers {
   role?: string;       // 'executor' | 'sender'
   taskId?: string;
   fromBotId?: string;
+  toBotId?: string;
+  toBotName?: string;
+  toBotOwner?: string;
 }
 
 /** Structured token format: <!--CLAWTEAM:{"role":"...","taskId":"...","fromBotId":"..."}--> */
@@ -58,11 +61,17 @@ function parseTaskMarkers(task: string): TaskMarkers | null {
 
   const taskIdMatch = task.match(/^\s*(?:\[.*?\]\s*)?Task ID:\s*(\S+)/m);
   const fromBotMatch = task.match(/^\s*(?:\[.*?\]\s*)?From Bot:\s*(\S+)/m);
+  const toBotMatch = task.match(/^\s*(?:\[.*?\]\s*)?To Bot:\s*(\S+)/m);
+  const toBotNameMatch = task.match(/^\s*(?:\[.*?\]\s*)?To Bot Name:\s*(.+)$/m);
+  const toBotOwnerMatch = task.match(/^\s*(?:\[.*?\]\s*)?To Bot Owner:\s*(.+)$/m);
 
   return {
     role: roleMatch[1],
     taskId: taskIdMatch?.[1] || undefined,
     fromBotId: fromBotMatch?.[1] || undefined,
+    toBotId: toBotMatch?.[1] || undefined,
+    toBotName: toBotNameMatch?.[1]?.trim() || undefined,
+    toBotOwner: toBotOwnerMatch?.[1]?.trim() || undefined,
   };
 }
 
@@ -200,7 +209,10 @@ function renderTemplate(template: string, vars: Record<string, string>): string 
     .replaceAll('{{FROM_OWNER}}', vars.fromOwner ?? 'unknown')
     .replaceAll('{{MY_BOT_ID}}', vars.myBotId ?? '')
     .replaceAll('{{MY_BOT_NAME}}', vars.myBotName ?? 'unknown')
-    .replaceAll('{{MY_OWNER}}', vars.myOwner ?? 'unknown');
+    .replaceAll('{{MY_OWNER}}', vars.myOwner ?? 'unknown')
+    .replaceAll('{{TO_BOT_ID}}', vars.toBotId ?? '')
+    .replaceAll('{{TO_BOT_NAME}}', vars.toBotName ?? 'unknown')
+    .replaceAll('{{TO_OWNER}}', vars.toOwner ?? 'unknown');
 }
 
 export default {
@@ -250,10 +262,15 @@ export default {
 
         if (!markers?.role) return; // Not a ClawTeam spawn, skip
 
-        let { role, taskId, fromBotId } = markers;
+        let { role, taskId, fromBotId, toBotId, toBotName, toBotOwner } = markers;
         fromBotId = fromBotId || '';
+        toBotId = toBotId || '';
+        toBotName = toBotName || '';
+        toBotOwner = toBotOwner || '';
 
-        console.log(`${TAG} before_tool_call: role=${role}, taskId=${taskId || '(none)'}, fromBotId=${fromBotId || '(none)'}`);
+        console.log(
+          `${TAG} before_tool_call: role=${role}, taskId=${taskId || '(none)'}, fromBotId=${fromBotId || '(none)'}, toBotId=${toBotId || '(none)'}`,
+        );
 
         // Identity guard: sender marker must match local bot identity.
         // Prevents forged/misrouted sender spawns from using another bot's fromBotId.
@@ -333,6 +350,22 @@ export default {
 
         // Strip marker lines from task content so sub-session doesn't see raw markers
         const cleanTask = stripMarkerLines(rawTask);
+        // Fallback extraction from plain text in task body, for compatibility with legacy prompts.
+        if (!toBotId) {
+          const toBotMatch = cleanTask.match(/^\s*To Bot:\s*([\w-]+)/m)
+            || cleanTask.match(/^\s*Intent:\s*Delegate\s+a\s+task\s+to\s+bot\s+([^\s:]+)\s*:/im)
+            || cleanTask.match(/Delegate\s+a\s+task\s+to\s+bot\s+([^\s:]+)\s*:/i);
+          if (toBotMatch) toBotId = toBotMatch[1];
+        }
+        if (!toBotName) {
+          const toNameMatch = cleanTask.match(/^\s*To Bot Name:\s*(.+)$/m);
+          if (toNameMatch) toBotName = toNameMatch[1].trim();
+        }
+        if (!toBotOwner) {
+          const toOwnerMatch = cleanTask.match(/^\s*(?:To Bot Owner|To Owner):\s*(.+)$/m);
+          if (toOwnerMatch) toBotOwner = toOwnerMatch[1].trim();
+        }
+
         const injectedParams: Record<string, any> = {};
 
         const template = templates[role!] || '';
@@ -351,6 +384,14 @@ export default {
             }
           }
 
+          if (toBotId && (!toBotName || !toBotOwner)) {
+            const toBot = await fetchBotInfo(gw, toBotId);
+            if (toBot) {
+              if (!toBotName) toBotName = toBot.name;
+              if (!toBotOwner) toBotOwner = toBot.ownerEmail || '';
+            }
+          }
+
           const rendered = renderTemplate(template, {
             taskId: taskId!,
             role: role!,
@@ -361,6 +402,9 @@ export default {
             myBotId: selfBot?.id || '',
             myBotName: selfBot?.name || '',
             myOwner: selfBot?.ownerEmail || '',
+            toBotId,
+            toBotName,
+            toOwner: toBotOwner,
           });
           injectedParams.task = rendered + cleanTask;
           console.log(`${TAG} injected ${role} system prompt into task (taskId=${taskId})`);
