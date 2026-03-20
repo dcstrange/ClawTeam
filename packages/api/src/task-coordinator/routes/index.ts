@@ -574,7 +574,31 @@ export function createTaskRoutes(deps: TaskRoutesDeps): FastifyPluginAsync {
         }
 
         try {
-          const effectiveRole = role || 'executor';
+          const providedRole = role === 'sender' || role === 'executor' ? role : undefined;
+
+          // Infer role from task participants as a safety net:
+          // - botId === from_bot_id -> sender
+          // - botId === to_bot_id   -> executor
+          let inferredRole: 'sender' | 'executor' | undefined;
+          const taskRoleResult = await deps.db.query(
+            `SELECT from_bot_id, to_bot_id FROM tasks WHERE id = $1 LIMIT 1`,
+            [request.params.taskId],
+          );
+          if (taskRoleResult.rowCount > 0) {
+            const row = taskRoleResult.rows[0] as { from_bot_id: string; to_bot_id: string };
+            if (row.from_bot_id === botId) inferredRole = 'sender';
+            else if (row.to_bot_id === botId) inferredRole = 'executor';
+          }
+
+          let effectiveRole: 'sender' | 'executor' = providedRole ?? inferredRole ?? 'executor';
+          if (providedRole && inferredRole && providedRole !== inferredRole) {
+            request.log.warn(
+              { taskId: request.params.taskId, botId, providedRole, inferredRole },
+              'track-session role mismatch; using inferred role from task participants',
+            );
+            effectiveRole = inferredRole;
+          }
+
           await deps.db.query(
             `INSERT INTO task_sessions (task_id, session_key, bot_id, role)
              VALUES ($1, $2, $3, $4)

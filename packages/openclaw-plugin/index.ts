@@ -290,10 +290,20 @@ export default {
           return { block: true, blockReason: 'Executor spawn requires Task ID in the task markers.' };
         }
 
-        // Non-sender roles require fromBotId
-        if (role !== 'sender' && !fromBotId) {
-          console.error(`${TAG} role="${role}" requires fromBotId`);
-          return { block: true, blockReason: `Role "${role}" requires From Bot in the task markers.` };
+        // Non-sender roles: try to resolve fromBotId if missing
+        if (role !== 'sender' && !fromBotId && taskId) {
+          // Best-effort: fetch task details from gateway to get fromBotId
+          try {
+            const res = await fetch(`${gw}/gateway/tasks/${taskId}`);
+            if (res.ok) {
+              const text = await res.text();
+              const fromMatch = text.match(/From Bot:\s*([\w-]+)/);
+              if (fromMatch) {
+                fromBotId = fromMatch[1];
+                console.log(`${TAG} resolved fromBotId from task: ${fromBotId}`);
+              }
+            }
+          } catch { /* best-effort */ }
         }
 
         // Strip marker lines from task content so sub-session doesn't see raw markers

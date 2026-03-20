@@ -99,12 +99,16 @@ function extractAndTrackSession(
     clawteamApiUrl?: string;
     clawteamApiKey?: string;
   },
+  defaultRole: 'sender' | 'executor' = 'executor',
 ): Record<string, any> {
   const { sessionKey, sessionKeyRole, ...clean } = body;
   if (!sessionKey || !taskId) return body;
+  const effectiveRole = sessionKeyRole === 'sender' || sessionKeyRole === 'executor'
+    ? sessionKeyRole
+    : defaultRole;
 
   deps.sessionTracker.track(taskId, sessionKey);
-  deps.logger.info({ taskId, sessionKey, role: sessionKeyRole }, 'Auto-tracked session via sessionKey in request body');
+  deps.logger.info({ taskId, sessionKey, role: effectiveRole }, 'Auto-tracked session via sessionKey in request body');
 
   // Best-effort persist to API server
   const botId = deps.clawteamBotId;
@@ -113,7 +117,7 @@ function extractAndTrackSession(
     proxyFetch(`${apiBase}/api/v1/tasks/${taskId}/track-session`, {
       method: 'POST',
       headers: authHeaders(deps.clawteamApiKey, botId),
-      body: JSON.stringify({ sessionKey, botId, role: sessionKeyRole || 'executor' }),
+      body: JSON.stringify({ sessionKey, botId, role: effectiveRole }),
     }).catch((err) => {
       deps.logger.warn({ taskId, error: (err as Error).message }, 'Auto-track persist to API failed');
     });
@@ -128,14 +132,18 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
   const key = deps.clawteamApiKey;
 
   /** Shorthand for extractAndTrackSession with gateway deps */
-  const autoTrack = (body: Record<string, any>, taskId: string) =>
+  const autoTrack = (
+    body: Record<string, any>,
+    taskId: string,
+    defaultRole: 'sender' | 'executor' = 'executor',
+  ) =>
     extractAndTrackSession(body, taskId, {
       sessionTracker: deps.sessionTracker,
       logger: log,
       clawteamBotId: deps.clawteamBotId,
       clawteamApiUrl: deps.clawteamApiUrl,
       clawteamApiKey: key,
-    });
+    }, defaultRole);
 
   // 1. POST /gateway/register — register bot using config API key
   server.post('/gateway/register', async (req: FastifyRequest, reply: FastifyReply) => {
@@ -254,7 +262,7 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
   // Called by the delegation sub-session to deliver the task to the executor.
   server.post<{ Params: { taskId: string } }>('/gateway/tasks/:taskId/delegate', async (req, reply) => {
     const { taskId } = req.params;
-    const body = autoTrack((req.body || {}) as Record<string, any>, taskId);
+    const body = autoTrack((req.body || {}) as Record<string, any>, taskId, 'sender');
 
     // Block self-delegation
     if (deps.clawteamBotId && body.toBotId === deps.clawteamBotId) {
