@@ -10,6 +10,7 @@ import { isClawTeamError } from '@clawteam/api/common';
 import { createAuthMiddleware } from '../middleware/auth';
 import { REDIS_KEYS, PRIORITY_ORDER } from '../constants';
 import { randomUUID } from 'crypto';
+import { InvalidTaskStateError, TaskNotFoundError, UnauthorizedTaskError } from '../errors';
 
 export interface TaskRoutesDeps {
   coordinator: ITaskCoordinator;
@@ -181,26 +182,108 @@ export function createTaskRoutes(deps: TaskRoutesDeps): FastifyPluginAsync {
       }
     );
 
-    /** POST /:taskId/delegate — Delegate a pre-created task to a target bot */
-    fastify.post<{ Params: TaskParams; Body: { toBotId: string } }>(
+    /** POST /:taskId/delegate — delegate task directly or sub-delegate by any participant */
+    fastify.post<{
+      Params: TaskParams;
+      Body: {
+        toBotId: string;
+        subTaskPrompt?: string;
+        subTaskTitle?: string;
+        subTaskCapability?: string;
+        subTaskParameters?: Record<string, unknown>;
+        subTaskPriority?: 'low' | 'normal' | 'high' | 'urgent';
+      };
+    }>(
       '/:taskId/delegate',
       { preHandler: authPreHandlers },
       async (request, reply) => {
         const traceId = randomUUID();
-        const { toBotId } = (request.body || {}) as any;
+        const fromBotId = getBotId(request);
+        const {
+          toBotId,
+          subTaskPrompt,
+          subTaskTitle,
+          subTaskCapability,
+          subTaskParameters,
+          subTaskPriority,
+        } = (request.body || {}) as any;
 
         if (!toBotId) {
           return reply.status(400).send({ success: false, error: 'toBotId is required', traceId });
         }
 
         try {
+          const task = await coordinator.getTask(request.params.taskId, fromBotId);
+          if (!task) {
+            throw new TaskNotFoundError(request.params.taskId);
+          }
+
+          const terminalStatuses = new Set(['completed', 'failed', 'cancelled', 'timeout']);
+
+          const hasSubTaskPrompt = !!(subTaskPrompt && typeof subTaskPrompt === 'string' && subTaskPrompt.trim());
+
+          // Case 1: sub-delegate by any task participant (from/to bot).
+          // Creates a child sub-task under current task and delegates it.
+          if (hasSubTaskPrompt) {
+            if (terminalStatuses.has(task.status)) {
+              throw new InvalidTaskStateError(request.params.taskId, task.status, [
+                'pending',
+                'accepted',
+                'processing',
+                'waiting_for_input',
+                'pending_review',
+              ]);
+            }
+
+            const subTask = await coordinator.createTask(
+              {
+                prompt: subTaskPrompt.trim(),
+                title: subTaskTitle,
+                capability: subTaskCapability || task.capability,
+                parameters: (subTaskParameters && typeof subTaskParameters === 'object')
+                  ? subTaskParameters
+                  : {},
+                priority: subTaskPriority || task.priority,
+                type: 'sub-task',
+                parentTaskId: task.id,
+              },
+              fromBotId,
+            );
+
+            // If delegation fails, keep this sub-task pending for manual retry.
+            await coordinator.delegate(subTask.id, toBotId);
+
+            return reply.send({
+              success: true,
+              data: {
+                taskId: subTask.id,
+                parentTaskId: task.id,
+                toBotId,
+                delegationMode: 'sub-task',
+                delegatedAt: new Date().toISOString(),
+              },
+              traceId,
+            });
+          }
+
+          // Case 2: direct delegate (no subTaskPrompt) keeps existing behavior:
+          // only the original delegator can delegate a pre-created pending task.
+          if (task.fromBotId !== fromBotId) {
+            throw new UnauthorizedTaskError(request.params.taskId, fromBotId);
+          }
+          if (task.status !== 'pending') {
+            throw new InvalidTaskStateError(request.params.taskId, task.status, ['pending']);
+          }
+
           await coordinator.delegate(request.params.taskId, toBotId);
 
           return reply.send({
             success: true,
             data: {
               taskId: request.params.taskId,
+              parentTaskId: task.parentTaskId || null,
               toBotId,
+              delegationMode: 'direct',
               delegatedAt: new Date().toISOString(),
             },
             traceId,
@@ -560,11 +643,20 @@ export function createTaskRoutes(deps: TaskRoutesDeps): FastifyPluginAsync {
       async (request, reply) => {
         const traceId = randomUUID();
         const { sessionKey, botId, role } = (request.body || {}) as any;
+        const callerBotId = getBotId(request);
 
         if (!sessionKey || !botId) {
           return reply.status(400).send({
             success: false,
             error: 'sessionKey and botId are required',
+            traceId,
+          });
+        }
+
+        if (callerBotId && botId !== callerBotId) {
+          return reply.status(403).send({
+            success: false,
+            error: `botId mismatch: body.botId (${botId}) must equal caller botId (${callerBotId})`,
             traceId,
           });
         }

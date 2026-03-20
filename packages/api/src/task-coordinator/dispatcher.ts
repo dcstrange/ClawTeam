@@ -7,7 +7,7 @@ import type { ICapabilityRegistry } from '@clawteam/api/capability-registry';
 import type { IMessageBus } from '@clawteam/api/message-bus';
 import type { DatabasePool, RedisClient, Logger } from '@clawteam/api/common';
 import { ValidationError } from '@clawteam/api/common';
-import { TaskNotFoundError, QueueFullError } from './errors';
+import { InvalidTaskStateError, TaskNotFoundError, QueueFullError } from './errors';
 import { taskRowToTask, type TaskRow } from './types';
 import {
   MAX_QUEUE_SIZE,
@@ -72,6 +72,11 @@ export class TaskDispatcher {
       throw new TaskNotFoundError(taskId);
     }
 
+    const task = taskRowToTask(result.rows[0]);
+    if (task.status !== 'pending') {
+      throw new InvalidTaskStateError(taskId, task.status, ['pending']);
+    }
+
     // Check queue capacity
     const queueSize = await this.getQueueSize(toBotId);
     if (queueSize >= MAX_QUEUE_SIZE) {
@@ -84,7 +89,6 @@ export class TaskDispatcher {
       [toBotId, taskId]
     );
 
-    const task = taskRowToTask(result.rows[0]);
     task.toBotId = toBotId;
 
     // Enqueue to Redis

@@ -262,7 +262,28 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
   // Called by the delegation sub-session to deliver the task to the executor.
   server.post<{ Params: { taskId: string } }>('/gateway/tasks/:taskId/delegate', async (req, reply) => {
     const { taskId } = req.params;
-    const body = autoTrack((req.body || {}) as Record<string, any>, taskId, 'sender');
+    const rawBody = (req.body || {}) as Record<string, any>;
+    const {
+      sessionKey,
+      sessionKeyRole: _ignoredRole,
+      fromBotId: claimedFromBotId,
+      ...body
+    } = rawBody;
+
+    if (!body.toBotId || typeof body.toBotId !== 'string') {
+      textReply(reply, formatErrorResponse('toBotId is required'), 400);
+      return;
+    }
+
+    // Optional safety: if caller claims fromBotId in body, it must match local bot identity.
+    if (claimedFromBotId && deps.clawteamBotId && claimedFromBotId !== deps.clawteamBotId) {
+      log.warn(
+        { taskId, claimedFromBotId, localBotId: deps.clawteamBotId },
+        'Blocked delegate request due to fromBotId/local botId mismatch',
+      );
+      textReply(reply, formatErrorResponse(`fromBotId mismatch: expected ${deps.clawteamBotId}, got ${claimedFromBotId}`), 403);
+      return;
+    }
 
     // Block self-delegation
     if (deps.clawteamBotId && body.toBotId === deps.clawteamBotId) {
@@ -279,8 +300,25 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
       });
       if (!res.ok) { textReply(reply, formatErrorResponse(`Delegate failed (HTTP ${res.status}): ${typeof res.data === 'string' ? res.data : JSON.stringify(res.data)}`), res.status); return; }
 
-      log.info({ taskId, toBotId: body.toBotId }, 'Task delegated via /gateway/tasks/:taskId/delegate');
-      textReply(reply, `Task ${taskId} delegated to ${body.toBotId} (enqueued and notification sent).`);
+      const payload = unwrap(res.data);
+      const delegatedTaskId = payload?.taskId || taskId;
+      const delegationMode = payload?.delegationMode || (delegatedTaskId === taskId ? 'direct' : 'sub-task');
+
+      // Track sender session against the REAL delegated task ID.
+      // For executor sub-delegation this must bind to subTaskId (not parent taskId).
+      if (sessionKey) {
+        autoTrack({ sessionKey, sessionKeyRole: 'sender' }, delegatedTaskId, 'sender');
+      }
+
+      log.info(
+        { taskId, delegatedTaskId, parentTaskId: payload?.parentTaskId, toBotId: body.toBotId, delegationMode },
+        'Task delegated via /gateway/tasks/:taskId/delegate',
+      );
+      if (delegationMode === 'sub-task') {
+        textReply(reply, `Sub-task ${delegatedTaskId} (parent: ${taskId}) delegated to ${body.toBotId} (enqueued and notification sent).`);
+      } else {
+        textReply(reply, `Task ${delegatedTaskId} delegated to ${body.toBotId} (enqueued and notification sent).`);
+      }
     } catch (err) {
       textReply(reply, formatErrorResponse((err as Error).message), 502);
     }

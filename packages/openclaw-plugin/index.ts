@@ -255,6 +255,31 @@ export default {
 
         console.log(`${TAG} before_tool_call: role=${role}, taskId=${taskId || '(none)'}, fromBotId=${fromBotId || '(none)'}`);
 
+        // Identity guard: sender marker must match local bot identity.
+        // Prevents forged/misrouted sender spawns from using another bot's fromBotId.
+        if (role === 'sender') {
+          await ensureSelfBot();
+          if (selfBot?.id) {
+            if (fromBotId && fromBotId !== selfBot.id) {
+              console.error(
+                `${TAG} sender identity mismatch: marker fromBotId=${fromBotId}, local botId=${selfBot.id}`,
+              );
+              return {
+                block: true,
+                blockReason: `Sender identity mismatch: fromBotId (${fromBotId}) must equal local botId (${selfBot.id}).`,
+              };
+            }
+            if (!fromBotId) {
+              fromBotId = selfBot.id;
+              console.log(`${TAG} sender marker missing fromBotId, defaulting to local botId=${fromBotId}`);
+            }
+          } else if (fromBotId) {
+            console.warn(
+              `${TAG} cannot verify sender fromBotId=${fromBotId} because /gateway/me is unavailable`,
+            );
+          }
+        }
+
         // Sender without taskId: auto-create task via gateway (block spawn on failure)
         if (!taskId && role === 'sender') {
           const task = stripMarkerLines(rawTask);

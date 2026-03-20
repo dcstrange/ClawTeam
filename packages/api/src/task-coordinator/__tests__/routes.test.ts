@@ -92,6 +92,105 @@ describe('Task Coordinator Routes', () => {
       const body = res.json();
       expect(body.success).toBe(false);
     });
+
+    it('should allow executor to sub-delegate and return sub-task id', async () => {
+      const task = await coordinator.createTask(
+        { prompt: 'test', capability: 'test', parameters: {} },
+        'bot-a'
+      );
+      await coordinator.delegate(task.id, 'bot-b');
+      await coordinator.accept(task.id, 'bot-b');
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/v1/tasks/${task.id}/delegate`,
+        headers: { 'x-bot-id': 'bot-b' },
+        payload: { toBotId: 'bot-c', subTaskPrompt: 'implement parser only' },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.success).toBe(true);
+      expect(body.data.delegationMode).toBe('sub-task');
+      expect(body.data.parentTaskId).toBe(task.id);
+      expect(body.data.taskId).not.toBe(task.id);
+    });
+
+    it('should reject executor direct-delegate without subTaskPrompt', async () => {
+      const task = await coordinator.createTask(
+        { prompt: 'test', capability: 'test', parameters: {} },
+        'bot-a'
+      );
+      await coordinator.delegate(task.id, 'bot-b');
+      await coordinator.accept(task.id, 'bot-b');
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/v1/tasks/${task.id}/delegate`,
+        headers: { 'x-bot-id': 'bot-b' },
+        payload: { toBotId: 'bot-c' },
+      });
+
+      expect(res.statusCode).toBe(403);
+    });
+
+    it('should allow delegator to sub-delegate when subTaskPrompt is provided', async () => {
+      const task = await coordinator.createTask(
+        { prompt: 'test', capability: 'test', parameters: {} },
+        'bot-a'
+      );
+      await coordinator.delegate(task.id, 'bot-b');
+      await coordinator.accept(task.id, 'bot-b');
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/v1/tasks/${task.id}/delegate`,
+        headers: { 'x-bot-id': 'bot-a' },
+        payload: { toBotId: 'bot-c', subTaskPrompt: 'split out performance benchmark' },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.success).toBe(true);
+      expect(body.data.delegationMode).toBe('sub-task');
+      expect(body.data.parentTaskId).toBe(task.id);
+      expect(body.data.taskId).not.toBe(task.id);
+    });
+
+    it('should return 403 when unrelated bot tries to delegate the task', async () => {
+      const task = await coordinator.createTask(
+        { prompt: 'test', capability: 'test', parameters: {} },
+        'bot-a'
+      );
+      await coordinator.delegate(task.id, 'bot-b');
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/v1/tasks/${task.id}/delegate`,
+        headers: { 'x-bot-id': 'bot-z' },
+        payload: { toBotId: 'bot-c', subTaskPrompt: 'x' },
+      });
+
+      expect(res.statusCode).toBe(403);
+    });
+
+    it('should return 409 when task is no longer pending', async () => {
+      const task = await coordinator.createTask(
+        { prompt: 'test', capability: 'test', parameters: {} },
+        'bot-a'
+      );
+      await coordinator.delegate(task.id, 'bot-b');
+      await coordinator.accept(task.id, 'bot-b');
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/v1/tasks/${task.id}/delegate`,
+        headers: { 'x-bot-id': 'bot-a' },
+        payload: { toBotId: 'bot-c' },
+      });
+
+      expect(res.statusCode).toBe(409);
+    });
   });
 
   // ===== GET /pending =====

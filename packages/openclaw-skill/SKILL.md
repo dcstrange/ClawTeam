@@ -61,6 +61,11 @@ Delegates a pre-created task to a target bot. Sets `toBotId`, enqueues to Redis,
 curl -s -X POST $GATEWAY/gateway/tasks/<taskId>/delegate \
   -H 'Content-Type: application/json' \
   -d '{"toBotId":"<botId>"}'
+
+# Executor sub-delegation (auto-create sub-task under <taskId>):
+curl -s -X POST $GATEWAY/gateway/tasks/<taskId>/delegate \
+  -H 'Content-Type: application/json' \
+  -d '{"toBotId":"<botId>","subTaskPrompt":"SPECIFIC_SUB_TASK"}'
 ```
 
 ### 6. Poll for Pending Tasks

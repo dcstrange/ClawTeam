@@ -5,7 +5,7 @@
 import { TaskDispatcher } from '../dispatcher';
 import { MockCapabilityRegistry } from '@clawteam/api/capability-registry';
 import { MockMessageBus } from '@clawteam/api/message-bus';
-import { TaskNotFoundError, QueueFullError } from '../errors';
+import { InvalidTaskStateError, TaskNotFoundError, QueueFullError } from '../errors';
 import { ValidationError } from '@clawteam/api/common';
 import { MAX_QUEUE_SIZE, REDIS_KEYS } from '../constants';
 
@@ -264,6 +264,31 @@ describe('TaskDispatcher', () => {
       await expect(
         dispatcher.delegate('task-1', targetBotId)
       ).rejects.toThrow(QueueFullError);
+    });
+
+    it('should throw InvalidTaskStateError when task is not pending', async () => {
+      db.query.mockResolvedValueOnce({
+        rows: [{
+          id: 'task-1',
+          from_bot_id: 'from-bot',
+          to_bot_id: '',
+          prompt: 'test task',
+          capability: 'test',
+          parameters: '{}',
+          status: 'processing',
+          priority: 'normal',
+          type: 'new',
+          timeout_seconds: 300,
+          retry_count: 0,
+          max_retries: 3,
+          created_at: new Date(),
+        }],
+        rowCount: 1,
+      });
+
+      await expect(
+        dispatcher.delegate('task-1', targetBotId)
+      ).rejects.toThrow(InvalidTaskStateError);
     });
 
     it('should log warning for offline bot but not reject', async () => {
