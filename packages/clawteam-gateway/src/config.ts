@@ -96,7 +96,7 @@ function loadYamlConfig(): YamlConfig {
 }
 
 function resolvePath(value: string): string {
-  return value.startsWith('~') ? value.replace('~', os.homedir()) : value;
+  return value.startsWith('~') ? value.replace(/^~(?=\/|$)/, os.homedir()) : value;
 }
 
 export function loadConfig(): GatewayConfig {
@@ -114,9 +114,11 @@ export function loadConfig(): GatewayConfig {
     throw new Error(`Invalid OPENCLAW_MODE: "${openclawMode}". Must be "cli" or "http".`);
   }
 
-  const openclawHome = process.env.OPENCLAW_HOME
-    || (yaml.openclaw?.home ? resolvePath(yaml.openclaw.home) : undefined)
-    || path.join(os.homedir(), '.openclaw');
+  const openclawHomeEnv = process.env.OPENCLAW_HOME?.trim();
+  const openclawHome = openclawHomeEnv
+    ? resolvePath(openclawHomeEnv)
+    : (yaml.openclaw?.home ? resolvePath(yaml.openclaw.home) : undefined)
+      || path.join(os.homedir(), '.openclaw');
 
   // gateway section with router fallback
   const gw = yaml.gateway;

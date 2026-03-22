@@ -29,6 +29,7 @@ import * as path from 'node:path';
 import { promisify } from 'node:util';
 import type { IOpenClawSessionClient } from './openclaw-session.js';
 import type { Logger } from 'pino';
+import { buildOpenclawCliEnv } from '../utils/openclaw-env.js';
 
 /** On Windows, spawn/execFile need shell:true to resolve .cmd/.bat shims */
 const IS_WINDOWS = os.platform() === 'win32';
@@ -147,6 +148,7 @@ export class OpenClawSessionCliClient implements IOpenClawSessionClient {
         detached: !IS_WINDOWS,
         stdio: ['ignore', 'pipe', 'pipe'],
         shell: IS_WINDOWS,
+        env: buildOpenclawCliEnv(this.openclawHome),
       });
 
       let stderr = '';
@@ -211,7 +213,18 @@ export class OpenClawSessionCliClient implements IOpenClawSessionClient {
     const mainSessionKey = `agent:${this.mainAgentId}:main`;
     const agentId = this.mainAgentId;
 
-    const realSessionId = this.lookupSessionId(agentId, mainSessionKey);
+    let realSessionId = this.lookupSessionId(agentId, mainSessionKey);
+    if (!realSessionId) {
+      this.logger.warn(
+        { mainSessionKey, agentId },
+        'Main sessionId missing in sessions.json, attempting one-time reset',
+      );
+      const resetSessionId = await this.resetMainSession();
+      if (resetSessionId) {
+        realSessionId = resetSessionId;
+      }
+    }
+
     if (!realSessionId) {
       this.logger.error(
         { mainSessionKey, agentId },
@@ -241,6 +254,7 @@ export class OpenClawSessionCliClient implements IOpenClawSessionClient {
       const { stdout } = await execFileAsync(this.openclawBin, ['sessions', '--json'], {
         timeout: 10_000,
         shell: IS_WINDOWS,
+        env: buildOpenclawCliEnv(this.openclawHome),
       });
 
       const data = this.parseJsonOutput(stdout);
@@ -425,7 +439,11 @@ export class OpenClawSessionCliClient implements IOpenClawSessionClient {
       const { stdout } = await execFileAsync(
         this.openclawBin,
         args,
-        { timeout: 15_000, shell: IS_WINDOWS },
+        {
+          timeout: 15_000,
+          shell: IS_WINDOWS,
+          env: buildOpenclawCliEnv(this.openclawHome),
+        },
       );
 
       const data = this.parseJsonOutput(stdout);

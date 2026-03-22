@@ -392,14 +392,45 @@ export class TaskRouter extends EventEmitter {
       ? (msg.content as Record<string, any>)
       : {};
     const taskId = typeof content.taskId === 'string' ? content.taskId : '';
-    const prompt = typeof content.prompt === 'string' ? content.prompt : '';
-    const capability = typeof content.capability === 'string' ? content.capability : '';
-    const parameters = (content.parameters && typeof content.parameters === 'object')
+    let prompt = typeof content.prompt === 'string' ? content.prompt : '';
+    let capability = typeof content.capability === 'string' ? content.capability : '';
+    let parameters = (content.parameters && typeof content.parameters === 'object')
       ? (content.parameters as Record<string, any>)
       : {};
     const fromBotId = msg.fromBotId;
 
-    const message = this.buildDelegateIntentMessage(taskId, prompt, fromBotId, parameters);
+    // Authoritative sync: delegate_intent should follow the live task row.
+    // This prevents stale inbox payloads from mixing taskId with another prompt.
+    if (taskId) {
+      try {
+        const liveTask = await this.clawteamApi.getTask(taskId);
+        if (liveTask) {
+          const livePrompt = typeof liveTask.prompt === 'string' ? liveTask.prompt : '';
+          if (livePrompt && prompt.trim() && livePrompt.trim() !== prompt.trim()) {
+            this.logger.warn(
+              { taskId, inboxPrompt: prompt, livePrompt },
+              'delegate_intent prompt mismatch; using live task prompt',
+            );
+          }
+          if (livePrompt.trim()) {
+            prompt = livePrompt;
+          }
+
+          capability = liveTask.capability || capability;
+          if (liveTask.parameters && typeof liveTask.parameters === 'object') {
+            parameters = liveTask.parameters as Record<string, any>;
+          }
+        }
+      } catch (error) {
+        this.logger.warn(
+          { taskId, error: (error as Error).message },
+          'delegate_intent live task sync failed; using inbox payload',
+        );
+      }
+    }
+
+    const toMeta = await this.resolveDelegateIntentTarget(prompt, parameters);
+    const message = this.buildDelegateIntentMessage(taskId, prompt, fromBotId, toMeta);
     const success = await this.openclawSession.sendToMainSession(message);
 
     const result: RoutingResult = {
@@ -435,17 +466,14 @@ export class TaskRouter extends EventEmitter {
     taskId: string,
     prompt: string,
     fromBotId: string,
-    parameters: Record<string, any>,
+    target: { toBotId?: string; toBotName?: string; toBotOwner?: string },
   ): string {
     const intentText = prompt || '';
     const cleanPrompt = intentText.trim();
     const taskIdRef = taskId || 'TASK_ID';
-    const delegateIntent = (parameters?.delegateIntent && typeof parameters.delegateIntent === 'object')
-      ? parameters.delegateIntent as Record<string, any>
-      : null;
-    const toBotId = typeof delegateIntent?.toBotId === 'string' ? delegateIntent.toBotId : '';
-    const toBotName = typeof delegateIntent?.toBotName === 'string' ? delegateIntent.toBotName : '';
-    const toBotOwner = typeof delegateIntent?.toBotOwner === 'string' ? delegateIntent.toBotOwner : '';
+    const toBotId = target.toBotId?.trim() || '';
+    const toBotName = target.toBotName?.trim() || '';
+    const toBotOwner = target.toBotOwner?.trim() || '';
     const intentLabel = (toBotId
       ? `Delegate a task to bot ${toBotId}:`
       : cleanPrompt) || 'Delegate a task';
@@ -468,6 +496,8 @@ export class TaskRouter extends EventEmitter {
     };
     if (taskId) tokenData.taskId = taskId;
     if (toBotId) tokenData.toBotId = toBotId;
+    if (toBotName) tokenData.toBotName = toBotName;
+    if (toBotOwner) tokenData.toBotOwner = toBotOwner;
     const token = `<!--CLAWTEAM:${JSON.stringify(tokenData)}-->`;
     const taskValue = `${token}\n${taskContent}`;
 
@@ -495,6 +525,83 @@ export class TaskRouter extends EventEmitter {
       'Pass everything between the START/END markers as the task value.',
       'No follow-up sessions_send is needed — all task details are included in the task value.',
     ].join('\n');
+  }
+
+  private asRecord(value: unknown): Record<string, unknown> | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    return value as Record<string, unknown>;
+  }
+
+  private firstNonEmptyString(...values: unknown[]): string {
+    for (const value of values) {
+      if (typeof value !== 'string') continue;
+      const trimmed = value.trim();
+      if (trimmed) return trimmed;
+    }
+    return '';
+  }
+
+  private extractToBotIdFromIntent(intentText: string): string {
+    const match = intentText.match(/Delegate\s+a\s+task\s+to\s+bot\s+([^\s:]+)\s*:/i);
+    return match?.[1]?.trim() || '';
+  }
+
+  private async resolveDelegateIntentTarget(
+    prompt: string,
+    parameters: Record<string, any>,
+  ): Promise<{ toBotId?: string; toBotName?: string; toBotOwner?: string }> {
+    const top = this.asRecord(parameters);
+    const delegateIntent = this.asRecord(top?.delegateIntent);
+    const dashboardDelegate = this.asRecord(top?.dashboardDelegate);
+
+    const toBotId = this.firstNonEmptyString(
+      top?.toBotId,
+      top?.targetBotId,
+      delegateIntent?.toBotId,
+      delegateIntent?.targetBotId,
+      dashboardDelegate?.toBotId,
+      dashboardDelegate?.targetBotId,
+      this.extractToBotIdFromIntent(prompt || ''),
+    );
+
+    let toBotName = this.firstNonEmptyString(
+      top?.toBotName,
+      top?.targetBotName,
+      delegateIntent?.toBotName,
+      delegateIntent?.targetBotName,
+      dashboardDelegate?.toBotName,
+      dashboardDelegate?.targetBotName,
+    );
+
+    let toBotOwner = this.firstNonEmptyString(
+      top?.toBotOwner,
+      top?.targetBotOwner,
+      top?.toOwner,
+      delegateIntent?.toBotOwner,
+      delegateIntent?.targetBotOwner,
+      delegateIntent?.toOwner,
+      dashboardDelegate?.toBotOwner,
+      dashboardDelegate?.targetBotOwner,
+      dashboardDelegate?.toOwner,
+    );
+
+    if (toBotId && (!toBotName || !toBotOwner)) {
+      try {
+        const bot = await this.clawteamApi.getBot(toBotId);
+        if (bot) {
+          if (!toBotName && bot.name) toBotName = bot.name;
+          if (!toBotOwner && bot.ownerEmail) toBotOwner = bot.ownerEmail;
+        }
+      } catch {
+        // best-effort lookup
+      }
+    }
+
+    return {
+      ...(toBotId ? { toBotId } : {}),
+      ...(toBotName ? { toBotName } : {}),
+      ...(toBotOwner ? { toBotOwner } : {}),
+    };
   }
 
   private async sendToMain(decision: RoutingDecision): Promise<RoutingResult> {

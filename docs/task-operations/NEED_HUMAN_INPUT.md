@@ -70,6 +70,15 @@ accepted / processing  ──need-human-input──▶  waiting_for_input
 
 `waiting_for_input` 状态的任务在 recovery loop 中被跳过（不 nudge、不 fail），因为任务在合法等待人类输入。
 
+## 冲突纠正机制（pending_review ↔ need-human-input）
+
+常见误用：executor 过早 `submit-result` 进入 `pending_review`，随后 delegator 发现还缺信息并调用 `need-human-input`，会产生状态冲突。
+
+Gateway 代理层已加入自动纠正：
+- 若 `need-human-input` 返回 `409 + currentStatus=pending_review` 且调用方是 delegator，
+- Gateway 会先自动执行 `reject`（回到 `processing`），再重试 `need-human-input`，
+- 最终把任务修正到 `waiting_for_input`，避免流程卡死。
+
 ## Delegate-Intent 场景
 
 委托方 proxy sub-session 的行为：

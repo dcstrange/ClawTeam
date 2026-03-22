@@ -422,6 +422,23 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
   server.post<{ Params: { taskId: string } }>('/gateway/tasks/:taskId/submit-result', async (req, reply) => {
     const { taskId } = req.params;
     const body = autoTrack((req.body || {}) as Record<string, any>, taskId);
+    const submitted = body.result;
+    const emptyObject = typeof submitted === 'object'
+      && submitted !== null
+      && !Array.isArray(submitted)
+      && Object.keys(submitted as Record<string, unknown>).length === 0;
+    const emptyString = typeof submitted === 'string' && submitted.trim().length === 0;
+    if (submitted === undefined || submitted === null || emptyObject || emptyString) {
+      textReply(
+        reply,
+        formatErrorResponse(
+          `submit-result requires a final deliverable in body.result. ` +
+          `Use DM or /need-human-input for intermediate progress/questions.`
+        ),
+        400,
+      );
+      return;
+    }
     try {
       const res = await proxyFetch(`${apiBase}/api/v1/tasks/${taskId}/submit-result`, {
         method: 'POST',
@@ -493,7 +510,116 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
         headers: authHeaders(key, deps.clawteamBotId),
         body: JSON.stringify(body),
       });
-      if (!res.ok) { textReply(reply, formatErrorResponse(`Wait failed (HTTP ${res.status})`), res.status); return; }
+      if (!res.ok) {
+        const apiError = (typeof res.data === 'object' && res.data?.error) ? res.data.error : null;
+        const currentStatus = apiError?.details?.currentStatus as string | undefined;
+        const errorMsg = typeof apiError?.message === 'string' ? apiError.message : '';
+
+        // Idempotent behavior: if the task is already waiting_for_input, treat as success.
+        if (res.status === 409 && currentStatus === 'waiting_for_input') {
+          textReply(reply, `Task ${taskId} is already waiting_for_input. Human input request is still pending.`);
+          return;
+        }
+
+        // Auto-correction for common conflict:
+        // executor submitted too early (pending_review), then delegator asks for human input.
+        // If caller is delegator, auto-reject back to processing and retry need-human-input.
+        if (res.status === 409 && currentStatus === 'pending_review') {
+          try {
+            const taskRes = await proxyFetch(`${apiBase}/api/v1/tasks/${taskId}`, {
+              headers: authHeaders(key, deps.clawteamBotId),
+            });
+            const task = taskRes.ok ? unwrap(taskRes.data) : null;
+            const fromBotId = (task?.fromBotId || task?.from_bot_id) as string | undefined;
+            const isDelegatorCaller = !!deps.clawteamBotId && !!fromBotId && deps.clawteamBotId === fromBotId;
+
+            if (!isDelegatorCaller) {
+              textReply(
+                reply,
+                formatErrorResponse(
+                  `Wait failed (HTTP 409): task is currently "pending_review". ` +
+                  `After submit-result, use DM for follow-up; only the delegator can reject and reopen execution.`
+                ),
+                409,
+              );
+              return;
+            }
+
+            const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+            const autoRejectReason = reason
+              ? `Auto-correction: delegator requested more info before final review (${reason})`
+              : 'Auto-correction: delegator requested more info before final review';
+            const rejectRes = await proxyFetch(`${apiBase}/api/v1/tasks/${taskId}/reject`, {
+              method: 'POST',
+              headers: authHeaders(key, deps.clawteamBotId),
+              body: JSON.stringify({ reason: autoRejectReason }),
+            });
+
+            if (!rejectRes.ok) {
+              const rejectError = (typeof rejectRes.data === 'object' && rejectRes.data?.error) ? rejectRes.data.error : null;
+              const rejectStatus = rejectError?.details?.currentStatus as string | undefined;
+              const rejectRecoverable = rejectRes.status === 409
+                && (rejectStatus === 'processing' || rejectStatus === 'waiting_for_input');
+              if (rejectRecoverable) {
+                log.info({ taskId, rejectStatus }, 'Auto-correction reject already applied by concurrent actor');
+              } else {
+              textReply(
+                reply,
+                formatErrorResponse(
+                  `Wait failed (HTTP 409): task is "pending_review", and auto-reject recovery failed (HTTP ${rejectRes.status}).`
+                ),
+                rejectRes.status,
+              );
+              return;
+              }
+            }
+
+            const retryRes = await proxyFetch(`${apiBase}/api/v1/tasks/${taskId}/need-human-input`, {
+              method: 'POST',
+              headers: authHeaders(key, deps.clawteamBotId),
+              body: JSON.stringify(body),
+            });
+
+            if (retryRes.ok) {
+              textReply(
+                reply,
+                `Task ${taskId} auto-corrected (pending_review -> processing -> waiting_for_input).`,
+              );
+              return;
+            }
+
+            const retryError = (typeof retryRes.data === 'object' && retryRes.data?.error) ? retryRes.data.error : null;
+            const retryStatus = retryError?.details?.currentStatus as string | undefined;
+            if (retryRes.status === 409 && retryStatus === 'waiting_for_input') {
+              textReply(reply, `Task ${taskId} is already waiting_for_input. Human input request is still pending.`);
+              return;
+            }
+
+            textReply(
+              reply,
+              formatErrorResponse(`Wait failed after auto-correction (HTTP ${retryRes.status})`),
+              retryRes.status,
+            );
+            return;
+          } catch (err) {
+            textReply(reply, formatErrorResponse((err as Error).message), 502);
+            return;
+          }
+        }
+
+        if (res.status === 409 && currentStatus) {
+          textReply(
+            reply,
+            formatErrorResponse(`Wait failed (HTTP 409): task is currently "${currentStatus}"`),
+            409,
+          );
+          return;
+        }
+
+        const suffix = errorMsg ? `: ${errorMsg}` : '';
+        textReply(reply, formatErrorResponse(`Wait failed (HTTP ${res.status})${suffix}`), res.status);
+        return;
+      }
       textReply(reply, `Task ${taskId} marked as waiting_for_input.`);
     } catch (err) {
       textReply(reply, formatErrorResponse((err as Error).message), 502);

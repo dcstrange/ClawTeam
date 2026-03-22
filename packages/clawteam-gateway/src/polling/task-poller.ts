@@ -161,12 +161,15 @@ export class TaskPollingLoop extends EventEmitter {
             continue;
           }
 
-          // Check if the task is already in terminal state
+          // delegate_intent is only valid for pending tasks.
           if (taskId) {
             try {
               const task = await this.clawteamApi.getTask(taskId);
-              if (task && TERMINAL_STATUSES.has(task.status)) {
-                this.logger.info({ taskId, status: task.status, messageId: msg.messageId }, 'delegate_intent task already in terminal state, ACKing without routing');
+              if (task && task.status !== 'pending') {
+                this.logger.info(
+                  { taskId, status: task.status, messageId: msg.messageId },
+                  'delegate_intent task is not pending, ACKing without routing',
+                );
                 skipped++;
                 await this.ackBestEffort(msg.messageId);
                 continue;

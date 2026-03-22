@@ -18,6 +18,10 @@
  *   {{FROM_BOT_ID}}    → delegator bot ID
  *   {{FROM_BOT_NAME}}  → delegator bot name (fetched at spawn time)
  *   {{FROM_OWNER}}     → delegator bot owner (fetched at spawn time)
+ *   {{TARGET_BOT_ID}}  → pre-selected executor bot ID (sender role)
+ *   {{TARGET_BOT_NAME}}→ pre-selected executor bot name (sender role)
+ *   {{TARGET_OWNER}}   → pre-selected executor owner (sender role)
+ *   {{TARGET_EXECUTOR_BLOCK}} → optional formatted target executor section
  *   {{MY_BOT_ID}}      → this bot's ID
  *   {{MY_BOT_NAME}}    → this bot's name
  *   {{MY_OWNER}}       → this bot's owner
@@ -34,9 +38,12 @@ interface TaskMarkers {
   role?: string;       // 'executor' | 'sender'
   taskId?: string;
   fromBotId?: string;
+  toBotId?: string;
+  toBotName?: string;
+  toBotOwner?: string;
 }
 
-/** Structured token format: <!--CLAWTEAM:{"role":"...","taskId":"...","fromBotId":"..."}--> */
+/** Structured token format: <!--CLAWTEAM:{"role":"...","taskId":"...","fromBotId":"...","toBotId":"..."}--> */
 const CLAWTEAM_TOKEN_RE = /<!--CLAWTEAM:(\{.*?\})-->/;
 
 /** Parse ClawTeam markers from a task string.
@@ -58,6 +65,9 @@ function parseTaskMarkers(task: string): TaskMarkers | null {
   const roleMatch = task.match(/^\s*(?:\[.*?\]\s*)?Role:\s*(\S+)/m);
   const taskIdMatch = task.match(/^\s*(?:\[.*?\]\s*)?Task ID:\s*(\S+)/m);
   const fromBotMatch = task.match(/^\s*(?:\[.*?\]\s*)?From Bot:\s*(\S+)/m);
+  const toBotMatch = task.match(/^\s*(?:\[.*?\]\s*)?To Bot:\s*(\S+)/m);
+  const toBotNameMatch = task.match(/^\s*(?:\[.*?\]\s*)?To Bot Name:\s*(.+)$/m);
+  const toBotOwnerMatch = task.match(/^\s*(?:\[.*?\]\s*)?To Bot Owner:\s*(.+)$/m);
 
   const role = tokenParsed.role || roleMatch?.[1];
   if (!role) return null;
@@ -66,6 +76,9 @@ function parseTaskMarkers(task: string): TaskMarkers | null {
     role,
     taskId: tokenParsed.taskId || taskIdMatch?.[1] || undefined,
     fromBotId: tokenParsed.fromBotId || fromBotMatch?.[1] || undefined,
+    toBotId: tokenParsed.toBotId || toBotMatch?.[1] || undefined,
+    toBotName: tokenParsed.toBotName || toBotNameMatch?.[1]?.trim() || undefined,
+    toBotOwner: tokenParsed.toBotOwner || toBotOwnerMatch?.[1]?.trim() || undefined,
   };
 }
 
@@ -201,6 +214,10 @@ function renderTemplate(template: string, vars: Record<string, string>): string 
     .replaceAll('{{FROM_BOT_ID}}', vars.fromBotId ?? '')
     .replaceAll('{{FROM_BOT_NAME}}', vars.fromBotName ?? 'unknown')
     .replaceAll('{{FROM_OWNER}}', vars.fromOwner ?? 'unknown')
+    .replaceAll('{{TARGET_BOT_ID}}', vars.targetBotId ?? '')
+    .replaceAll('{{TARGET_BOT_NAME}}', vars.targetBotName ?? 'unknown')
+    .replaceAll('{{TARGET_OWNER}}', vars.targetOwner ?? 'unknown')
+    .replaceAll('{{TARGET_EXECUTOR_BLOCK}}', vars.targetExecutorBlock ?? '')
     .replaceAll('{{MY_BOT_ID}}', vars.myBotId ?? '')
     .replaceAll('{{MY_BOT_NAME}}', vars.myBotName ?? 'unknown')
     .replaceAll('{{MY_OWNER}}', vars.myOwner ?? 'unknown');
@@ -253,7 +270,7 @@ export default {
 
         if (!markers?.role) return; // Not a ClawTeam spawn, skip
 
-        let { role, taskId, fromBotId } = markers;
+        let { role, taskId, fromBotId, toBotId, toBotName, toBotOwner } = markers;
         fromBotId = fromBotId || '';
 
         console.log(`${TAG} before_tool_call: role=${role}, taskId=${taskId || '(none)'}, fromBotId=${fromBotId || '(none)'}`);
@@ -327,6 +344,17 @@ export default {
           } catch { /* best-effort */ }
         }
 
+        // Sender: enrich pre-selected target executor info if available.
+        if (role === 'sender' && toBotId) {
+          if (!toBotName || !toBotOwner) {
+            const targetBot = await fetchBotInfo(gw, toBotId);
+            if (targetBot) {
+              if (!toBotName) toBotName = targetBot.name;
+              if (!toBotOwner) toBotOwner = targetBot.ownerEmail || '';
+            }
+          }
+        }
+
         // Strip marker lines from task content so sub-session doesn't see raw markers
         const cleanTask = stripMarkerLines(rawTask);
         const injectedParams: Record<string, any> = {};
@@ -351,6 +379,18 @@ export default {
             fromBotId,
             fromBotName,
             fromOwner,
+            targetBotId: toBotId || '',
+            targetBotName: toBotName || '',
+            targetOwner: toBotOwner || '',
+            targetExecutorBlock: (role === 'sender' && toBotId)
+              ? [
+                  'TARGET EXECUTOR (if pre-selected by dashboard/intent):',
+                  `  Bot ID: ${toBotId}`,
+                  `  Bot Name: ${toBotName || 'unknown'}`,
+                  `  Owner: ${toBotOwner || 'unknown'}`,
+                  '',
+                ].join('\n')
+              : '',
             myBotId: selfBot?.id || '',
             myBotName: selfBot?.name || '',
             myOwner: selfBot?.ownerEmail || '',

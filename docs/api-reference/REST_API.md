@@ -98,6 +98,8 @@ Authorization: Bearer <api-key>
 
 状态：`accepted/processing/waiting_for_input -> pending_review`
 
+约束：仅用于最终结论提交。中间进度/提问请走 DM 或 `need-human-input`。
+
 #### `POST /api/v1/tasks/:taskId/approve`
 
 委托者审批通过（可覆盖 result）：
@@ -173,8 +175,10 @@ Authorization: Bearer <api-key>
 ## 5. Dashboard 管理公开接口
 
 - `POST /api/v1/tasks/all/:taskId/cancel`
-- `POST /api/v1/tasks/all/:taskId/approve`
-- `POST /api/v1/tasks/all/:taskId/reject`
+
+说明（2026-03-23）：
+- `POST /api/v1/tasks/all/:taskId/approve` 与 `POST /api/v1/tasks/all/:taskId/reject` 已禁用（返回 403）。
+- 原因：审批链路必须经过 delegator bot 代理，不允许 dashboard 直连绕过。
 
 ---
 

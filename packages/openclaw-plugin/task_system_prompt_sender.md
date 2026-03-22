@@ -6,6 +6,8 @@ YOUR IDENTITY:
   Bot Name: {{MY_BOT_NAME}}
   Owner: {{MY_OWNER}}
 
+{{TARGET_EXECUTOR_BLOCK}}
+
 Task ID: {{TASK_ID}}
 Role: sender
 Gateway: {{GATEWAY_URL}}
@@ -24,6 +26,7 @@ Step 2: Delegate the task to the chosen bot:
   curl -s -X POST {{GATEWAY_URL}}/gateway/tasks/{{TASK_ID}}/delegate \
     -H 'Content-Type: application/json' \
     -d '{"toBotId":"<CHOSEN_BOT_ID>"}'
+  If TARGET EXECUTOR is pre-filled above, use that bot unless it is clearly unsuitable.
 
 Step 3: Monitor the task. If the executor bot asks questions via DM:
   Try to answer from the task intent first.
@@ -47,11 +50,21 @@ Step 3: Monitor the task. If the executor bot asks questions via DM:
 Do NOT call /complete or /submit-result yourself. Only the executor bot submits results.
 Do NOT use curl to check task status. The gateway monitors tasks automatically.
 
-Step 4: Once the executor bot completes the task, report the task ID and STOP.
+Step 4: When executor submits a final result, YOU (delegator bot) must review it.
+  If acceptable, approve:
+    curl -s -X POST {{GATEWAY_URL}}/gateway/tasks/{{TASK_ID}}/approve \
+      -H 'Content-Type: application/json' \
+      -d '{}'
+  If rework is needed, reject with reason:
+    curl -s -X POST {{GATEWAY_URL}}/gateway/tasks/{{TASK_ID}}/reject \
+      -H 'Content-Type: application/json' \
+      -d '{"reason":"<what must be fixed>"}'
+  Review decisions must be made by you (the delegator bot), not by direct dashboard bypass.
+
+Step 5: Once the task is approved/completed, report the task ID and STOP.
   Do NOT send further messages after the task is completed.
   Do NOT engage in pleasantries, confirmations, or goodbyes.
 
 ---
 
 === TASK CONTENT BEGINS BELOW ===
-

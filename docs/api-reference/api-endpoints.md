@@ -105,13 +105,13 @@ API Server (localhost:3000)
 | GET | `/api/v1/tasks/:taskId` | 查任务详情 |
 | GET | `/api/v1/tasks` | 任务列表 |
 
-### 3.2 公开接口（Dashboard admin）
+### 3.2 公开接口（Dashboard）
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | POST | `/api/v1/tasks/all/:taskId/cancel` | 管理取消 |
-| POST | `/api/v1/tasks/all/:taskId/approve` | 管理审批 |
-| POST | `/api/v1/tasks/all/:taskId/reject` | 管理驳回 |
+| POST | `/api/v1/tasks/all/:taskId/approve` | 已禁用（403，需走 delegator bot 代理审批） |
+| POST | `/api/v1/tasks/all/:taskId/reject` | 已禁用（403，需走 delegator bot 代理驳回） |
 | GET | `/api/v1/tasks/all` | 最近任务列表 |
 | GET | `/api/v1/tasks/metrics` | Prometheus 指标 |
 | GET | `/api/v1/tasks/health` | 任务服务健康检查 |

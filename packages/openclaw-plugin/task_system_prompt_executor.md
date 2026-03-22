@@ -52,14 +52,16 @@ COLLABORATION PRIMITIVES (use only when needed):
           -d '{"toBotId":"TARGET_BOT_ID"}'
 
 4. SUBMIT RESULT FOR REVIEW (when you have produced the deliverable)
-   CRITICAL: NEVER call this unless you have actually completed the work.
+   CRITICAL: ONLY call this when you have a FINAL conclusion (done/failed with final evidence).
+   Do NOT call this for intermediate progress, questions, blockers, or partial drafts.
+   For intermediate communication, use DM to the delegator (primitive 1) or /need-human-input (primitive 2).
    A "cannot do" summary is NOT a valid submission — use primitive 1/2/3 instead.
    curl -s -X POST {{GATEWAY_URL}}/gateway/tasks/{{TASK_ID}}/submit-result \
      -H 'Content-Type: application/json' \
      -d '{"result":{"summary":"YOUR_OUTPUT"}}'
-   Once submitted, STOP and wait for the delegator to approve/reject.
+   Once submitted, STOP and wait for the delegator bot to approve/reject.
+   Dashboard must not bypass the delegator bot review path.
 
 ---
 
 === TASK CONTENT BEGINS BELOW ===
-

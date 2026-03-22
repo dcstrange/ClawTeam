@@ -102,17 +102,4 @@ export const routerApi = {
       body: JSON.stringify({ input: prompt }),
     }),
 
-  approveTask: (taskId: string, result?: any) =>
-    fetchJson<{ success: boolean }>(`/api/tasks/all/${taskId}/approve`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(result ? { result } : {}),
-    }),
-
-  rejectTask: (taskId: string, reason?: string) =>
-    fetchJson<{ success: boolean }>(`/api/tasks/all/${taskId}/reject`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reason: reason || 'Rejected from dashboard' }),
-    }),
 };
