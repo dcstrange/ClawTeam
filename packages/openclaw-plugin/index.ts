@@ -42,6 +42,27 @@ interface TaskMarkers {
 /** Structured token format: <!--CLAWTEAM:{"role":"...","taskId":"...","fromBotId":"..."}--> */
 const CLAWTEAM_TOKEN_RE = /<!--CLAWTEAM:(\{.*?\})-->/;
 
+/** Detect whether task already contains a fully rendered ClawTeam sub-session prompt. */
+function isPreRenderedSubSessionPrompt(task: string): boolean {
+  const lower = task.toLowerCase();
+  return (
+    lower.includes('[clawteam sub-session context]')
+    && lower.includes('=== task content begins below ===')
+    && (
+      lower.includes('your primary job:')
+      || lower.includes('sender rules:')
+      || lower.includes('collaboration primitives')
+    )
+  );
+}
+
+/** Remove only the structured CLAWTEAM token line (if present). */
+function stripClawTeamToken(task: string): string {
+  return task
+    .replace(/^.*<!--CLAWTEAM:\{.*?\}-->.*\n?/m, '')
+    .replace(/^\n+/, '');
+}
+
 /** Parse ClawTeam markers from a task string.
  *  Primary: structured JSON token (immune to timestamp/indent/LLM rewrite).
  *  Fallback: plain-text Role:/Task ID:/From Bot: lines (legacy compat). */
@@ -57,7 +78,19 @@ function parseTaskMarkers(task: string): TaskMarkers | null {
 
   // Fallback: plain-text markers (tolerates leading whitespace and [timestamp] prefixes)
   const roleMatch = task.match(/^\s*(?:\[.*?\]\s*)?Role:\s*(\S+)/m);
-  if (!roleMatch) return null;
+  const roleFromContextMatch = task.match(/^\s*(?:\[.*?\]\s*)?You are a ClawTeam\s+(executor|sender)\b/i);
+  const role = roleMatch?.[1] || roleFromContextMatch?.[1]?.toLowerCase();
+  if (!role) return null;
+
+  // Also support already-rendered executor prompt blocks:
+  // DELEGATOR (who assigned this task to you):
+  //   Bot ID: <id>
+  const delegatorBotMatch = task.match(/DELEGATOR[^\n]*:\s*[\r\n]+[\s\S]{0,240}?\bBot ID:\s*(\S+)/i);
+
+  // Also support already-rendered sender prompt blocks:
+  // TARGET EXECUTOR:
+  //   Bot ID: <id>
+  const targetExecutorMatch = task.match(/TARGET EXECUTOR[^\n]*:\s*[\r\n]+[\s\S]{0,240}?\bBot ID:\s*(\S+)/i);
 
   const taskIdMatch = task.match(/^\s*(?:\[.*?\]\s*)?Task ID:\s*(\S+)/m);
   const fromBotMatch = task.match(/^\s*(?:\[.*?\]\s*)?From Bot:\s*(\S+)/m);
@@ -66,10 +99,10 @@ function parseTaskMarkers(task: string): TaskMarkers | null {
   const toBotOwnerMatch = task.match(/^\s*(?:\[.*?\]\s*)?To Bot Owner:\s*(.+)$/m);
 
   return {
-    role: roleMatch[1],
+    role,
     taskId: taskIdMatch?.[1] || undefined,
-    fromBotId: fromBotMatch?.[1] || undefined,
-    toBotId: toBotMatch?.[1] || undefined,
+    fromBotId: fromBotMatch?.[1] || delegatorBotMatch?.[1] || undefined,
+    toBotId: toBotMatch?.[1] || targetExecutorMatch?.[1] || undefined,
     toBotName: toBotNameMatch?.[1]?.trim() || undefined,
     toBotOwner: toBotOwnerMatch?.[1]?.trim() || undefined,
   };
@@ -77,14 +110,29 @@ function parseTaskMarkers(task: string): TaskMarkers | null {
 
 /** Strip ClawTeam markers from a task string so the sub-session doesn't see raw metadata */
 function stripMarkerLines(task: string): string {
-  return task
-    // Remove structured token line
-    .replace(/^.*<!--CLAWTEAM:\{.*?\}-->.*\n?/m, '')
-    // Remove legacy plain-text markers
-    .replace(/^\s*(?:\[.*?\]\s*)?Role:\s*\S+\n?/m, '')
-    .replace(/^\s*(?:\[.*?\]\s*)?Task ID:\s*\S+\n?/m, '')
-    .replace(/^\s*(?:\[.*?\]\s*)?From Bot:\s*\S+\n?/m, '')
-    .replace(/^\n+/, ''); // trim leading blank lines left behind
+  const withoutToken = stripClawTeamToken(task);
+  const lines = withoutToken.split(/\r?\n/);
+
+  const markerLine = (line: string): boolean => (
+    /^\s*(?:\[.*?\]\s*)?Role:\s*\S+\s*$/i.test(line)
+    || /^\s*(?:\[.*?\]\s*)?Task ID:\s*\S+\s*$/i.test(line)
+    || /^\s*(?:\[.*?\]\s*)?From Bot:\s*\S+\s*$/i.test(line)
+    || /^\s*(?:\[.*?\]\s*)?From Bot Name:\s*.+$/i.test(line)
+    || /^\s*(?:\[.*?\]\s*)?From Owner:\s*.+$/i.test(line)
+    || /^\s*(?:\[.*?\]\s*)?To Bot:\s*\S+\s*$/i.test(line)
+    || /^\s*(?:\[.*?\]\s*)?To Bot Name:\s*.+$/i.test(line)
+    || /^\s*(?:\[.*?\]\s*)?To Bot Owner:\s*.+$/i.test(line)
+  );
+
+  // Strip only a leading marker block. Avoid deleting Task ID/Role lines that may
+  // appear inside already-rendered sub-session context text.
+  let i = 0;
+  while (i < lines.length && lines[i].trim() === '') i += 1;
+  let j = i;
+  while (j < lines.length && markerLine(lines[j])) j += 1;
+
+  const out = (j > i ? lines.slice(j) : lines.slice(i)).join('\n');
+  return out.replace(/^\n+/, '');
 }
 
 /**
@@ -257,6 +305,7 @@ export default {
       if (event.toolName === 'sessions_spawn') {
         const rawTask = String(event.params?.task ?? '');
         console.log(`${TAG} sessions_spawn detected, task length=${rawTask.length}, first 200 chars: ${rawTask.slice(0, 200)}`);
+        const preRendered = isPreRenderedSubSessionPrompt(rawTask);
         const markers = parseTaskMarkers(rawTask);
         console.log(`${TAG} parseTaskMarkers result:`, JSON.stringify(markers));
 
@@ -299,7 +348,7 @@ export default {
 
         // Sender without taskId: auto-create task via gateway (block spawn on failure)
         if (!taskId && role === 'sender') {
-          const task = stripMarkerLines(rawTask);
+          const task = preRendered ? stripClawTeamToken(rawTask) : stripMarkerLines(rawTask);
           const label = String(event.params?.label ?? '');
           console.log(`${TAG} creating task via ${gw}/gateway/tasks/create`);
           try {
@@ -348,8 +397,12 @@ export default {
           } catch { /* best-effort */ }
         }
 
-        // Strip marker lines from task content so sub-session doesn't see raw markers
-        const cleanTask = stripMarkerLines(rawTask);
+        // If prompt is already rendered with ClawTeam sub-session context, keep it as-is
+        // (except optional structured token) to avoid double-injecting templates.
+        const cleanTask = preRendered ? stripClawTeamToken(rawTask) : stripMarkerLines(rawTask);
+        if (preRendered) {
+          console.log(`${TAG} detected pre-rendered sub-session prompt, skip template prepend`);
+        }
         // Fallback extraction from plain text in task body, for compatibility with legacy prompts.
         if (!toBotId) {
           const toBotMatch = cleanTask.match(/^\s*To Bot:\s*([\w-]+)/m)
@@ -369,7 +422,7 @@ export default {
         const injectedParams: Record<string, any> = {};
 
         const template = templates[role!] || '';
-        if (template) {
+        if (template && !preRendered) {
           // Fetch self bot info (lazy, cached)
           await ensureSelfBot();
 
