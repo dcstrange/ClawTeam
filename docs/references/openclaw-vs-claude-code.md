@@ -1,5 +1,8 @@
 # OpenClaw 与 Claude Code 的关系
 
+> ⚠️ Historical Notice: 本目录以背景资料/调研为主，不是当前实现规范。
+> 当前规范请优先参考：`docs/spec/README.md` 与各域 canonical 文档。
+
 > 两者常被混为一谈，但它们是定位完全不同的产品，因商标纠纷和生态博弈而交织在一起。
 
 ---

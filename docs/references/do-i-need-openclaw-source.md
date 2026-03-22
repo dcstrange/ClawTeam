@@ -1,5 +1,8 @@
 # 基于 OpenClaw 构建开发团队 Bot 平台：需要下载源码吗？
 
+> ⚠️ Historical Notice: 本目录以背景资料/调研为主，不是当前实现规范。
+> 当前规范请优先参考：`docs/spec/README.md` 与各域 canonical 文档。
+
 > 结论：大概率**不需要**下载和修改 OpenClaw 源码。
 > Moltbook 的成功先例证明了这一点。
 

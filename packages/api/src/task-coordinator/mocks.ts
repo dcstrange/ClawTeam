@@ -121,17 +121,51 @@ export class MockTaskCoordinator implements ITaskCoordinator {
   async complete(taskId: string, req: TaskCompleteRequest, botId: string): Promise<void> {
     const task = this.getTaskOrThrow(taskId);
 
-    if (task.toBotId !== botId) {
+    if (task.fromBotId !== botId) {
       throw new UnauthorizedTaskError(taskId, botId);
     }
-    if (task.status !== 'accepted' && task.status !== 'processing') {
-      throw new InvalidTaskStateError(taskId, task.status, ['accepted', 'processing']);
+    const validStates: TaskStatus[] = ['accepted', 'processing', 'waiting_for_input', 'pending_review'];
+    if (!validStates.includes(task.status)) {
+      throw new InvalidTaskStateError(taskId, task.status, validStates);
     }
 
     task.status = req.status === 'completed' ? 'completed' : 'failed';
     task.result = req.result;
     task.error = req.error;
     task.completedAt = new Date().toISOString();
+  }
+
+  async submitResult(taskId: string, result: any, botId: string): Promise<void> {
+    const task = this.getTaskOrThrow(taskId);
+    if (task.toBotId !== botId) throw new UnauthorizedTaskError(taskId, botId);
+    const validStates: TaskStatus[] = ['accepted', 'processing', 'waiting_for_input'];
+    if (!validStates.includes(task.status)) {
+      throw new InvalidTaskStateError(taskId, task.status, validStates);
+    }
+    task.status = 'pending_review' as TaskStatus;
+    task.submittedResult = result;
+    task.submittedAt = new Date().toISOString();
+  }
+
+  async approve(taskId: string, botId: string, resultOverride?: any): Promise<void> {
+    const task = this.getTaskOrThrow(taskId);
+    if (task.fromBotId !== botId) throw new UnauthorizedTaskError(taskId, botId);
+    if (task.status !== ('pending_review' as TaskStatus)) {
+      throw new InvalidTaskStateError(taskId, task.status, ['pending_review']);
+    }
+    task.status = 'completed';
+    task.result = resultOverride ?? task.submittedResult;
+    task.completedAt = new Date().toISOString();
+  }
+
+  async reject(taskId: string, botId: string, reason: string): Promise<void> {
+    const task = this.getTaskOrThrow(taskId);
+    if (task.fromBotId !== botId) throw new UnauthorizedTaskError(taskId, botId);
+    if (task.status !== ('pending_review' as TaskStatus)) {
+      throw new InvalidTaskStateError(taskId, task.status, ['pending_review']);
+    }
+    task.status = 'processing';
+    task.rejectionReason = reason;
   }
 
   async cancel(taskId: string, reason: string, botId: string): Promise<void> {

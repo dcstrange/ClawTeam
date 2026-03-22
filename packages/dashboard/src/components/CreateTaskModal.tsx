@@ -45,7 +45,18 @@ export function CreateTaskModal({ isOpen, onClose, onSuccess }: CreateTaskModalP
       const intentPrompt = lines.join('\n');
 
       // Step 1: Create task via API Server (no longer goes through Gateway)
-      const createResult = await routerApi.createTask(intentPrompt, priority, fromBotId);
+      // Persist target bot metadata in parameters so delegate_intent routing can enrich sub-session context.
+      const createResult = await routerApi.createTask(intentPrompt, priority, fromBotId, {
+        capability: capability || undefined,
+        parameters: {
+          delegateIntent: {
+            toBotId,
+            toBotName: toBot?.name || '',
+            toBotOwner: toBot?.ownerEmail || '',
+            source: 'dashboard_create_task_modal',
+          },
+        },
+      });
       if (!createResult.success) {
         setError('Failed to create task');
         return;

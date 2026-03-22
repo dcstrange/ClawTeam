@@ -1,5 +1,8 @@
 # 原语系统设计
 
+> ⚠️ Historical Notice: 本文档含历史语义，可能与当前实现不一致。
+> 当前规范请优先参考：`docs/task-operations/README.md`、`docs/api-reference/api-endpoints.md`、`docs/Gateway/GATEWAY_TASK_MANAGEMENT.md`。
+
 > **⚠️ OUTDATED — 本文档已过时，不再维护。**
 >
 > 本文档中的"实现状态"列与实际代码不符（多处标记 ✅ 已实现 的原语实际为内存 Map stub）。

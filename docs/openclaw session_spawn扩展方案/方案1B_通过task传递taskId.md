@@ -1,5 +1,8 @@
 # 方案 1B：通过 task 内容传递 taskId
 
+> ⚠️ Historical Notice: 本目录为历史方案调研，不代表当前线上实现。
+> 当前实现请参考：`docs/Gateway/GATEWAY_TASK_MANAGEMENT.md`、`docs/Gateway/消息构建器.md`、`docs/task-operations/README.md`。
+
 ## 实现思路
 
 在 `task` 参数中嵌入 `clawteam_taskId`，使用特殊标记（如 `[CLAWTEAM_TASK_ID:xxx]`），在 hook 中解析并移除标记后再传递给实际的 task。

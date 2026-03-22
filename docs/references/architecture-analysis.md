@@ -1,5 +1,8 @@
 # ClawCode 架构分析：并发处理与中心化 vs 去中心化
 
+> ⚠️ Historical Notice: 本目录以背景资料/调研为主，不是当前实现规范。
+> 当前规范请优先参考：`docs/spec/README.md` 与各域 canonical 文档。
+
 ---
 
 ## 一、OpenClaw 的并发处理能力

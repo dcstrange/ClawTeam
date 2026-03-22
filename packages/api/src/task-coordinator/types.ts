@@ -34,6 +34,9 @@ export interface TaskRow {
   conversation_id: string | null;
   workflow_id: string | null;
   metadata: Record<string, any> | null;
+  submitted_result: any | null;
+  submitted_at: Date | null;
+  rejection_reason: string | null;
 }
 
 /**
@@ -87,5 +90,8 @@ export function taskRowToTask(row: TaskRow): Task {
     humanContext: row.human_context ?? undefined,
     conversationId: row.conversation_id ?? undefined,
     workflowId: row.workflow_id ?? undefined,
+    submittedResult: row.submitted_result ?? undefined,
+    submittedAt: row.submitted_at?.toISOString(),
+    rejectionReason: row.rejection_reason ?? undefined,
   };
 }

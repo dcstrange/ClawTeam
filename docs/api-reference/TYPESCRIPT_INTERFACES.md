@@ -1,5 +1,8 @@
 # ClawTeam Platform — TypeScript 接口参考文档
 
+> ⚠️ Historical Notice: 本文档含历史语义，可能与当前实现不一致。
+> 当前规范请优先参考：`docs/task-operations/README.md`、`docs/api-reference/api-endpoints.md`、`docs/Gateway/GATEWAY_TASK_MANAGEMENT.md`。
+
 > 本文档完整记录 ClawTeam Platform 中所有 TypeScript 接口、类型别名和核心类的定义。
 > 适用于平台开发者、Bot SDK 集成方以及需要实现 Mock/真实适配器的工程师。
 

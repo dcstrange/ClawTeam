@@ -1,222 +1,61 @@
 # 路由 (Routing)
 
-> 我是一个 pending 状态的 Task。这是我被发现并路由到 OpenClaw session 的过程。
+> 本文档描述“消息投递层”的行为。Routing 负责把任务/消息送到 session，本身不负责推进任务状态机。
 
 ## 触发
 
-ClawTeam Gateway 的 TaskPollingLoop 每隔 5-15 秒轮询一次统一收件箱 `GET /api/v1/messages/inbox`，发现我的 `task_notification` 消息。
+Gateway `TaskPollingLoop` 定期轮询 `GET /api/v1/messages/inbox`，处理三类消息：
+- `task_notification`
+- `delegate_intent`
+- `direct_message`
 
-## 流转过程
+## 主流程
 
-```
-┌─────────────────────────────────────────────────────────┐
-│ ClawTeam Gateway — TaskPollingLoop.pollOnce()            │
-│ 📁 packages/clawteam-gateway/src/polling/task-poller.ts │
-│                                                         │
-│ 1. clawteamApi.pollInbox(limit)                         │
-│    GET /api/v1/messages/inbox                           │
-│ 2. 收到 InboxMessage[] (按优先级排序: urgent>high>...)   │
-│ 3. 按 type 分流:                                        │
-│    ├─ task_notification → getTask(taskId) → route(task) │
-│    ├─ direct_message → routeMessage(msg)                │
-│    └─ broadcast/system → log 并跳过                     │
-│ 4. 收件箱使用 LRANGE 非破坏读取 + processing SET          │
-│    消息保留到 Router 投递成功后显式 ACK 才删除             │
-│ 5. 路由成功 → ackMessage() → 消息从 Redis 移除            │
-│    路由失败 → 不 ACK → processing SET 过期后自动重试       │
-└────────────────────┬────────────────────────────────────┘
-                     │ 我是 task_notification 类型
-                     │ getTask(taskId) 获取完整 Task 对象
-                     ▼
-┌─────────────────────────────────────────────────────────┐
-│ ClawTeam Gateway — TaskRouter.route()                   │
-│ 📁 packages/clawteam-gateway/src/routing/router.ts      │
-│                                                         │
-│ Phase 1: decide() — 纯逻辑，无 I/O                      │
-│                                                         │
-│   if type === 'new'                                     │
-│     → action: 'send_to_main'                            │
-│                                                         │
-│   if type === 'sub-task'                                   │
-│     且有 targetSessionKey                                │
-│     → action: 'send_to_session'                         │
-│     → target: targetSessionKey                          │
-│                                                         │
-│   否则                                                   │
-│     → action: 'send_to_main' (兜底)                     │
-│                                                         │
-│ Phase 2: execute() — 执行路由                            │
-└────────────────────┬────────────────────────────────────┘
-                     │
-          ┌──────────┴──────────┐
-          ▼                     ▼
-    send_to_main          send_to_session
-          │                     │
-          ▼                     ▼
-┌──────────────────┐  ┌──────────────────────────────┐
-│ 发送到 Main      │  │ 发送到指定 Sub-session        │
-│ Session          │  │                              │
-│                  │  │ 1. isSessionAlive(target)?   │
-│ 构建消息:         │  │    ├─ alive → sendToSession  │
-│ [ClawTeam Task   │  │    └─ dead → restoreSession  │
-│  Received]       │  │         ├─ 恢复成功 → send   │
-│ 包含:            │  │         └─ 恢复失败 → 降级    │
-│ - Task ID        │  │           sendToMainSession  │
-│ - Capability     │  │           (fallback)         │
-│ - Parameters     │  │                              │
-│ - SUB-SESSION    │  │                              │
-│   INSTRUCTIONS   │  │                              │
-└────────┬─────────┘  └──────────────┬───────────────┘
-         │                           │
-         ▼                           ▼
-┌─────────────────────────────────────────────────────────┐
-│ 路由完成后的记录                                         │
-│                                                         │
-│ 1. routedTasks.markRouted(myId) — 标记已路由             │
-│ 2. sessionTracker.track(myId, sessionKey) — 追踪映射     │
-│ 3. clawteamApi.ackMessage(messageId) — 确认投递成功      │
-│    → 从 Redis LIST 删除消息 + 从 processing SET 移除     │
-│    → DB status → 'read'                                 │
-│ 4. clawteamApi.acceptTask(myId, sessionKey) — 自动 accept│
-│ 5. clawteamApi.startTask(myId) — 自动 start             │
-│ 6. router.emit('task_routed') — 广播路由事件             │
-│    → WebSocket 推送给 Dashboard / TUI                   │
-│ 7. routeHistory.push() — 记录路由历史                    │
-└─────────────────────────────────────────────────────────┘
+```text
+TaskPollingLoop.pollOnce()
+  -> pollInbox()
+  -> 按类型分流
+     - task_notification -> getTask(taskId) -> router.route(task)
+     - delegate_intent   -> router.routeDelegateIntent(msg)
+     - direct_message    -> router.routeMessage(msg)
+  -> 路由成功后 ACK inbox 消息
+  -> routedTasks 去重记录
 ```
 
-## Direct Message 路由
+## Task 路由决策
 
-除了 task_notification，收件箱还可能包含 `direct_message` 类型消息。路由逻辑根据消息是否携带 `taskId` 区分：
+`TaskRouter.decide(task)`：
+- `type = new` -> 发送到 main session
+- `type = sub-task`
+  - 有 `targetSessionKey` -> 发到该 sub-session
+  - 否则尝试沿用父任务 session
+  - 再失败则回退 main
 
-```
-┌─────────────────────────────────────────────────────────┐
-│ ClawTeam Gateway — TaskRouter.routeMessage()            │
-│ 📁 packages/clawteam-gateway/src/routing/router.ts      │
-│                                                         │
-│ message.taskId 存在?                                     │
-│ ├─ YES:                                                 │
-│ │  1. sessionTracker.getSessionForTask(taskId)          │
-│ │  2. clawteamApi.getTask(taskId) (best-effort)         │
-│ │  ├─ 找到 session:                                     │
-│ │  │  → sendToSession(sessionKey, taskContextPrompt)    │
-│ │  │  → 发送失败 fallback 到 main                       │
-│ │  └─ 未找到 session:                                    │
-│ │     → sendToMainSession(taskContextPrompt)            │
-│ │  提示模板: [ClawTeam Message — Task Context]           │
-│ │  回复指引预填 taskId，保持对话线程                       │
-│ │                                                       │
-│ └─ NO:                                                  │
-│    1. buildDirectMessagePrompt(message)                 │
-│       构建 [ClawTeam Message Received] 提示              │
-│    2. openclawSession.sendToMainSession(prompt)         │
-│    3. 返回 RoutingResult                                │
-└─────────────────────────────────────────────────────────┘
-```
+`TaskRouter.execute(decision)`：
+- 目标 session 存活：直接发送
+- 不存活：尝试 `restoreSession`
+- restore 失败：`buildFallbackMessage` 发回 main
 
-**典型场景：** Bot A 委托 Bot B 做 code_review → Bot B 的 sub-session 需要确认分支 → 发送 DM (带 taskId) → Bot A 侧 Router 将消息路由到正在处理该任务的 sub-session → Bot A 回复也带 taskId → Bot B 侧 Router 同样路由到对应 sub-session。
+## delegate_intent 路由
 
-## 涉及模块
+当前是 inbox 驱动：
+1. API `/:taskId/delegate-intent` 写 inbox
+2. poller 读取 `delegate_intent`
+3. router 组装 `[ClawTeam Delegate Intent]` 发送 main
+4. main spawn sender 子会话继续委托
 
-| 模块 | 角色 | 关键文件 |
-|------|------|---------|
-| ClawTeam Gateway — Poller | 轮询收件箱，按 type 分流 | `task-poller.ts` |
-| ClawTeam Gateway — Router | 决策路由目标、执行发送、处理 DM | `router.ts` |
-| ClawTeam Gateway — RoutedTasksTracker | 防止重复路由 | `routed-tasks.ts` |
-| ClawTeam Gateway — SessionTracker | 记录 taskId ↔ sessionKey 映射 | `session-tracker.ts` |
-| OpenClaw CLI | 实际发送消息到 session | `openclaw-session.ts` |
-| API Server | 提供收件箱端点、接收 accept/start | `messages/routes.ts`, `task-coordinator/routes/` |
+## DM 路由
 
-## 状态变化
+- 有 `taskId`：优先投递到该任务绑定的 sub-session；找不到就降级 main（带 task context）
+- 无 `taskId`：直接发 main
 
-```
-pending → accepted → processing  (由 Router 自动推进)
-```
+## Routing 与状态机关系
 
-> Router 在路由成功后会自动调用 accept + start，所以我会快速经过 accepted 到达 processing。
+- Routing 阶段仅处理“投递/重试/降级”，不直接做 `accept/start/complete`。
+- 任务状态由 API 生命周期接口推进（`accept`, `submit-result`, `approve/reject`, `complete` 等）。
 
-## 路由决策规则
+## 相关代码
 
-### Task 路由 (`task_notification`)
-
-| 我的 type | 我的 targetSessionKey | 路由目标 |
-|-----------|----------------------|---------|
-| `new` | - | Main session (spawn 新子 session) |
-| `sub-task` | 有 | 指定的子 session |
-| `sub-task` | 无 | Main session (兜底) |
-
-### DM 路由 (`direct_message`)
-
-| taskId | sessionTracker 有记录 | 路由目标 |
-|--------|----------------------|---------|
-| 有 | 有 → sessionKey | 该 sub-session (失败 fallback main) |
-| 有 | 无 | Main session (带任务上下文) |
-| 无 | - | Main session |
-
-## 消息格式
-
-### Task 消息 → Main session
-
-```
-[ClawTeam Task Received]
-Task ID: {taskId}
-Capability: {capability}
-From Bot: {fromBotId}
-Priority: {priority}
-Type: {type}
-Parameters: {JSON}
-
-=== SUB-SESSION INSTRUCTIONS ===
-Step 1 — Accept the task ...
-Step 2 — Start the task ...
-Step 3 — Execute ...
-
-If you need to clarify requirements with the delegator:
-  curl -X POST $CLAWTEAM_API_URL/api/v1/messages/send \
-    -d '{"toBotId":"{fromBotId}","type":"direct_message","taskId":"{taskId}","content":"<your question>"}'
-
-Step 4 — Complete the task ...
-=== END SUB-SESSION INSTRUCTIONS ===
-```
-
-### DM (带 taskId) → Sub-session 或 Main session
-
-```
-[ClawTeam Message — Task Context]
-Task ID: {taskId}
-Capability: {capability}
-From Bot: {fromBotId}
-Message ID: {messageId}
-Priority: {priority}
-
-Message Content:
-{content}
-
-Reply using:
-  curl -X POST $CLAWTEAM_API_URL/api/v1/messages/send \
-    -d '{"toBotId":"{fromBotId}","type":"direct_message","taskId":"{taskId}","content":"<your reply>"}'
-```
-
-### DM (无 taskId) → Main session
-
-```
-[ClawTeam Message Received]
-Message ID: {messageId}
-From Bot: {fromBotId}
-Priority: {priority}
-
-Message Content:
-{content}
-
-You may respond to this message using:
-  curl -X POST $CLAWTEAM_API_URL/api/v1/messages/send \
-    -d '{"toBotId":"{fromBotId}","type":"direct_message","content":"<your reply>"}'
-```
-
-## 我被路由后的去向
-
-OpenClaw main session 收到消息后 spawn 一个子 session，子 session 开始执行我的任务。接下来：
-- 正常完成 → 见 [ACCEPT_START_COMPLETE.md](./ACCEPT_START_COMPLETE.md)
-- 子 session 卡住 → 见 [NUDGE.md](./NUDGE.md)
-- 子 session 死亡 → 见 [RECOVERY.md](./RECOVERY.md)
-- 超时 → 见 [TIMEOUT.md](./TIMEOUT.md)
+- `packages/clawteam-gateway/src/polling/task-poller.ts`
+- `packages/clawteam-gateway/src/routing/router.ts`
+- `packages/clawteam-gateway/src/routing/session-tracker.ts`

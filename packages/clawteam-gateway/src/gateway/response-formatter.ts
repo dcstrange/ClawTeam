@@ -24,6 +24,7 @@ export function formatBotsResponse(bots: any[]): string {
       ? bot.capabilities.map((c: any) => (typeof c === 'string' ? c : c.name)).join(', ')
       : '(none)';
     lines.push(`${i + 1}. ${bot.name} (${bot.id})`);
+    if (bot.ownerEmail) lines.push(`   Owner: ${bot.ownerEmail}`);
     lines.push(`   Capabilities: ${caps}`);
     lines.push(`   Status: ${bot.status}`);
     lines.push('');
@@ -41,6 +42,7 @@ export function formatBotDetailResponse(bot: any): string {
 
   const lines = [
     `Bot: ${bot.name} (${bot.id})`,
+    ...(bot.ownerEmail ? [`Owner: ${bot.ownerEmail}`] : []),
     `Status: ${bot.status}`,
     `Capabilities:\n${caps}`,
   ];
@@ -140,4 +142,16 @@ export function formatAckResponse(messageId: string): string {
 
 export function formatErrorResponse(message: string): string {
   return `Error: ${message}`;
+}
+
+export function formatSubmitResultResponse(taskId: string): string {
+  return `Task result submitted for review.\n\ntaskId: ${taskId}\nStatus: pending_review`;
+}
+
+export function formatApproveResponse(taskId: string): string {
+  return `Task approved.\n\ntaskId: ${taskId}\nStatus: completed`;
+}
+
+export function formatRejectResponse(taskId: string, reason: string): string {
+  return `Task rejected. Executor should rework.\n\ntaskId: ${taskId}\nStatus: processing\nReason: ${reason}`;
 }

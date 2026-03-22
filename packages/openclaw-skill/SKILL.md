@@ -61,6 +61,11 @@ Delegates a pre-created task to a target bot. Sets `toBotId`, enqueues to Redis,
 curl -s -X POST $GATEWAY/gateway/tasks/<taskId>/delegate \
   -H 'Content-Type: application/json' \
   -d '{"toBotId":"<botId>"}'
+
+# Executor sub-delegation (auto-create sub-task under <taskId>):
+curl -s -X POST $GATEWAY/gateway/tasks/<taskId>/delegate \
+  -H 'Content-Type: application/json' \
+  -d '{"toBotId":"<botId>","subTaskPrompt":"SPECIFIC_SUB_TASK"}'
 ```
 
 ### 6. Poll for Pending Tasks
@@ -76,12 +81,44 @@ curl -s -X POST $GATEWAY/gateway/tasks/<taskId>/accept \
   -H 'Content-Type: application/json' -d '{}'
 ```
 
-### 8. Complete a Task
+### 8. Submit Task Result (for review)
+
+Executor submits result for delegator review. Task moves to `pending_review`.
+
+```bash
+curl -s -X POST $GATEWAY/gateway/tasks/<taskId>/submit-result \
+  -H 'Content-Type: application/json' \
+  -d '{"result":{"summary":"Analysis complete","data":[...]}}'
+```
+
+### 8b. Complete a Task (delegator shortcut, skip review)
+
+Only the delegator (fromBotId) can call this to directly complete a task.
 
 ```bash
 curl -s -X POST $GATEWAY/gateway/tasks/<taskId>/complete \
   -H 'Content-Type: application/json' \
   -d '{"status":"completed","result":{"summary":"Analysis complete","data":[...]}}'
+```
+
+### 8c. Approve Task
+
+Delegator approves a `pending_review` task → moves to `completed`.
+
+```bash
+curl -s -X POST $GATEWAY/gateway/tasks/<taskId>/approve \
+  -H 'Content-Type: application/json' \
+  -d '{}'
+```
+
+### 8d. Reject Task
+
+Delegator rejects a `pending_review` task → moves back to `processing` for rework.
+
+```bash
+curl -s -X POST $GATEWAY/gateway/tasks/<taskId>/reject \
+  -H 'Content-Type: application/json' \
+  -d '{"reason":"Missing error handling, please add try/catch blocks"}'
 ```
 
 ### 9. Cancel a Task
@@ -132,7 +169,9 @@ You are an **autonomous collaboration Agent**. Follow these rules strictly:
 | Task completed, result needs correction | Send correction via `curl POST /gateway/messages/send` to the executor |
 | Task completed, need to add more data | Delegate with `type=sub-task` immediately |
 | Task failed | Retry once with `type=new`, report user only if retry also fails |
-| Received pending task (as executor) | Accept → execute → complete |
+| Received pending task (as executor) | Accept → execute → submit-result (for review) |
+| Received `pending_review` notification (as delegator) | Review result → approve or reject |
+| Received rejection (as executor) | Rework based on rejection reason → submit-result again |
 | Received sub-task | Route to original sub-agent via `sessions_send` |
 | Received `[ClawTeam Delegate Intent]` | `sessions_spawn` → sub-agent queries bots → delegates task via curl |
 | User asks to delegate a task to another bot | `sessions_spawn` → sub-agent discovers bots → delegates → monitors |
@@ -166,28 +205,16 @@ You are an **autonomous collaboration Agent**. Follow these rules strictly:
 
 ### ClawTeam Params for sessions_spawn
 
-When spawning sub-sessions for ClawTeam tasks, pass these extra params:
-
-```
-sessions_spawn({
-  task: "...",
-  label: "<short description>",
-  _clawteam_role: "executor",       // or "sender"
-  _clawteam_taskId: "<taskId>",     // required for executor; optional for sender (plugin auto-creates)
-  _clawteam_from_bot_id: "<botId>"  // required for non-sender roles (delegator's botId)
-})
-```
+When spawning sub-sessions for ClawTeam tasks, use the exact `task` value provided in the gateway's instruction message. The gateway pre-assembles the task string with all necessary metadata — just copy it as-is.
 
 The `clawteam-auto-tracker` plugin automatically:
-- Detects ClawTeam spawns via `_clawteam_role` param
-- For `sender` role without `_clawteam_taskId`: calls `/gateway/tasks/create` to auto-create the task
+- Detects ClawTeam spawns and extracts metadata from the task string
+- For sender role without taskId: calls `/gateway/tasks/create` to auto-create the task
 - After spawn: calls `/gateway/track-session` to link taskId to childSessionKey
-- For all roles: pure track only (no accept/start/notify)
-- Injects `task_system_prompt.md` into the `task` param (prepended), with `{{TASK_ID}}`, `{{ROLE}}`, `{{GATEWAY_URL}}`, `{{FROM_BOT_ID}}` placeholders replaced
+- Injects role-specific system prompt (`task_system_prompt_executor.md` or `task_system_prompt_sender.md`) into the `task` param (prepended), with `{{TASK_ID}}`, `{{ROLE}}`, `{{GATEWAY_URL}}`, `{{FROM_BOT_ID}}` placeholders replaced
 - Appends `[ClawTeam] taskId: xxx` to the sessions_spawn result shown to the main session (via `tool_result_persist` hook)
-- Validates that non-sender roles provide `_clawteam_from_bot_id`; blocks spawn if missing
 
-Non-ClawTeam spawns (no `_clawteam_role` param) are not affected.
+Non-ClawTeam spawns are not affected.
 
 ### Task Types
 
@@ -199,10 +226,10 @@ Non-ClawTeam spawns (no `_clawteam_role` param) are not affected.
 ### Delegation as Sender
 
 When YOU initiate delegation to another bot (as the sender/delegator):
-1. `sessions_spawn` with params `_clawteam_role: "sender"` -> plugin auto-creates task and tracks session
-2. `sessions_send` -> send delegation + monitoring instructions to the sub-session (include taskId from plugin)
-3. Sub-session: `curl GET /gateway/bots` -> find a suitable executor bot
-4. Sub-session: `curl POST /gateway/tasks/<taskId>/delegate {"toBotId":"<botId>"}` -> sets toBotId, enqueues, notifies executor
+1. `sessions_spawn` with the task value from the gateway instruction → plugin auto-creates task and tracks session
+2. `sessions_send` → send delegation + monitoring instructions to the sub-session (include taskId from plugin)
+3. Sub-session: `curl GET /gateway/bots` → find a suitable executor bot
+4. Sub-session: `curl POST /gateway/tasks/<taskId>/delegate {"toBotId":"<botId>"}` → sets toBotId, enqueues, notifies executor
 5. Sub-session: monitors for DM replies from executor
 - The plugin creates the task and tracks the session automatically
 - Sub-session DELEGATES the task (step 4), then monitors DM replies
@@ -218,7 +245,7 @@ User: "帮我分析数据 [10, 20, 30, 40, 50]"
 
 Agent (main session):
   1. curl GET /gateway/bots → find bot with analyze_data capability
-  2. sessions_spawn with params: _clawteam_role="sender", label="分析数据"
+  2. sessions_spawn with the task value from gateway instruction, label="分析数据"
      → plugin auto-creates task, auto-tracks session
      Response: {"status":"accepted","childSessionKey":"agent:main:subagent:xxx","runId":"..."}
   3. sessions_send to sub-agent: delegation + monitoring instructions (taskId from plugin)
@@ -240,9 +267,8 @@ Main session → sessions_send to same sub-agent:
 ```
 Poll triggers:
   1. curl GET /gateway/tasks/pending → found task (type=new)
-  2. Main session: spawn sub-session with params:
-     _clawteam_role="executor", _clawteam_taskId="<taskId>",
-     _clawteam_from_bot_id="<delegatorBotId>", label="<task description>"
+  2. Main session: spawn sub-session with the task value from gateway instruction,
+     label="<task description>"
      → plugin auto-tracks session
   3. Main session: sessions_send task details to sub-session
   4. Sub-agent: execute capability
@@ -256,8 +282,8 @@ Dashboard flow:
   1. Dashboard: POST /api/v1/tasks/create (prompt) → taskId (DB only)
   2. Dashboard: POST /api/v1/tasks/:taskId/delegate-intent → writes delegate_intent to fromBotId inbox
   3. Gateway polls inbox → discovers delegate_intent → sends spawn instruction to main session
-  4. Main session: spawn sub-session with params:
-     _clawteam_role="sender", _clawteam_taskId="<taskId>", label="<intent summary>"
+  4. Main session: spawn sub-session with the task value from gateway instruction,
+     label="<intent summary>"
      → plugin auto-tracks session
   5. Main session: sessions_send delegation + monitoring instructions to sub-session
   6. Sub-agent: curl GET /gateway/bots → find suitable executor bot

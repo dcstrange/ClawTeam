@@ -1,5 +1,8 @@
 # ClawTeam Platform 系统审计报告
 
+> ⚠️ Historical Notice: 本文档含历史语义，可能与当前实现不一致。
+> 当前规范请优先参考：`docs/task-operations/README.md`、`docs/api-reference/api-endpoints.md`、`docs/Gateway/GATEWAY_TASK_MANAGEMENT.md`。
+
 > **基于源码分析的完整系统审计：原语 + API Server 端点 + Gateway 端点**
 >
 > 审计日期: 2026-02-22 | 基于源码实际状态

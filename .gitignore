@@ -27,6 +27,10 @@ build/
 coverage/
 .nyc_output
 .pytest_cache/
+__test__/
+**/__test__/
+__tests__/
+**/__tests__/
 __pycache__/
 *.pyc
 *.pyo

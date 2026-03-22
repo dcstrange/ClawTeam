@@ -5,6 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-03-19
+
+### Changed
+
+#### Curl SessionKey 自动注入 — 替代 spawn meta block 方案
+
+Session-task 绑定不再依赖 LLM 在 spawn 时传递 `[CLAWTEAM_META]` 块或 `_clawteam_*` 参数。改为 plugin 拦截 sub-session 中的 curl 命令，自动注入 `sessionKey` 到 JSON body，由 gateway 自动建立绑定。
+
+**Plugin (`packages/openclaw-plugin/index.ts`)**
+- 新增 `injectSessionKeyIntoCurl()` — 拦截 curl 命令，自动注入 sessionKey 到 gateway 请求的 JSON body
+- 新增 `parseTaskMarkers()` / `stripMarkerLines()` — 用纯文本 `Role:/Task ID:/From Bot:` 标记替代 `[CLAWTEAM_META]` block 解析
+- `before_tool_call` 新增 curl 拦截路径（Path 2），通过 `ctx.sessionKey` 注入
+- 移除 `parseClawTeamMeta()` / `stripMetaBlock()` / `META_RE` / `ClawTeamMeta` interface
+- 移除 `TASK_ID_KEY` / `ROLE_KEY` / `FROM_BOT_ID_KEY` 常量及 `_clawteam_*` 参数注入
+- 移除整个 `after_tool_call` handler（session tracking 由 curl 注入 + gateway auto-track 完成）
+
+**Gateway (`packages/clawteam-gateway/src/gateway/gateway-proxy.ts`)**
+- 新增 `extractAndTrackSession()` — 从请求 body 提取 sessionKey，自动 track 并持久化到 API server，返回去掉 sessionKey 的 clean body
+- 应用到全部 9 个 POST `/gateway/tasks/:taskId/*` 端点（delegate, accept, complete, submit-result, approve, reject, need-human-input, cancel, resume）
+- 应用到 POST `/gateway/messages/send`（当 body 含 taskId 时）
+
+**Router (`packages/clawteam-gateway/src/routing/router.ts`)**
+- 移除 `buildClawTeamMetaBlock()` 函数
+- `buildNewTaskMessage()` / `buildFallbackMessage()` 改用 `Role: executor\nTask ID: ...\nFrom Bot: ...` 纯文本标记
+- `buildDelegateIntentMessage()` 改用 `Role: sender\nTask ID: ...` 纯文本标记
+
+#### debug_0318 分支汇总（2026-03-22）
+
+围绕委托/子委托主链路完成一轮修复，重点覆盖 dashboard 观察到的会话归属与委托链显示错误、plugin 提示词重复注入、以及 recovery 误判导致的过早 cancel/fail。
+
+- 委托语义统一：`POST /api/v1/tasks/:taskId/delegate` 支持 direct delegate 与 sub-delegate 双模式；sub-delegate 自动创建子任务并绑定 `parentTaskId`，返回独立 sub-task ID。
+- 身份与安全校验：gateway 与 plugin 均增加 `fromBotId` 与本地 bot 一致性校验，并继续拦截 self-delegation。
+- intent 元数据补全：dashboard 创建委托 intent 时补全 `toBotId/toBotName/toBotOwner`，router 与 plugin 联动写入子会话上下文。
+- 子会话提示词注入幂等：plugin 检测“已渲染上下文”后跳过二次 prepend，修复 executor 子会话中 `DELEGATOR` 为空与上下文重复出现两段的问题。
+- nudge/recovery 收敛：仅 dead 会话允许在尝试耗尽后 terminalize；活跃/冷却窗口内状态重置计数并跳过，降低误 cancel/fail。
+- 新增回归：`tests/sessions-spawn-test/executor_subsession_prompt_regression.ts`，覆盖提示词二次注入与 delegator 信息完整性。
+
+详细清单见：
+- `changelogs/2026-03-22_debug_0318-branch-summary.md`
+
 ## [1.0.0] - 2026-03-03
 
 ### Added

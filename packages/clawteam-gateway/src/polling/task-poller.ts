@@ -14,6 +14,8 @@ import { RoutedTasksTracker } from '../routing/routed-tasks.js';
 import { printPollTickSummary } from '../utils/visual-log.js';
 import type { Logger } from 'pino';
 
+const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled', 'timeout']);
+
 export interface TaskPollingLoopDeps {
   clawteamApi: IClawTeamApiClient;
   router: TaskRouter;
@@ -67,6 +69,15 @@ export class TaskPollingLoop extends EventEmitter {
     this.logger.info('Polling loop stopped');
   }
 
+  private async ackBestEffort(messageId: string): Promise<void> {
+    await this.clawteamApi.ackMessage(messageId).catch((err) => {
+      this.logger.warn(
+        { messageId, error: (err as Error).message },
+        'ACK failed (best-effort)',
+      );
+    });
+  }
+
   async pollOnce(): Promise<void> {
     // Guard against overlapping polls
     if (this.isPolling) {
@@ -100,10 +111,27 @@ export class TaskPollingLoop extends EventEmitter {
             continue;
           }
 
+          // Dedup: already routed this task
+          if (this.routedTasks.isRouted(taskId)) {
+            this.logger.debug({ taskId, messageId: msg.messageId }, 'task_notification already routed, ACKing');
+            skipped++;
+            await this.ackBestEffort(msg.messageId);
+            continue;
+          }
+
           const task = await this.clawteamApi.getTask(taskId);
           if (!task) {
-            this.logger.warn({ taskId, messageId: msg.messageId }, 'Task not found for task_notification, skipping');
+            this.logger.warn({ taskId, messageId: msg.messageId }, 'Task not found for task_notification, ACKing stale message');
             skipped++;
+            await this.ackBestEffort(msg.messageId);
+            continue;
+          }
+
+          // Skip tasks already in terminal state
+          if (TERMINAL_STATUSES.has(task.status)) {
+            this.logger.info({ taskId, status: task.status, messageId: msg.messageId }, 'Task already in terminal state, ACKing without routing');
+            skipped++;
+            await this.ackBestEffort(msg.messageId);
             continue;
           }
 
@@ -111,13 +139,7 @@ export class TaskPollingLoop extends EventEmitter {
           if (result.success) {
             routed++;
             this.routedTasks.markRouted(task.id);
-            // ACK the inbox message (best-effort, non-blocking on failure)
-            await this.clawteamApi.ackMessage(msg.messageId).catch((err) => {
-              this.logger.warn(
-                { messageId: msg.messageId, error: (err as Error).message },
-                'ACK failed for task_notification',
-              );
-            });
+            await this.ackBestEffort(msg.messageId);
           } else if (result.error === 'session_busy') {
             // Session busy — don't ACK, message stays in inbox for retry on next poll
             skipped++;
@@ -129,15 +151,36 @@ export class TaskPollingLoop extends EventEmitter {
             );
           }
         } else if (msg.type === 'delegate_intent') {
+          const taskId = msg.content?.taskId;
+
+          // Dedup: already routed this delegate_intent
+          if (taskId && this.routedTasks.isRouted(`di:${taskId}`)) {
+            this.logger.debug({ taskId, messageId: msg.messageId }, 'delegate_intent already routed, ACKing');
+            skipped++;
+            await this.ackBestEffort(msg.messageId);
+            continue;
+          }
+
+          // Check if the task is already in terminal state
+          if (taskId) {
+            try {
+              const task = await this.clawteamApi.getTask(taskId);
+              if (task && TERMINAL_STATUSES.has(task.status)) {
+                this.logger.info({ taskId, status: task.status, messageId: msg.messageId }, 'delegate_intent task already in terminal state, ACKing without routing');
+                skipped++;
+                await this.ackBestEffort(msg.messageId);
+                continue;
+              }
+            } catch {
+              // Best-effort check, continue with routing if fetch fails
+            }
+          }
+
           const result = await this.router.routeDelegateIntent(msg);
           if (result.success) {
             routed++;
-            await this.clawteamApi.ackMessage(msg.messageId).catch((err) => {
-              this.logger.warn(
-                { messageId: msg.messageId, error: (err as Error).message },
-                'ACK failed for delegate_intent',
-              );
-            });
+            if (taskId) this.routedTasks.markRouted(`di:${taskId}`);
+            await this.ackBestEffort(msg.messageId);
           } else {
             failed++;
             this.logger.warn(
@@ -149,13 +192,7 @@ export class TaskPollingLoop extends EventEmitter {
           const result = await this.router.routeMessage(msg);
           if (result.success) {
             routed++;
-            // ACK the inbox message (best-effort, non-blocking on failure)
-            await this.clawteamApi.ackMessage(msg.messageId).catch((err) => {
-              this.logger.warn(
-                { messageId: msg.messageId, error: (err as Error).message },
-                'ACK failed for direct_message',
-              );
-            });
+            await this.ackBestEffort(msg.messageId);
           } else {
             failed++;
             this.logger.warn(

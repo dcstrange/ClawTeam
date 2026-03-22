@@ -355,3 +355,51 @@ docker compose --profile production start api
 3. **HTTPS**：后续可在 EC2 前加 CloudFront 或 Nginx + Let's Encrypt
 4. **ClawTeam Gateway**：继续在本地运行，通过本地 Dashboard 的 `/router-api` 代理访问
 5. **OpenClaw 接入**：通过 SKILL.md 注入 curl 命令，调用本地 Gateway `/gateway/*` 端点与 EC2 API Server 交互。配置方式见 `-local-deployment.md`
+
+---
+
+## 脚本参考
+
+### `scripts/deploy-ec2.sh`
+
+EC2 一键部署/更新脚本（无参数），在 EC2 上执行。
+
+#### 执行流程
+
+1. `git pull` 拉取最新代码
+2. 启动 PostgreSQL + Redis 容器
+3. 等待 PostgreSQL 就绪（最多 30s）
+4. 运行所有数据库迁移（只执行 `-- Up` 部分，已存在的表/列自动跳过）
+5. 构建并启动 API 容器（production profile）
+6. 等待 API 健康检查通过（最多 30s）
+7. 显示服务状态和 API 端点
+
+```bash
+# 部署/更新
+bash scripts/deploy-ec2.sh
+```
+
+### `scripts/reset-database.sh`
+
+重置数据库到初始状态，在 EC2 上执行。
+
+| 参数 | 说明 |
+|------|------|
+| `--full` | 完整重建（删除并重建数据库 + 重新执行 schema） |
+| (无参数) | 仅清空数据，保留表结构 |
+
+```bash
+# 清空数据（保留表结构）
+bash scripts/reset-database.sh
+
+# 完整重建数据库
+bash scripts/reset-database.sh --full
+```
+
+### `scripts/verify-environment.sh`
+
+验证环境配置是否正确（无参数），检查 Docker、数据库连接、Redis、端口、表结构等。
+
+```bash
+bash scripts/verify-environment.sh
+```

@@ -25,6 +25,9 @@ import {
   formatInboxResponse,
   formatAckResponse,
   formatErrorResponse,
+  formatSubmitResultResponse,
+  formatApproveResponse,
+  formatRejectResponse,
 } from './response-formatter.js';
 
 function textReply(reply: FastifyReply, text: string, status = 200): void {
@@ -82,10 +85,65 @@ function saveBotIdToConfig(newBotId: string, logger: GatewayProxyDeps['logger'])
   }
 }
 
+/**
+ * Extract sessionKey from request body, auto-track if taskId is present,
+ * and return a clean body with sessionKey removed (API server doesn't need it).
+ */
+function extractAndTrackSession(
+  body: Record<string, any>,
+  taskId: string,
+  deps: {
+    sessionTracker: GatewayProxyDeps['sessionTracker'];
+    logger: GatewayProxyDeps['logger'];
+    clawteamBotId?: string;
+    clawteamApiUrl?: string;
+    clawteamApiKey?: string;
+  },
+  defaultRole: 'sender' | 'executor' = 'executor',
+): Record<string, any> {
+  const { sessionKey, sessionKeyRole, ...clean } = body;
+  if (!sessionKey || !taskId) return body;
+  const effectiveRole = sessionKeyRole === 'sender' || sessionKeyRole === 'executor'
+    ? sessionKeyRole
+    : defaultRole;
+
+  deps.sessionTracker.track(taskId, sessionKey);
+  deps.logger.info({ taskId, sessionKey, role: effectiveRole }, 'Auto-tracked session via sessionKey in request body');
+
+  // Best-effort persist to API server
+  const botId = deps.clawteamBotId;
+  if (botId && deps.clawteamApiUrl && deps.clawteamApiKey) {
+    const apiBase = deps.clawteamApiUrl.replace(/\/$/, '');
+    proxyFetch(`${apiBase}/api/v1/tasks/${taskId}/track-session`, {
+      method: 'POST',
+      headers: authHeaders(deps.clawteamApiKey, botId),
+      body: JSON.stringify({ sessionKey, botId, role: effectiveRole }),
+    }).catch((err) => {
+      deps.logger.warn({ taskId, error: (err as Error).message }, 'Auto-track persist to API failed');
+    });
+  }
+
+  return clean;
+}
+
 export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProxyDeps): void {
   const apiBase = deps.clawteamApiUrl.replace(/\/$/, '');
   const log = deps.logger;
   const key = deps.clawteamApiKey;
+
+  /** Shorthand for extractAndTrackSession with gateway deps */
+  const autoTrack = (
+    body: Record<string, any>,
+    taskId: string,
+    defaultRole: 'sender' | 'executor' = 'executor',
+  ) =>
+    extractAndTrackSession(body, taskId, {
+      sessionTracker: deps.sessionTracker,
+      logger: log,
+      clawteamBotId: deps.clawteamBotId,
+      clawteamApiUrl: deps.clawteamApiUrl,
+      clawteamApiKey: key,
+    }, defaultRole);
 
   // 1. POST /gateway/register — register bot using config API key
   server.post('/gateway/register', async (req: FastifyRequest, reply: FastifyReply) => {
@@ -119,6 +177,23 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
     }
   });
 
+  // 1b. GET /gateway/me — return this bot's identity (for plugin self-awareness)
+  server.get('/gateway/me', async (_req: FastifyRequest, reply: FastifyReply) => {
+    if (!deps.clawteamBotId) {
+      textReply(reply, formatErrorResponse('Bot ID not configured'), 500);
+      return;
+    }
+    try {
+      const res = await proxyFetch(`${apiBase}/api/v1/bots/${deps.clawteamBotId}`, {
+        headers: authHeaders(key, deps.clawteamBotId),
+      });
+      if (!res.ok) { textReply(reply, formatErrorResponse(`HTTP ${res.status}`), res.status); return; }
+      reply.type('application/json').send(unwrap(res.data));
+    } catch (err) {
+      textReply(reply, formatErrorResponse((err as Error).message), 502);
+    }
+  });
+
   // 2. GET /gateway/bots
   server.get('/gateway/bots', async (_req: FastifyRequest, reply: FastifyReply) => {
     try {
@@ -126,7 +201,11 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
         headers: authHeaders(key, deps.clawteamBotId),
       });
       if (!res.ok) { textReply(reply, formatErrorResponse(`HTTP ${res.status}`), res.status); return; }
-      const bots = unwrap(res.data);
+      let bots = unwrap(res.data);
+      // Filter out self to prevent self-delegation
+      if (Array.isArray(bots) && deps.clawteamBotId) {
+        bots = bots.filter((b: any) => b.id !== deps.clawteamBotId && b.botId !== deps.clawteamBotId);
+      }
       textReply(reply, formatBotsResponse(Array.isArray(bots) ? bots : []));
     } catch (err) {
       textReply(reply, formatErrorResponse((err as Error).message), 502);
@@ -183,7 +262,36 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
   // Called by the delegation sub-session to deliver the task to the executor.
   server.post<{ Params: { taskId: string } }>('/gateway/tasks/:taskId/delegate', async (req, reply) => {
     const { taskId } = req.params;
-    const body = (req.body || {}) as Record<string, any>;
+    const rawBody = (req.body || {}) as Record<string, any>;
+    const {
+      sessionKey,
+      sessionKeyRole: _ignoredRole,
+      fromBotId: claimedFromBotId,
+      ...body
+    } = rawBody;
+
+    if (!body.toBotId || typeof body.toBotId !== 'string') {
+      textReply(reply, formatErrorResponse('toBotId is required'), 400);
+      return;
+    }
+
+    // Optional safety: if caller claims fromBotId in body, it must match local bot identity.
+    if (claimedFromBotId && deps.clawteamBotId && claimedFromBotId !== deps.clawteamBotId) {
+      log.warn(
+        { taskId, claimedFromBotId, localBotId: deps.clawteamBotId },
+        'Blocked delegate request due to fromBotId/local botId mismatch',
+      );
+      textReply(reply, formatErrorResponse(`fromBotId mismatch: expected ${deps.clawteamBotId}, got ${claimedFromBotId}`), 403);
+      return;
+    }
+
+    // Block self-delegation
+    if (deps.clawteamBotId && body.toBotId === deps.clawteamBotId) {
+      log.warn({ taskId, toBotId: body.toBotId }, 'Blocked self-delegation attempt');
+      textReply(reply, formatErrorResponse('Self-delegation is not allowed. You cannot delegate a task to yourself. Pick a DIFFERENT bot.'), 400);
+      return;
+    }
+
     try {
       const res = await proxyFetch(`${apiBase}/api/v1/tasks/${taskId}/delegate`, {
         method: 'POST',
@@ -192,8 +300,25 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
       });
       if (!res.ok) { textReply(reply, formatErrorResponse(`Delegate failed (HTTP ${res.status}): ${typeof res.data === 'string' ? res.data : JSON.stringify(res.data)}`), res.status); return; }
 
-      log.info({ taskId, toBotId: body.toBotId }, 'Task delegated via /gateway/tasks/:taskId/delegate');
-      textReply(reply, `Task ${taskId} delegated to ${body.toBotId} (enqueued and notification sent).`);
+      const payload = unwrap(res.data);
+      const delegatedTaskId = payload?.taskId || taskId;
+      const delegationMode = payload?.delegationMode || (delegatedTaskId === taskId ? 'direct' : 'sub-task');
+
+      // Track sender session against the REAL delegated task ID.
+      // For executor sub-delegation this must bind to subTaskId (not parent taskId).
+      if (sessionKey) {
+        autoTrack({ sessionKey, sessionKeyRole: 'sender' }, delegatedTaskId, 'sender');
+      }
+
+      log.info(
+        { taskId, delegatedTaskId, parentTaskId: payload?.parentTaskId, toBotId: body.toBotId, delegationMode },
+        'Task delegated via /gateway/tasks/:taskId/delegate',
+      );
+      if (delegationMode === 'sub-task') {
+        textReply(reply, `Sub-task ${delegatedTaskId} (parent: ${taskId}) delegated to ${body.toBotId} (enqueued and notification sent).`);
+      } else {
+        textReply(reply, `Task ${delegatedTaskId} delegated to ${body.toBotId} (enqueued and notification sent).`);
+      }
     } catch (err) {
       textReply(reply, formatErrorResponse((err as Error).message), 502);
     }
@@ -258,7 +383,7 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
   // (e.g. from cached prompts or recovery scenarios). The API accept is idempotent.
   server.post<{ Params: { taskId: string } }>('/gateway/tasks/:taskId/accept', async (req, reply) => {
     const { taskId } = req.params;
-    const body = (req.body || {}) as Record<string, any>;
+    const body = autoTrack((req.body || {}) as Record<string, any>, taskId);
     try {
       const acceptBody = { ...body };
       if (!acceptBody.executorSessionKey) {
@@ -292,15 +417,26 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
   });
 
   // 7. POST /gateway/tasks/:taskId/complete — complete + untrack session
+  // Only the delegator (fromBotId) can call /complete. Executors must use /submit-result.
   server.post<{ Params: { taskId: string } }>('/gateway/tasks/:taskId/complete', async (req, reply) => {
     const { taskId } = req.params;
-    const body = (req.body || {}) as Record<string, any>;
+    const body = autoTrack((req.body || {}) as Record<string, any>, taskId);
     try {
       const res = await proxyFetch(`${apiBase}/api/v1/tasks/${taskId}/complete`, {
         method: 'POST',
         headers: authHeaders(key, deps.clawteamBotId),
         body: JSON.stringify(body),
       });
+
+      if (!res.ok && res.status === 403) {
+        // Executor called /complete — return clear error
+        textReply(reply, formatErrorResponse(
+          `Executors cannot call /complete. Only the delegator (task creator) can complete a task. ` +
+          `As an executor, use POST /gateway/tasks/${taskId}/submit-result to submit your work for review.`
+        ), 403);
+        return;
+      }
+
       if (!res.ok) { textReply(reply, formatErrorResponse(`Complete failed (HTTP ${res.status})`), res.status); return; }
 
       deps.sessionTracker.untrack(taskId);
@@ -311,14 +447,80 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
     }
   });
 
+  // 7a. POST /gateway/tasks/:taskId/submit-result — executor submits result for review
+  server.post<{ Params: { taskId: string } }>('/gateway/tasks/:taskId/submit-result', async (req, reply) => {
+    const { taskId } = req.params;
+    const body = autoTrack((req.body || {}) as Record<string, any>, taskId);
+    try {
+      const res = await proxyFetch(`${apiBase}/api/v1/tasks/${taskId}/submit-result`, {
+        method: 'POST',
+        headers: authHeaders(key, deps.clawteamBotId),
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const errBody = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
+        const hint = res.status === 409
+          ? `. The task may have already been submitted or its status changed. Check task status first.`
+          : '';
+        textReply(reply, formatErrorResponse(`Submit-result failed (HTTP ${res.status})${hint} ${errBody}`), res.status);
+        return;
+      }
+
+      deps.sessionTracker.untrack(taskId);
+      log.info({ taskId }, 'Task submitted for review via gateway proxy');
+      textReply(reply, formatSubmitResultResponse(taskId));
+    } catch (err) {
+      textReply(reply, formatErrorResponse((err as Error).message), 502);
+    }
+  });
+
+  // 7a2. POST /gateway/tasks/:taskId/approve — delegator approves pending_review task
+  server.post<{ Params: { taskId: string } }>('/gateway/tasks/:taskId/approve', async (req, reply) => {
+    const { taskId } = req.params;
+    const body = autoTrack((req.body || {}) as Record<string, any>, taskId);
+    try {
+      const res = await proxyFetch(`${apiBase}/api/v1/tasks/${taskId}/approve`, {
+        method: 'POST',
+        headers: authHeaders(key, deps.clawteamBotId),
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) { textReply(reply, formatErrorResponse(`Approve failed (HTTP ${res.status})`), res.status); return; }
+
+      log.info({ taskId }, 'Task approved via gateway proxy');
+      textReply(reply, formatApproveResponse(taskId));
+    } catch (err) {
+      textReply(reply, formatErrorResponse((err as Error).message), 502);
+    }
+  });
+
+  // 7a3. POST /gateway/tasks/:taskId/reject — delegator rejects pending_review task
+  server.post<{ Params: { taskId: string } }>('/gateway/tasks/:taskId/reject', async (req, reply) => {
+    const { taskId } = req.params;
+    const body = autoTrack((req.body || {}) as Record<string, any>, taskId);
+    try {
+      const res = await proxyFetch(`${apiBase}/api/v1/tasks/${taskId}/reject`, {
+        method: 'POST',
+        headers: authHeaders(key, deps.clawteamBotId),
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) { textReply(reply, formatErrorResponse(`Reject failed (HTTP ${res.status})`), res.status); return; }
+
+      log.info({ taskId, reason: body.reason }, 'Task rejected via gateway proxy');
+      textReply(reply, formatRejectResponse(taskId, body.reason || 'Rejected'));
+    } catch (err) {
+      textReply(reply, formatErrorResponse((err as Error).message), 502);
+    }
+  });
+
   // 7b. POST /gateway/tasks/:taskId/need-human-input — mark as waiting_for_input
   server.post<{ Params: { taskId: string } }>('/gateway/tasks/:taskId/need-human-input', async (req, reply) => {
     const { taskId } = req.params;
+    const body = autoTrack((req.body || {}) as Record<string, any>, taskId);
     try {
       const res = await proxyFetch(`${apiBase}/api/v1/tasks/${taskId}/need-human-input`, {
         method: 'POST',
         headers: authHeaders(key, deps.clawteamBotId),
-        body: JSON.stringify(req.body || {}),
+        body: JSON.stringify(body),
       });
       if (!res.ok) { textReply(reply, formatErrorResponse(`Wait failed (HTTP ${res.status})`), res.status); return; }
       textReply(reply, `Task ${taskId} marked as waiting_for_input.`);
@@ -330,11 +532,12 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
   // 7c. POST /gateway/tasks/:taskId/resume — resume from waiting_for_input
   server.post<{ Params: { taskId: string } }>('/gateway/tasks/:taskId/resume', async (req, reply) => {
     const { taskId } = req.params;
+    const body = autoTrack((req.body || {}) as Record<string, any>, taskId);
     try {
       const res = await proxyFetch(`${apiBase}/api/v1/tasks/${taskId}/resume`, {
         method: 'POST',
         headers: authHeaders(key, deps.clawteamBotId),
-        body: JSON.stringify(req.body || {}),
+        body: JSON.stringify(body),
       });
       if (!res.ok) { textReply(reply, formatErrorResponse(`Resume failed (HTTP ${res.status})`), res.status); return; }
       textReply(reply, `Task ${taskId} resumed to processing.`);
@@ -346,7 +549,7 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
   // 8. POST /gateway/tasks/:taskId/cancel — cancel + untrack session
   server.post<{ Params: { taskId: string } }>('/gateway/tasks/:taskId/cancel', async (req, reply) => {
     const { taskId } = req.params;
-    const body = (req.body || {}) as Record<string, any>;
+    const body = autoTrack((req.body || {}) as Record<string, any>, taskId);
     try {
       const res = await proxyFetch(`${apiBase}/api/v1/tasks/all/${taskId}/cancel`, {
         method: 'POST',
@@ -379,10 +582,14 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
   // 10. POST /gateway/messages/send
   server.post('/gateway/messages/send', async (req: FastifyRequest, reply: FastifyReply) => {
     try {
+      const rawBody = (req.body || {}) as Record<string, any>;
+      const taskId = rawBody.taskId as string | undefined;
+      const body = taskId ? autoTrack(rawBody, taskId) : rawBody;
+
       const res = await proxyFetch(`${apiBase}/api/v1/messages/send`, {
         method: 'POST',
         headers: authHeaders(key, deps.clawteamBotId),
-        body: JSON.stringify(req.body),
+        body: JSON.stringify(body),
       });
       if (!res.ok) { textReply(reply, formatErrorResponse(`Send failed (HTTP ${res.status})`), res.status); return; }
       textReply(reply, formatSendMessageResponse(unwrap(res.data)));

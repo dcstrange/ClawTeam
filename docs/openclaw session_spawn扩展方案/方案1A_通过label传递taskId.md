@@ -1,5 +1,8 @@
 # 方案 1A：通过 label 传递 taskId
 
+> ⚠️ Historical Notice: 本目录为历史方案调研，不代表当前线上实现。
+> 当前实现请参考：`docs/Gateway/GATEWAY_TASK_MANAGEMENT.md`、`docs/Gateway/消息构建器.md`、`docs/task-operations/README.md`。
+
 ## 实现思路
 
 利用 `label` 参数传递 `clawteam_taskId`，在 `after_tool_call` hook 中解析并调用 `track_session`。

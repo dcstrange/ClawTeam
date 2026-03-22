@@ -63,7 +63,7 @@ export interface Bot {
 // Task 相关类型
 // ============================================================================
 
-export type TaskStatus = 'pending' | 'accepted' | 'processing' | 'waiting_for_input' | 'completed' | 'failed' | 'timeout' | 'cancelled';
+export type TaskStatus = 'pending' | 'accepted' | 'processing' | 'waiting_for_input' | 'pending_review' | 'completed' | 'failed' | 'timeout' | 'cancelled';
 export type TaskPriority = 'low' | 'normal' | 'high' | 'urgent';
 export type TaskType = 'new' | 'sub-task';
 
@@ -122,6 +122,12 @@ export interface Task {
   conversationId?: string;
   /** 所属工作流 */
   workflowId?: string;
+  /** 执行者提交的结果（pending_review 阶段） */
+  submittedResult?: any;
+  /** 提交时间 */
+  submittedAt?: string;
+  /** 拒绝原因 */
+  rejectionReason?: string;
 }
 
 export interface TaskDelegateRequest {
@@ -291,6 +297,8 @@ export type MessageType =
   | 'task_completed'
   | 'task_failed'
   | 'task_continued'
+  | 'task_pending_review'
+  | 'task_rejected'
   | 'bot_status_changed'
   | 'workflow_started'
   | 'workflow_completed';

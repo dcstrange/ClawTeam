@@ -10,6 +10,7 @@ import { isClawTeamError } from '@clawteam/api/common';
 import { createAuthMiddleware } from '../middleware/auth';
 import { REDIS_KEYS, PRIORITY_ORDER } from '../constants';
 import { randomUUID } from 'crypto';
+import { InvalidTaskStateError, TaskNotFoundError, UnauthorizedTaskError } from '../errors';
 
 export interface TaskRoutesDeps {
   coordinator: ITaskCoordinator;
@@ -181,26 +182,108 @@ export function createTaskRoutes(deps: TaskRoutesDeps): FastifyPluginAsync {
       }
     );
 
-    /** POST /:taskId/delegate — Delegate a pre-created task to a target bot */
-    fastify.post<{ Params: TaskParams; Body: { toBotId: string } }>(
+    /** POST /:taskId/delegate — delegate task directly or sub-delegate by any participant */
+    fastify.post<{
+      Params: TaskParams;
+      Body: {
+        toBotId: string;
+        subTaskPrompt?: string;
+        subTaskTitle?: string;
+        subTaskCapability?: string;
+        subTaskParameters?: Record<string, unknown>;
+        subTaskPriority?: 'low' | 'normal' | 'high' | 'urgent';
+      };
+    }>(
       '/:taskId/delegate',
       { preHandler: authPreHandlers },
       async (request, reply) => {
         const traceId = randomUUID();
-        const { toBotId } = (request.body || {}) as any;
+        const fromBotId = getBotId(request);
+        const {
+          toBotId,
+          subTaskPrompt,
+          subTaskTitle,
+          subTaskCapability,
+          subTaskParameters,
+          subTaskPriority,
+        } = (request.body || {}) as any;
 
         if (!toBotId) {
           return reply.status(400).send({ success: false, error: 'toBotId is required', traceId });
         }
 
         try {
+          const task = await coordinator.getTask(request.params.taskId, fromBotId);
+          if (!task) {
+            throw new TaskNotFoundError(request.params.taskId);
+          }
+
+          const terminalStatuses = new Set(['completed', 'failed', 'cancelled', 'timeout']);
+
+          const hasSubTaskPrompt = !!(subTaskPrompt && typeof subTaskPrompt === 'string' && subTaskPrompt.trim());
+
+          // Case 1: sub-delegate by any task participant (from/to bot).
+          // Creates a child sub-task under current task and delegates it.
+          if (hasSubTaskPrompt) {
+            if (terminalStatuses.has(task.status)) {
+              throw new InvalidTaskStateError(request.params.taskId, task.status, [
+                'pending',
+                'accepted',
+                'processing',
+                'waiting_for_input',
+                'pending_review',
+              ]);
+            }
+
+            const subTask = await coordinator.createTask(
+              {
+                prompt: subTaskPrompt.trim(),
+                title: subTaskTitle,
+                capability: subTaskCapability || task.capability,
+                parameters: (subTaskParameters && typeof subTaskParameters === 'object')
+                  ? subTaskParameters
+                  : {},
+                priority: subTaskPriority || task.priority,
+                type: 'sub-task',
+                parentTaskId: task.id,
+              },
+              fromBotId,
+            );
+
+            // If delegation fails, keep this sub-task pending for manual retry.
+            await coordinator.delegate(subTask.id, toBotId);
+
+            return reply.send({
+              success: true,
+              data: {
+                taskId: subTask.id,
+                parentTaskId: task.id,
+                toBotId,
+                delegationMode: 'sub-task',
+                delegatedAt: new Date().toISOString(),
+              },
+              traceId,
+            });
+          }
+
+          // Case 2: direct delegate (no subTaskPrompt) keeps existing behavior:
+          // only the original delegator can delegate a pre-created pending task.
+          if (task.fromBotId !== fromBotId) {
+            throw new UnauthorizedTaskError(request.params.taskId, fromBotId);
+          }
+          if (task.status !== 'pending') {
+            throw new InvalidTaskStateError(request.params.taskId, task.status, ['pending']);
+          }
+
           await coordinator.delegate(request.params.taskId, toBotId);
 
           return reply.send({
             success: true,
             data: {
               taskId: request.params.taskId,
+              parentTaskId: task.parentTaskId || null,
               toBotId,
+              delegationMode: 'direct',
               delegatedAt: new Date().toISOString(),
             },
             traceId,
@@ -279,6 +362,87 @@ export function createTaskRoutes(deps: TaskRoutesDeps): FastifyPluginAsync {
               taskId: request.params.taskId,
               status: request.body.status,
               completedAt: new Date().toISOString(),
+            },
+            traceId,
+          });
+        } catch (error) {
+          return handleError(error, reply, traceId);
+        }
+      }
+    );
+
+    /** POST /:taskId/submit-result — Executor submits result for review */
+    fastify.post<{ Params: TaskParams; Body: { result?: any } }>(
+      '/:taskId/submit-result',
+      { preHandler: authPreHandlers },
+      async (request, reply) => {
+        const traceId = randomUUID();
+        const botId = getBotId(request);
+        const body = (request.body || {}) as any;
+
+        try {
+          await coordinator.submitResult(request.params.taskId, body.result, botId);
+
+          return reply.send({
+            success: true,
+            data: {
+              taskId: request.params.taskId,
+              status: 'pending_review',
+              submittedAt: new Date().toISOString(),
+            },
+            traceId,
+          });
+        } catch (error) {
+          return handleError(error, reply, traceId);
+        }
+      }
+    );
+
+    /** POST /:taskId/approve — Delegator approves pending_review task */
+    fastify.post<{ Params: TaskParams; Body: { result?: any } }>(
+      '/:taskId/approve',
+      { preHandler: authPreHandlers },
+      async (request, reply) => {
+        const traceId = randomUUID();
+        const botId = getBotId(request);
+        const body = (request.body || {}) as any;
+
+        try {
+          await coordinator.approve(request.params.taskId, botId, body.result);
+
+          return reply.send({
+            success: true,
+            data: {
+              taskId: request.params.taskId,
+              status: 'completed',
+              approvedAt: new Date().toISOString(),
+            },
+            traceId,
+          });
+        } catch (error) {
+          return handleError(error, reply, traceId);
+        }
+      }
+    );
+
+    /** POST /:taskId/reject — Delegator rejects pending_review task */
+    fastify.post<{ Params: TaskParams; Body: { reason?: string } }>(
+      '/:taskId/reject',
+      { preHandler: authPreHandlers },
+      async (request, reply) => {
+        const traceId = randomUUID();
+        const botId = getBotId(request);
+        const body = (request.body || {}) as any;
+
+        try {
+          await coordinator.reject(request.params.taskId, botId, body.reason || 'Rejected');
+
+          return reply.send({
+            success: true,
+            data: {
+              taskId: request.params.taskId,
+              status: 'processing',
+              rejectedAt: new Date().toISOString(),
             },
             traceId,
           });
@@ -479,6 +643,7 @@ export function createTaskRoutes(deps: TaskRoutesDeps): FastifyPluginAsync {
       async (request, reply) => {
         const traceId = randomUUID();
         const { sessionKey, botId, role } = (request.body || {}) as any;
+        const callerBotId = getBotId(request);
 
         if (!sessionKey || !botId) {
           return reply.status(400).send({
@@ -488,17 +653,57 @@ export function createTaskRoutes(deps: TaskRoutesDeps): FastifyPluginAsync {
           });
         }
 
+        if (callerBotId && botId !== callerBotId) {
+          return reply.status(403).send({
+            success: false,
+            error: `botId mismatch: body.botId (${botId}) must equal caller botId (${callerBotId})`,
+            traceId,
+          });
+        }
+
         if (!deps.db) {
           return reply.status(501).send({ success: false, error: 'Database not available', traceId });
         }
 
         try {
+          const providedRole = role === 'sender' || role === 'executor' ? role : undefined;
+
+          // Infer role from task participants as a safety net:
+          // - botId === from_bot_id -> sender
+          // - botId === to_bot_id   -> executor
+          let inferredRole: 'sender' | 'executor' | undefined;
+          const taskRoleResult = await deps.db.query(
+            `SELECT from_bot_id, to_bot_id FROM tasks WHERE id = $1 LIMIT 1`,
+            [request.params.taskId],
+          );
+          if (taskRoleResult.rowCount > 0) {
+            const row = taskRoleResult.rows[0] as { from_bot_id: string; to_bot_id: string };
+            if (row.from_bot_id === botId) inferredRole = 'sender';
+            else if (row.to_bot_id === botId) inferredRole = 'executor';
+          }
+
+          let effectiveRole: 'sender' | 'executor' = providedRole ?? inferredRole ?? 'executor';
+          if (providedRole && inferredRole && providedRole !== inferredRole) {
+            request.log.warn(
+              { taskId: request.params.taskId, botId, providedRole, inferredRole },
+              'track-session role mismatch; using inferred role from task participants',
+            );
+            effectiveRole = inferredRole;
+          }
+
           await deps.db.query(
             `INSERT INTO task_sessions (task_id, session_key, bot_id, role)
              VALUES ($1, $2, $3, $4)
              ON CONFLICT (task_id, bot_id)
              DO UPDATE SET session_key = EXCLUDED.session_key, role = EXCLUDED.role`,
-            [request.params.taskId, sessionKey, botId, role || 'executor'],
+            [request.params.taskId, sessionKey, botId, effectiveRole],
+          );
+
+          // Sync session key into the tasks table for dashboard visibility
+          const column = effectiveRole === 'sender' ? 'sender_session_key' : 'executor_session_key';
+          await deps.db.query(
+            `UPDATE tasks SET ${column} = $1, updated_at = NOW() WHERE id = $2`,
+            [sessionKey, request.params.taskId],
           );
 
           return reply.send({
@@ -607,7 +812,7 @@ export function createTaskRoutes(deps: TaskRoutesDeps): FastifyPluginAsync {
 
           const result = await deps.db.query(
             `UPDATE tasks SET status = 'cancelled', error = $1, completed_at = NOW(), updated_at = NOW()
-             WHERE id = $2 AND status IN ('pending', 'accepted', 'processing', 'waiting_for_input')
+             WHERE id = $2 AND status IN ('pending', 'accepted', 'processing', 'waiting_for_input', 'pending_review')
              RETURNING id, status, to_bot_id`,
             [JSON.stringify({ code: 'CANCELLED', message: reason }), taskId],
           );
@@ -644,6 +849,108 @@ export function createTaskRoutes(deps: TaskRoutesDeps): FastifyPluginAsync {
       }
     );
 
+    /** POST /all/:taskId/approve (public — dashboard admin approve) */
+    fastify.post<{ Params: TaskParams; Body: { result?: any } }>(
+      '/all/:taskId/approve',
+      async (request, reply) => {
+        const traceId = randomUUID();
+
+        if (!deps.db) {
+          return reply.status(501).send({
+            success: false,
+            error: { code: 'NOT_IMPLEMENTED', message: 'Database not available' },
+            traceId,
+          });
+        }
+
+        try {
+          const taskId = request.params.taskId;
+          const body = (request.body || {}) as any;
+
+          // Use provided result override, or copy submitted_result to result
+          const result = await deps.db.query(
+            `UPDATE tasks
+             SET status = 'completed',
+                 result = COALESCE($1::jsonb, submitted_result),
+                 completed_at = NOW(),
+                 updated_at = NOW()
+             WHERE id = $2 AND status = 'pending_review'
+             RETURNING id, status`,
+            [body.result ? JSON.stringify(body.result) : null, taskId],
+          );
+
+          if (result.rowCount === 0) {
+            return reply.status(404).send({
+              success: false,
+              error: { code: 'TASK_NOT_FOUND', message: `Task not found or not in pending_review: ${taskId}` },
+              traceId,
+            });
+          }
+
+          // Clean up Redis
+          if (deps.redis) {
+            await deps.redis.zrem(REDIS_KEYS.PROCESSING_SET, taskId);
+            await deps.redis.del(`${REDIS_KEYS.TASK_CACHE}:${taskId}`);
+          }
+
+          return reply.send({
+            success: true,
+            data: { taskId, status: 'completed', approvedAt: new Date().toISOString() },
+            traceId,
+          });
+        } catch (error) {
+          return handleError(error, reply, traceId);
+        }
+      }
+    );
+
+    /** POST /all/:taskId/reject (public — dashboard admin reject) */
+    fastify.post<{ Params: TaskParams; Body: { reason?: string } }>(
+      '/all/:taskId/reject',
+      async (request, reply) => {
+        const traceId = randomUUID();
+
+        if (!deps.db) {
+          return reply.status(501).send({
+            success: false,
+            error: { code: 'NOT_IMPLEMENTED', message: 'Database not available' },
+            traceId,
+          });
+        }
+
+        try {
+          const taskId = request.params.taskId;
+          const reason = (request.body as any)?.reason || 'Rejected from dashboard';
+
+          const result = await deps.db.query(
+            `UPDATE tasks
+             SET status = 'processing',
+                 rejection_reason = $1,
+                 updated_at = NOW()
+             WHERE id = $2 AND status = 'pending_review'
+             RETURNING id, status`,
+            [reason, taskId],
+          );
+
+          if (result.rowCount === 0) {
+            return reply.status(404).send({
+              success: false,
+              error: { code: 'TASK_NOT_FOUND', message: `Task not found or not in pending_review: ${taskId}` },
+              traceId,
+            });
+          }
+
+          return reply.send({
+            success: true,
+            data: { taskId, status: 'processing', rejectedAt: new Date().toISOString() },
+            traceId,
+          });
+        } catch (error) {
+          return handleError(error, reply, traceId);
+        }
+      }
+    );
+
     /** GET /all (public — list all tasks for dashboard) */
     fastify.get(
       '/all',
@@ -653,7 +960,7 @@ export function createTaskRoutes(deps: TaskRoutesDeps): FastifyPluginAsync {
         if (deps.db) {
           try {
             const result = await deps.db.query(
-              'SELECT id, from_bot_id, to_bot_id, prompt, capability, parameters, status, priority, type, title, parent_task_id, sender_session_key, executor_session_key, result, error, created_at, accepted_at, started_at, completed_at, updated_at, timeout_seconds, retry_count, max_retries FROM tasks ORDER BY created_at DESC LIMIT 100'
+              'SELECT id, from_bot_id, to_bot_id, prompt, capability, parameters, status, priority, type, title, parent_task_id, sender_session_key, executor_session_key, result, error, created_at, accepted_at, started_at, completed_at, updated_at, timeout_seconds, retry_count, max_retries, submitted_result, submitted_at, rejection_reason FROM tasks ORDER BY created_at DESC LIMIT 100'
             );
 
             const tasks = result.rows.map((row: any) => ({
@@ -680,6 +987,9 @@ export function createTaskRoutes(deps: TaskRoutesDeps): FastifyPluginAsync {
               timeoutSeconds: row.timeout_seconds,
               retryCount: row.retry_count,
               maxRetries: row.max_retries,
+              submittedResult: row.submitted_result,
+              submittedAt: row.submitted_at,
+              rejectionReason: row.rejection_reason,
             }));
 
             return reply.send(tasks);

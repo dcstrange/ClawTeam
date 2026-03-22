@@ -65,9 +65,27 @@ export interface ITaskCoordinator {
 
   /**
    * Complete a task with a result or error.
-   * Notifies the originating bot via message bus.
+   * Only the delegator (fromBotId) can call this directly (skip review).
    */
   complete(taskId: string, req: TaskCompleteRequest, botId: string): Promise<void>;
+
+  /**
+   * Submit task result for review (executor → pending_review).
+   * Only the executor (toBotId) can call this.
+   */
+  submitResult(taskId: string, result: any, botId: string): Promise<void>;
+
+  /**
+   * Approve a pending_review task (delegator → completed).
+   * Only the delegator (fromBotId) can call this.
+   */
+  approve(taskId: string, botId: string, resultOverride?: any): Promise<void>;
+
+  /**
+   * Reject a pending_review task (delegator → processing).
+   * Only the delegator (fromBotId) can call this.
+   */
+  reject(taskId: string, botId: string, reason: string): Promise<void>;
 
   /**
    * Cancel a pending or accepted task.

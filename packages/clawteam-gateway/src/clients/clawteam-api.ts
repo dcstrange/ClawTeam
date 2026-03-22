@@ -17,6 +17,7 @@ export interface IClawTeamApiClient {
   acceptTask(taskId: string, executorSessionKey?: string): Promise<void>;
   startTask(taskId: string): Promise<void>;
   getTask(taskId: string): Promise<Task | null>;
+  getBot(botId: string): Promise<{ id: string; name: string; ownerEmail?: string } | null>;
   sendHeartbeat(taskId: string, payload: HeartbeatPayload): Promise<void>;
   resetTask(taskId: string): Promise<boolean>;
   failTask(taskId: string, reason: string): Promise<boolean>;
@@ -137,6 +138,19 @@ export class ClawTeamApiClient implements IClawTeamApiClient {
     }
 
     return body.data;
+  }
+
+  async getBot(botId: string): Promise<{ id: string; name: string; ownerEmail?: string } | null> {
+    const url = `${this.baseUrl}/api/v1/bots/${botId}`;
+    try {
+      const response = await this.fetch(url);
+      if (response.status === 404) return null;
+      const body = await response.json() as any;
+      if (!body.success || !body.data) return null;
+      return body.data;
+    } catch {
+      return null;
+    }
   }
 
   async resetTask(taskId: string): Promise<boolean> {

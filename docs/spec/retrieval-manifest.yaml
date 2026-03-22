@@ -1,0 +1,158 @@
+version: 1
+updated_at: "2026-03-22"
+owner: "ClawTeam"
+description: >
+  Machine-readable retrieval map for docs. Use with docs/spec/LLM_RETRIEVAL_SPEC.md.
+
+priority_order:
+  - code
+  - tier_a
+  - tier_b
+  - tier_c
+
+entrypoints:
+  - path: docs/spec/README.md
+    role: primary_human_and_llm_entry
+  - path: docs/spec/LLM_RETRIEVAL_SPEC.md
+    role: query_router
+
+collections:
+  - name: canonical_specs
+    tier: A
+    items:
+      - path: docs/spec/README.md
+        doc_type: spec_entry
+        status: active
+        tags: [spec, index, retrieval]
+      - path: docs/spec/LLM_RETRIEVAL_SPEC.md
+        doc_type: retrieval_spec
+        status: active
+        tags: [spec, llm, routing]
+      - path: docs/spec/DOCS_STRUCTURE_AUDIT_SPEC.md
+        doc_type: governance_spec
+        status: active
+        tags: [spec, audit, information-architecture]
+
+  - name: operational_docs
+    tier: B
+    items:
+      - path: docs/task-operations/README.md
+        doc_type: operation_index
+        status: active
+        tags: [task, lifecycle, operations]
+        code_sources:
+          - packages/api/src/task-coordinator/routes/index.ts
+          - packages/api/src/task-coordinator/completer.ts
+      - path: docs/task-operations/DELEGATE.md
+        doc_type: operation_detail
+        status: active
+        tags: [delegate, sub-delegate, task]
+      - path: docs/task-operations/DASHBOARD_CREATE.md
+        doc_type: operation_detail
+        status: active
+        tags: [dashboard, delegate-intent, task-create]
+      - path: docs/task-operations/NUDGE.md
+        doc_type: operation_detail
+        status: active
+        tags: [nudge, recovery]
+      - path: docs/task-operations/RECOVERY.md
+        doc_type: operation_detail
+        status: active_with_partial_staleness
+        tags: [recovery, stale-task, fallback]
+      - path: docs/Gateway/GATEWAY_TASK_MANAGEMENT.md
+        doc_type: gateway_overview
+        status: active
+        tags: [gateway, lifecycle, recovery]
+      - path: docs/Gateway/TaskRouter.md
+        doc_type: component_doc
+        status: active
+        tags: [gateway, routing, delegate-intent]
+      - path: "docs/Gateway/消息构建器.md"
+        doc_type: component_doc
+        status: active
+        tags: [gateway, prompt, token]
+      - path: docs/Gateway/api_endopint.md
+        doc_type: gateway_endpoint_reference
+        status: historical
+        tags: [gateway, endpoints, historical]
+        code_sources:
+          - packages/clawteam-gateway/src/gateway/gateway-proxy.ts
+          - packages/clawteam-gateway/src/server/router-api.ts
+      - path: docs/Gateway/StaleTaskRecoveryLoop.md
+        doc_type: component_doc
+        status: active_with_partial_staleness
+        tags: [gateway, recovery, nudge]
+      - path: docs/FAQ/plugin-not-injecting-template.md
+        doc_type: faq
+        status: active
+        tags: [plugin, template, troubleshooting]
+
+  - name: architecture_docs
+    tier: B
+    items:
+      - path: docs/architecture/OVERVIEW.md
+        doc_type: architecture_overview
+        status: historical
+        tags: [architecture, overview]
+      - path: docs/architecture/ROUTING_LAYER.md
+        doc_type: architecture_component
+        status: active
+        tags: [architecture, routing, gateway]
+      - path: docs/architecture/API_SERVER_TECHNICAL_SPEC.md
+        doc_type: architecture_component
+        status: partially_outdated
+        tags: [architecture, api-server, task-coordinator]
+      - path: docs/architecture/INTEGRATION_LAYER.md
+        doc_type: architecture_component
+        status: historical
+        tags: [architecture, integration, gateway]
+      - path: docs/architecture/PLATFORM_LAYER.md
+        doc_type: architecture_component
+        status: historical
+        tags: [architecture, platform, api]
+
+  - name: historical_docs
+    tier: C
+    items:
+      - path: docs/references/
+        doc_type: research_archive
+        status: historical
+        tags: [reference, research, background]
+      - path: "docs/openclaw session_spawn扩展方案/"
+        doc_type: design_exploration_archive
+        status: historical
+        tags: [openclaw, session-spawn, historical-solutions]
+
+hot_conflict_keywords:
+  - keyword: "/api/v1/tasks/:taskId/start"
+    preferred_truth:
+      - packages/api/src/task-coordinator/routes/index.ts
+    reason: "accept 已直接进入 processing，start 为历史语义"
+  - keyword: "/delegate-intent"
+    preferred_truth:
+      - packages/api/src/task-coordinator/routes/index.ts
+      - packages/clawteam-gateway/src/routing/router.ts
+    reason: "Router API 旧入口已废弃，现为 inbox 驱动"
+  - keyword: "_clawteam_"
+    preferred_truth:
+      - packages/openclaw-plugin/index.ts
+    reason: "当前主路径使用 <!--CLAWTEAM:...--> token 与 curl sessionKey 注入"
+
+query_hints:
+  - intent: "查当前 API 行为"
+    read:
+      - docs/spec/LLM_RETRIEVAL_SPEC.md
+      - docs/api-reference/api-endpoints.md
+    verify_with:
+      - packages/api/src/task-coordinator/routes/index.ts
+      - packages/clawteam-gateway/src/gateway/gateway-proxy.ts
+
+  - intent: "查路由与会话绑定"
+    read:
+      - docs/spec/LLM_RETRIEVAL_SPEC.md
+      - docs/task-operations/ROUTING.md
+      - docs/guides/SESSION_MANAGEMENT.md
+    verify_with:
+      - packages/clawteam-gateway/src/routing/router.ts
+      - packages/openclaw-plugin/index.ts
+      - packages/api/src/task-coordinator/routes/index.ts

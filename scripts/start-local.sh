@@ -286,7 +286,8 @@ if [ -d "$PLUGIN_SRC" ]; then
       mkdir -p "$PLUGIN_DIR"
       cp "$PLUGIN_SRC/index.ts" "$PLUGIN_DIR/index.ts"
       cp "$PLUGIN_SRC/openclaw.plugin.json" "$PLUGIN_DIR/openclaw.plugin.json"
-      cp "$PLUGIN_SRC/task_system_prompt.md" "$PLUGIN_DIR/task_system_prompt.md"
+      cp "$PLUGIN_SRC/task_system_prompt_executor.md" "$PLUGIN_DIR/task_system_prompt_executor.md"
+      cp "$PLUGIN_SRC/task_system_prompt_sender.md" "$PLUGIN_DIR/task_system_prompt_sender.md"
     }
     echo "    Plugin installed → clawteam-auto-tracker"
   fi
@@ -343,6 +344,11 @@ if [ "$NEEDS_UPDATE" = true ]; then
       if (!cfg.plugins) cfg.plugins = {};
       if (!cfg.plugins.allow) cfg.plugins.allow = [];
       if (!cfg.plugins.allow.includes('clawteam-auto-tracker')) cfg.plugins.allow.push('clawteam-auto-tracker');
+      // Ensure load.paths includes the plugin source so OpenClaw loads from repo (not stale copy)
+      if (!cfg.plugins.load) cfg.plugins.load = {};
+      if (!cfg.plugins.load.paths) cfg.plugins.load.paths = [];
+      const pluginSrc = '$PROJECT_ROOT/packages/openclaw-plugin';
+      if (!cfg.plugins.load.paths.includes(pluginSrc)) cfg.plugins.load.paths.push(pluginSrc);
       fs.writeFileSync(p, JSON.stringify(cfg, null, 2) + '\n');
     "
     echo "    Merged clawteam into existing $OPENCLAW_CONFIG"
@@ -366,6 +372,9 @@ if [ "$NEEDS_UPDATE" = true ]; then
     }
   },
   "plugins": {
+    "load": {
+      "paths": ["$PROJECT_ROOT/packages/openclaw-plugin"]
+    },
     "allow": ["clawteam-auto-tracker"]
   }
 }
@@ -437,7 +446,24 @@ echo "    ~/.openclaw/openclaw.json  → OpenClaw skill config (auto-synced)"
 echo "    ~/.openclaw/skills/clawteam/SKILL.md → Skill definition (auto-synced)"
 echo "    ~/.openclaw/extensions/clawteam-auto-tracker/ → Plugin (auto-synced)"
 
-# ── Step 7: Start services ──
+# ── Step 7: Clean up old processes ──
+echo "==> Checking for existing processes..."
+GATEWAY_PID=$(lsof -ti:3100 2>/dev/null || true)
+DASHBOARD_PID=$(lsof -ti:5173 2>/dev/null || true)
+
+if [ -n "$GATEWAY_PID" ]; then
+  echo "    Found Gateway process on port 3100 (PID: $GATEWAY_PID), stopping..."
+  kill -9 $GATEWAY_PID 2>/dev/null || true
+  sleep 1
+fi
+
+if [ -n "$DASHBOARD_PID" ]; then
+  echo "    Found Dashboard process on port 5173 (PID: $DASHBOARD_PID), stopping..."
+  kill -9 $DASHBOARD_PID 2>/dev/null || true
+  sleep 1
+fi
+
+# ── Step 8: Start services ──
 echo ""
 echo "==> Starting Dashboard (:5173) + Gateway (:3100)..."
 echo "    Press Ctrl+C to stop both services."
@@ -447,5 +473,5 @@ npx concurrently \
   --names "router,dashboard" \
   --prefix-colors "cyan,magenta" \
   --kill-others \
-  "cd packages/clawteam-gateway && npm run dev" \
-  "cd packages/dashboard && npm run dev -- --host"
+  "npm run dev --workspace=@clawteam/gateway" \
+  "npm run dev --workspace=@clawteam/dashboard -- --host"

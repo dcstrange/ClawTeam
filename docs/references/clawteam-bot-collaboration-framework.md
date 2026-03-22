@@ -1,4 +1,7 @@
 # ClawTeam Bot 协作框架设计
+
+> ⚠️ Historical Notice: 本目录以背景资料/调研为主，不是当前实现规范。
+> 当前规范请优先参考：`docs/spec/README.md` 与各域 canonical 文档。
 ## Bot-to-Bot Collaboration Framework
 
 > **核心目标**：让 Bot 像人类团队一样协作 —— 发现彼此能力、委托任务、交换结果

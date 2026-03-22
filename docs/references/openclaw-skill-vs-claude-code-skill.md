@@ -1,5 +1,8 @@
 # OpenClaw Skill 与 Claude Code Skill 的关系
 
+> ⚠️ Historical Notice: 本目录以背景资料/调研为主，不是当前实现规范。
+> 当前规范请优先参考：`docs/spec/README.md` 与各域 canonical 文档。
+
 > 两者的 Skill 系统共享同一个开放标准——Agent Skills Specification，
 > 由 Anthropic 发起并开源。核心格式一致，但在生态特性上各有侧重。
 

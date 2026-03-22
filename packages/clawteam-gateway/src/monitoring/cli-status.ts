@@ -1006,6 +1006,7 @@ function parseJsonOutput(stdout: string): any {
   try {
     return JSON.parse(trimmed);
   } catch {
+    // Find the JSON object/array boundaries (handles prefix AND suffix noise)
     const jsonStart = trimmed.indexOf('{');
     const jsonArrayStart = trimmed.indexOf('[');
     const start = jsonStart === -1
@@ -1014,10 +1015,14 @@ function parseJsonOutput(stdout: string): any {
         ? jsonStart
         : Math.min(jsonStart, jsonArrayStart);
     if (start >= 0) {
-      try {
-        return JSON.parse(trimmed.substring(start));
-      } catch {
-        // ignore
+      const closer = trimmed[start] === '{' ? '}' : ']';
+      const end = trimmed.lastIndexOf(closer);
+      if (end > start) {
+        try {
+          return JSON.parse(trimmed.substring(start, end + 1));
+        } catch {
+          // ignore
+        }
       }
     }
   }

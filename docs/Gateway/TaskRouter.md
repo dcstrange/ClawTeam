@@ -4,118 +4,68 @@
 
 ## 职责
 
-决定任务发送到哪个 OpenClaw session，构建 prompt，执行发送。继承 EventEmitter，路由完成后发出事件供 WebSocket 广播。
+TaskRouter 负责两类路由：
+- `task_notification`（任务消息）
+- `direct_message` / `delegate_intent`（消息与委托意图）
 
----
+并在完成后发出 `task_routed` / `message_routed` 事件给 Dashboard WebSocket。
 
-## 两阶段设计
+## 两阶段模型
 
 | 阶段 | 方法 | 说明 |
 |------|------|------|
-| 决策 | `decide(task)` | 纯逻辑，无 I/O。根据 task.type 和参数决定目标 session |
-| 执行 | `execute(decision)` | 发送消息到 OpenClaw session，处理失败降级 |
-| 便捷 | `route(task)` | decide + execute 的组合 |
-| DM | `routeMessage(message)` | 路由统一收件箱中的 direct_message |
+| 决策 | `decide(task)` | 纯逻辑选择目标 session |
+| 执行 | `execute(decision)` | 发送消息、失败恢复、降级 |
 
----
+## 任务路由规则
 
-## 路由决策逻辑
+```text
+type = new
+  -> send_to_main
 
-```
-task.type === 'new' (或未设置)
-    → 发送到 main session
-    → main session LLM 负责 spawn sub-session
-
-task.type === 'sub-task'
-    ├── 有 parameters.targetSessionKey
-    │     → 发送到指定 session
-    │
-    ├── 有 parentTaskId
-    │     → 从 SessionTracker 查找 parent 任务的 session
-    │     → 找到 → 发送到同一 session
-    │     → 找不到 → 降级到 main session
-    │
-    └── 都没有 → main session
+type = sub-task
+  -> 有 targetSessionKey: send_to_session(target)
+  -> 否则若有 parentTaskId: 尝试沿用父任务 session
+  -> 否则: send_to_main
 ```
 
-**Session 过期处理**：
+### 会话失效处理
 
-```
-目标 session 不存活
-    ├── 尝试 restoreSession()（CLI 模式）
-    │     → 成功 → 重试发送
-    │     → 失败 → 降级到 main session（带 parent context）
-    └── HTTP 模式 → 直接降级到 main
-```
+当目标 sub-session 不可用：
+1. 尝试 `restoreSession()`
+2. 仍失败则降级到 main（`buildFallbackMessage`）
+3. 保留父任务上下文，避免任务信息丢失
 
----
+## delegate_intent 路由（新链路）
 
-## 消息构建器
+当前不再走 Router API `POST /delegate-intent`。
 
-详见 [消息构建器.md](消息构建器.md)。
+真实链路：
+1. Dashboard 调 API `POST /api/v1/tasks/:taskId/delegate-intent`
+2. API 写 `delegate_intent` 到 inbox
+3. Poller 读到后调用 `routeDelegateIntent(msg)`
+4. Router 构建 `[ClawTeam Delegate Intent]` 并发送到 main
 
-### `buildNewTaskMessage(task)`
+`routeDelegateIntent` 会尽力补全：
+- `fromBotName/fromBotOwner`
+- `toBotId/toBotName/toBotOwner`
 
-新任务发送到 main session，指示 LLM spawn sub-session 执行。
+并写入 `<!--CLAWTEAM:{...}-->` token，交给 plugin 注入 sender 提示词。
 
-关键内容：
-- spawn 参数包含 `_clawteam_role: "executor"`、`_clawteam_taskId`、`_clawteam_from_bot_id`
-- 插件 `clawteam-auto-tracker` 自动注入 `task_system_prompt.md` 模板到 task 参数
-- 插件自动调用 `/gateway/track-session` 完成 accept + start + notify
-- 第二步：通过 `sessions_send` 发送任务详情（prompt、capability、parameters）到子 session
+## DM 路由规则
 
-### `buildSubTaskMessage(task)`
-
-子任务发送到已有 session。
-
-关键内容：
-- 包含 parentTaskId 引用
-- Gateway 已自动 accept（sub-task 不需要手动 accept）
-- 信息获取层级：DM 委托方 → `/need-human-input` 问自己的人类
-
-### `buildFallbackMessage(task)`
-
-目标 session 已死时，降级到 main session。
-
-关键内容：
-- 从 API 获取 parent task context（如果有 parentTaskId）
-- 使用与 `buildNewTaskMessage` 相同的插件 spawn 流程
-- 包含 parent result 作为上下文
-
-### `buildTaskContextMessagePrompt(message, task)`
-
-带 taskId 的 DM 转发到对应 sub-session。
-
-关键内容：
-- 显示任务状态和 capability
-- 终态任务不允许回复
-- 提供 curl 回复模板
-
-### `buildDirectMessagePrompt(message)`
-
-无 taskId 的普通 DM 发送到 main session。
-
----
-
-## DM 消息路由
-
-```
-收到 direct_message
-    │
-    ├── 有 taskId
-    │     → SessionTracker.getSessionForTask(taskId)
-    │     ├── 找到 session → 发送到该 sub-session
-    │     └── 找不到 → 降级到 main session（带 task context）
-    │
-    └── 无 taskId
-          → 发送到 main session
-```
-
----
+- 有 `taskId`：优先路由到 `sessionTracker` 对应 sub-session；找不到则降级 main（携带 task context）。
+- 无 `taskId`：直接发到 main。
 
 ## 事件
 
 | 事件 | 触发时机 | 数据 |
 |------|---------|------|
-| `task_routed` | 任务路由完成 | `{taskId, action, sessionKey, success, reason}` |
+| `task_routed` | task/delegate_intent 路由完成 | `{taskId, action, sessionKey, success, reason}` |
 | `message_routed` | DM 路由完成 | `{messageId, taskId, sessionKey, success}` |
+
+## 当前实现注意点
+
+- 不再依赖 `[CLAWTEAM_META]`、`_clawteam_*`。
+- 统一使用 `<!--CLAWTEAM:{...}-->`。
+- `accept/start` 不在 Router 中连调；accept 语义已并入 `pending -> processing`。

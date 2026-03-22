@@ -1,4 +1,7 @@
 # ClawTeam 最小可行文档 (MVD)
+
+> ⚠️ Historical Notice: 本目录以背景资料/调研为主，不是当前实现规范。
+> 当前规范请优先参考：`docs/spec/README.md` 与各域 canonical 文档。
 ## Minimum Viable Documentation
 
 > **核心定位**：开发者协作操作系统 (Developer Collaboration OS)

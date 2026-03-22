@@ -70,6 +70,18 @@ export class TaskCoordinatorImpl implements ITaskCoordinator {
     return this.completer.complete(taskId, req, botId);
   }
 
+  async submitResult(taskId: string, result: any, botId: string): Promise<void> {
+    return this.completer.submitResult(taskId, result, botId);
+  }
+
+  async approve(taskId: string, botId: string, resultOverride?: any): Promise<void> {
+    return this.completer.approve(taskId, botId, resultOverride);
+  }
+
+  async reject(taskId: string, botId: string, reason: string): Promise<void> {
+    return this.completer.reject(taskId, botId, reason);
+  }
+
   async cancel(taskId: string, reason: string, botId: string): Promise<void> {
     return this.completer.cancel(taskId, reason, botId);
   }

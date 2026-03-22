@@ -1,5 +1,8 @@
 # 方案 2：before_tool_call + after_tool_call 跨 Hook 状态传递
 
+> ⚠️ Historical Notice: 本目录为历史方案调研，不代表当前线上实现。
+> 当前实现请参考：`docs/Gateway/GATEWAY_TASK_MANAGEMENT.md`、`docs/Gateway/消息构建器.md`、`docs/task-operations/README.md`。
+
 ## 适用场景
 
 需要在 spawn **之前**做同步预处理（如验证 taskId 是否合法），同时在 spawn **之后**拿到 childSessionKey 完成追踪。

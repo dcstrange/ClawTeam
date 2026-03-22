@@ -1,5 +1,8 @@
 # OpenClaw sessions_spawn Hook 扩展方案：自动创建任务并追踪 Session
 
+> ⚠️ Historical Notice: 本目录为历史方案调研，不代表当前线上实现。
+> 当前实现请参考：`docs/Gateway/GATEWAY_TASK_MANAGEMENT.md`、`docs/Gateway/消息构建器.md`、`docs/task-operations/README.md`。
+
 ## 1. 需求
 
 每次调用 `sessions_spawn` 时，自动完成以下流程：
@@ -735,7 +738,8 @@ if (details?.status === "accepted") {
 ```
 packages/openclaw-plugin/
 ├── index.ts                  # 插件主逻辑
-├── task_system_prompt.md     # 子 session 上下文模板
+├── task_system_prompt_executor.md  # executor 角色上下文模板
+├── task_system_prompt_sender.md    # sender 角色上下文模板
 ├── openclaw.plugin.json      # 插件清单
 └── package.json              # openclaw.extensions 配置
 ```
@@ -760,9 +764,9 @@ openclaw plugins install --link packages/openclaw-plugin
 | `_clawteam_taskId` | executor 必填；sender 可选（插件自动创建） |
 | `_clawteam_from_bot_id` | 非 sender 角色必填（委托方 bot ID）；缺失时插件阻断 spawn |
 
-### task_system_prompt.md 注入机制
+### 角色模板注入机制
 
-插件在 `register` 时读取 `task_system_prompt.md` 模板（失败则静默跳过）。在 `before_tool_call` 中将模板渲染后前置到 `task` 参数：
+插件在 `register` 时按角色读取 `task_system_prompt_executor.md` 和 `task_system_prompt_sender.md` 模板（失败则静默跳过）。在 `before_tool_call` 中根据检测到的角色选择对应模板，渲染后前置到 `task` 参数：
 
 ```
 {{TASK_ID}}       → ClawTeam 任务 ID

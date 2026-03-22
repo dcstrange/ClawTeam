@@ -48,7 +48,7 @@ export const REDIS_KEYS = {
 } as const;
 
 /** Valid task statuses */
-export const TASK_STATUSES = ['pending', 'accepted', 'processing', 'completed', 'failed', 'timeout', 'cancelled'] as const;
+export const TASK_STATUSES = ['pending', 'accepted', 'processing', 'waiting_for_input', 'pending_review', 'completed', 'failed', 'timeout', 'cancelled'] as const;
 
 /** Valid priority values */
 export const TASK_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
