@@ -440,19 +440,17 @@ export class StaleTaskRecoveryLoop {
         { taskId, sessionKey, sessionState },
         'Session not stale, skipping',
       );
-      // Any observable activity/state transition resets stale-recovery attempts.
       this.attemptTracker.remove(taskId);
       return null;
     }
 
-    // For nudge-eligible session states, require staleness threshold before nudging.
-    // This avoids immediate repeated nudges for recently completed/errored turns.
-    if (status.lastActivityAt && (sessionState === 'idle' || sessionState === 'completed' || sessionState === 'errored')) {
+    // For idle sessions, check if they've been idle long enough
+    if (sessionState === 'idle' && status.lastActivityAt) {
       const idleDuration = Date.now() - status.lastActivityAt.getTime();
       if (idleDuration < this.stalenessThresholdMs) {
         this.logger.debug(
-          { taskId, sessionKey, sessionState, idleDuration, threshold: this.stalenessThresholdMs },
-          'Session under staleness threshold, skipping',
+          { taskId, sessionKey, idleDuration, threshold: this.stalenessThresholdMs },
+          'Session idle but under staleness threshold, skipping',
         );
         this.attemptTracker.remove(taskId);
         return null;
@@ -498,36 +496,24 @@ export class StaleTaskRecoveryLoop {
       return { taskId, sessionKey, action: 'skip', success: false, reason: 'API fetch failed' };
     }
 
-    // Tasks waiting for human input / pending review are legitimately paused — skip recovery
+    // Tasks waiting for human input are legitimately paused — skip recovery
     if (task && task.status === 'waiting_for_input') {
       this.logger.debug({ taskId, sessionKey }, 'Task is waiting_for_input, skipping recovery');
       this.attemptTracker.remove(taskId);
       return { taskId, sessionKey, action: 'skip', success: true, reason: 'Task waiting for human input' };
     }
+
+    // pending_review is also a legitimate wait state (waiting for delegator review).
     if (task && task.status === 'pending_review') {
       this.logger.debug({ taskId, sessionKey }, 'Task is pending_review, skipping recovery');
       this.attemptTracker.remove(taskId);
       return { taskId, sessionKey, action: 'skip', success: true, reason: 'Task pending review' };
     }
 
-    // Sender sessions are monitor/proxy sessions for delegated tasks.
-    // They are expected to stay idle while executor sessions do the work.
-    if (task?.senderSessionKey && sessionKey === task.senderSessionKey) {
-      const ACTIVE_TASK_STATUSES = new Set(['pending', 'accepted', 'processing', 'waiting_for_input', 'pending_review']);
-      if (ACTIVE_TASK_STATUSES.has(task.status)) {
-        this.logger.debug(
-          { taskId, sessionKey, taskStatus: task.status },
-          'Sender monitoring session detected by senderSessionKey — skipping recovery',
-        );
-        this.attemptTracker.remove(taskId);
-        return { taskId, sessionKey, action: 'skip', success: true, reason: 'Sender monitoring session' };
-      }
-    }
-
     // Delegator monitoring sessions are legitimately idle — skip recovery.
     // When this gateway delegated a task to another bot, the sub-session just
     // monitors progress. It's expected to be idle while the executor works.
-    const ACTIVE_TASK_STATUSES = new Set(['pending', 'accepted', 'processing', 'waiting_for_input', 'pending_review']);
+    const ACTIVE_TASK_STATUSES = new Set(['pending', 'accepted', 'processing', 'waiting_for_input']);
     if (this.botId && task && task.fromBotId === this.botId && ACTIVE_TASK_STATUSES.has(task.status)) {
       this.logger.debug(
         { taskId, sessionKey, taskStatus: task.status, fromBotId: task.fromBotId },
@@ -535,32 +521,6 @@ export class StaleTaskRecoveryLoop {
       );
       this.attemptTracker.remove(taskId);
       return { taskId, sessionKey, action: 'skip', success: true, reason: 'Delegator monitoring session — task still active' };
-    }
-
-    // For non-dead stale states (idle/completed/errored), apply nudge cooldown.
-    // Prevents nudging every recovery tick and accidentally reaching exhaustion while task is still running.
-    if (effectiveState !== 'dead') {
-      const record = this.attemptTracker.getRecord(taskId);
-      if (record) {
-        const sinceLastAttemptMs = Date.now() - record.lastAttemptAt;
-        if (sinceLastAttemptMs < this.stalenessThresholdMs) {
-          this.logger.debug(
-            { taskId, sessionKey, sessionState: effectiveState, sinceLastAttemptMs, cooldownMs: this.stalenessThresholdMs },
-            'Skipping nudge — cooldown window not reached',
-          );
-          return { taskId, sessionKey, action: 'skip', success: true, reason: 'Nudge cooldown window' };
-        }
-      }
-
-      // For non-dead sessions, do not terminalize task on "attempt exhaustion".
-      // Reset counter and continue nudging with cooldown.
-      if (this.attemptTracker.isExhausted(taskId)) {
-        this.logger.debug(
-          { taskId, sessionKey, sessionState: effectiveState },
-          'Nudge attempts reached max for non-dead session, resetting counter',
-        );
-        this.attemptTracker.remove(taskId);
-      }
     }
 
     // Task not found or in a terminal state — clean up
@@ -582,11 +542,26 @@ export class StaleTaskRecoveryLoop {
       };
     }
 
-    // Exhaustion should only terminate tasks for dead sessions.
-    // For non-dead states we keep monitoring and nudging with cooldown.
-    if (effectiveState === 'dead' && this.attemptTracker.isExhausted(taskId)) {
+    // Check if recovery attempts exhausted
+    if (this.attemptTracker.isExhausted(taskId)) {
       const attempts = this.attemptTracker.getRecord(taskId)?.attempts ?? '?';
       const reason = `Recovery exhausted after ${attempts} attempts (session: ${effectiveState})`;
+
+      // For non-dead sessions (idle/completed/errored), don't terminalize task.
+      // Just stop nudging until a meaningful state change resets the counter.
+      if (effectiveState !== 'dead') {
+        this.logger.info(
+          { taskId, sessionKey, sessionState: effectiveState, attempts },
+          `${c.gray('EXHAUSTED')} Nudge attempts exhausted for non-dead session, skipping terminalization`,
+        );
+        return {
+          taskId,
+          sessionKey,
+          action: 'skip',
+          success: true,
+          reason: `${reason} — non-dead session, keep task active`,
+        };
+      }
 
       // Pending tasks can't be "completed" → use cancel; accepted/processing → use fail
       let apiOk: boolean;

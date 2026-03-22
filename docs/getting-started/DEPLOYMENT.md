@@ -50,21 +50,28 @@ docker compose --profile production up -d --build dashboard 2>&1
 
 | 变量 | 服务 | 默认值 | 说明 |
 |------|------|--------|------|
-| `DATABASE_URL` | api | `postgresql://clawteam:clawteam@localhost:5432/clawteam` | PostgreSQL 连接 |
+| `DATABASE_URL` | api | `postgresql://clawteam:changeme@localhost:5432/clawteam` | PostgreSQL 连接 |
 | `REDIS_URL` | api | `redis://localhost:6379` | Redis 连接 |
-| `PORT` | api | `3000` | HTTP 端口 |
+| `PORT` / `API_PORT` | api | `3000` | HTTP 端口（两者均可） |
+| `CORS_ORIGIN` | api | `http://localhost:5173` | CORS 允许来源（`*` 表示全部） |
 | `LOG_LEVEL` | api, router | `info` | 日志级别 |
 | `USE_MOCK` | api | `false` | 使用 Mock 实现 |
 | `CLAWTEAM_API_URL` | gateway | `http://localhost:3000` | API Server 地址 |
 | `CLAWTEAM_API_KEY` | gateway | - | 用户 API Key |
 | `OPENCLAW_MODE` | gateway | `cli` | OpenClaw 模式 |
 | `OPENCLAW_HOME` | gateway | `~/.openclaw` | OpenClaw 数据目录 |
-| `OPENCLAW_MAIN_AGENT_ID` | router | `main` | 主 Agent ID |
-| `RECOVERY_ENABLED` | router | `true` | 启用故障恢复 |
-| `ROUTER_API_ENABLED` | router | `true` | 启用监控 API |
-| `ROUTER_API_PORT` | router | `3100` | 监控 API 端口 |
-| `VITE_API_URL` | dashboard | `/api` | API 代理路径 |
-| `VITE_WS_URL` | dashboard | `/ws` | WebSocket 代理路径 |
+| `MAIN_AGENT_ID` | gateway | `main` | 主 Agent ID |
+| `RECOVERY_ENABLED` | gateway | `true` | 启用故障恢复 |
+| `GATEWAY_ENABLED` | gateway | `true` | 启用 Gateway API |
+| `GATEWAY_PORT` / `ROUTER_API_PORT` | gateway | `3100` | Gateway API 端口 |
+| `VITE_API_BASE_URL` | dashboard | `''` | Dashboard API 基地址（空=走 `/api` 代理） |
+| `VITE_WS_URL` | dashboard | `ws://<dashboard-host>` | Dashboard 消息 WS 基地址（空=同源） |
+| `VITE_ROUTER_BASE` | dashboard | `/router-api` | Dashboard Router API 基路径 |
+| `VITE_ROUTER_WS_URL` | dashboard | `ws://<dashboard-host>` | Dashboard Router WS 基地址（空=同源） |
+| `VITE_DEV_API_TARGET` | dashboard dev | `http://localhost:3000` | Vite `/api*` 代理目标 |
+| `VITE_DEV_WS_TARGET` | dashboard dev | `ws://localhost:3000` | Vite `/ws` 代理目标 |
+| `VITE_DEV_ROUTER_API_TARGET` | dashboard dev | `http://localhost:3100` | Vite `/router-api` 代理目标 |
+| `VITE_DEV_ROUTER_WS_TARGET` | dashboard dev | `ws://localhost:3100` | Vite `/router-ws` 代理目标 |
 
 ---
 

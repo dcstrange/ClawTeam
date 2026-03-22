@@ -125,10 +125,18 @@ export async function createServer(): Promise<{ server: FastifyInstance; context
     },
   });
 
+  const corsOriginRaw = process.env.CORS_ORIGIN?.trim();
+  const corsOrigin =
+    !corsOriginRaw || corsOriginRaw === '*'
+      ? true
+      : (corsOriginRaw.includes(',')
+        ? corsOriginRaw.split(',').map((s) => s.trim()).filter(Boolean)
+        : corsOriginRaw);
+
   // 注册 CORS
   // @ts-expect-error - fastify/cors types mismatch with fastify 4.x
   await server.register(fastifyCors, {
-    origin: true, // 允许所有来源，生产环境应配置具体域名
+    origin: corsOrigin,
     credentials: true,
   });
 

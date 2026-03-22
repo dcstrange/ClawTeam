@@ -57,8 +57,8 @@ function parseDatabaseUrl(url: string): DatabaseConfig {
       host: 'localhost',
       port: 5432,
       database: 'clawteam',
-      user: 'postgres',
-      password: 'postgres',
+      user: 'clawteam',
+      password: 'changeme',
       ssl: false,
       poolSize: 10,
     };
@@ -95,7 +95,7 @@ function parseRedisUrl(url: string): RedisConfig {
  * Load configuration from environment variables
  */
 export function loadConfig(): AppConfig {
-  const databaseUrl = process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/clawteam';
+  const databaseUrl = process.env.DATABASE_URL || 'postgresql://clawteam:changeme@localhost:5432/clawteam';
   const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379/0';
 
   return {
@@ -103,7 +103,8 @@ export function loadConfig(): AppConfig {
     redis: parseRedisUrl(redisUrl),
     api: {
       host: process.env.API_HOST || '0.0.0.0',
-      port: parseInt(process.env.API_PORT || '3000', 10),
+      // Backward-compatible: support both API_PORT and PORT
+      port: parseInt(process.env.API_PORT || process.env.PORT || '3000', 10),
       jwtSecret: process.env.JWT_SECRET || 'change-this-in-production',
       jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
     },

@@ -5,6 +5,9 @@
  * and handles graceful shutdown on SIGINT/SIGTERM.
  */
 
+import { fileURLToPath } from 'url';
+import { dirname, resolve } from 'path';
+import { config as loadEnv } from 'dotenv';
 import { loadConfig } from './config.js';
 import { createLogger } from './utils/logger.js';
 import { printStartupBanner } from './utils/startup-banner.js';
@@ -21,6 +24,11 @@ import { StaleTaskRecoveryLoop } from './recovery/stale-task-recovery-loop.js';
 import { RouterApiServer } from './server/router-api.js';
 import type { GatewayConfig } from './config.js';
 import type { Logger } from 'pino';
+
+// Load monorepo root .env (packages/clawteam-gateway/src -> ../../../.env)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+loadEnv({ path: resolve(__dirname, '../../../.env') });
 
 /** Create the appropriate OpenClaw session client based on config mode */
 function createOpenClawClient(config: GatewayConfig, logger: Logger): IOpenClawSessionClient {

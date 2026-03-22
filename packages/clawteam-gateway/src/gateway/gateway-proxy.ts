@@ -99,16 +99,12 @@ function extractAndTrackSession(
     clawteamApiUrl?: string;
     clawteamApiKey?: string;
   },
-  defaultRole: 'sender' | 'executor' = 'executor',
 ): Record<string, any> {
   const { sessionKey, sessionKeyRole, ...clean } = body;
   if (!sessionKey || !taskId) return body;
-  const effectiveRole = sessionKeyRole === 'sender' || sessionKeyRole === 'executor'
-    ? sessionKeyRole
-    : defaultRole;
 
   deps.sessionTracker.track(taskId, sessionKey);
-  deps.logger.info({ taskId, sessionKey, role: effectiveRole }, 'Auto-tracked session via sessionKey in request body');
+  deps.logger.info({ taskId, sessionKey, role: sessionKeyRole }, 'Auto-tracked session via sessionKey in request body');
 
   // Best-effort persist to API server
   const botId = deps.clawteamBotId;
@@ -117,7 +113,7 @@ function extractAndTrackSession(
     proxyFetch(`${apiBase}/api/v1/tasks/${taskId}/track-session`, {
       method: 'POST',
       headers: authHeaders(deps.clawteamApiKey, botId),
-      body: JSON.stringify({ sessionKey, botId, role: effectiveRole }),
+      body: JSON.stringify({ sessionKey, botId, role: sessionKeyRole || 'executor' }),
     }).catch((err) => {
       deps.logger.warn({ taskId, error: (err as Error).message }, 'Auto-track persist to API failed');
     });
@@ -132,18 +128,14 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
   const key = deps.clawteamApiKey;
 
   /** Shorthand for extractAndTrackSession with gateway deps */
-  const autoTrack = (
-    body: Record<string, any>,
-    taskId: string,
-    defaultRole: 'sender' | 'executor' = 'executor',
-  ) =>
+  const autoTrack = (body: Record<string, any>, taskId: string) =>
     extractAndTrackSession(body, taskId, {
       sessionTracker: deps.sessionTracker,
       logger: log,
       clawteamBotId: deps.clawteamBotId,
       clawteamApiUrl: deps.clawteamApiUrl,
       clawteamApiKey: key,
-    }, defaultRole);
+    });
 
   // 1. POST /gateway/register — register bot using config API key
   server.post('/gateway/register', async (req: FastifyRequest, reply: FastifyReply) => {
@@ -262,31 +254,27 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
   // Called by the delegation sub-session to deliver the task to the executor.
   server.post<{ Params: { taskId: string } }>('/gateway/tasks/:taskId/delegate', async (req, reply) => {
     const { taskId } = req.params;
-    const rawBody = (req.body || {}) as Record<string, any>;
-    const {
-      sessionKey,
-      sessionKeyRole: _ignoredRole,
-      fromBotId: claimedFromBotId,
-      ...body
-    } = rawBody;
+    const body = autoTrack((req.body || {}) as Record<string, any>, taskId);
+    const localBotId = deps.clawteamBotId;
 
     if (!body.toBotId || typeof body.toBotId !== 'string') {
-      textReply(reply, formatErrorResponse('toBotId is required'), 400);
+      textReply(reply, formatErrorResponse('toBotId is required.'), 400);
       return;
     }
 
-    // Optional safety: if caller claims fromBotId in body, it must match local bot identity.
-    if (claimedFromBotId && deps.clawteamBotId && claimedFromBotId !== deps.clawteamBotId) {
-      log.warn(
-        { taskId, claimedFromBotId, localBotId: deps.clawteamBotId },
-        'Blocked delegate request due to fromBotId/local botId mismatch',
-      );
-      textReply(reply, formatErrorResponse(`fromBotId mismatch: expected ${deps.clawteamBotId}, got ${claimedFromBotId}`), 403);
+    // fromBotId, if provided by caller, must match local gateway bot identity.
+    if (localBotId && body.fromBotId && body.fromBotId !== localBotId) {
+      log.warn({ taskId, bodyFromBotId: body.fromBotId, localBotId }, 'Blocked delegate with mismatched fromBotId');
+      textReply(reply, formatErrorResponse(`fromBotId mismatch: expected ${localBotId}, got ${body.fromBotId}`), 403);
       return;
+    }
+    // Normalize sender identity for downstream API/audit logic.
+    if (localBotId) {
+      body.fromBotId = localBotId;
     }
 
     // Block self-delegation
-    if (deps.clawteamBotId && body.toBotId === deps.clawteamBotId) {
+    if (localBotId && body.toBotId === localBotId) {
       log.warn({ taskId, toBotId: body.toBotId }, 'Blocked self-delegation attempt');
       textReply(reply, formatErrorResponse('Self-delegation is not allowed. You cannot delegate a task to yourself. Pick a DIFFERENT bot.'), 400);
       return;
@@ -300,25 +288,8 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
       });
       if (!res.ok) { textReply(reply, formatErrorResponse(`Delegate failed (HTTP ${res.status}): ${typeof res.data === 'string' ? res.data : JSON.stringify(res.data)}`), res.status); return; }
 
-      const payload = unwrap(res.data);
-      const delegatedTaskId = payload?.taskId || taskId;
-      const delegationMode = payload?.delegationMode || (delegatedTaskId === taskId ? 'direct' : 'sub-task');
-
-      // Track sender session against the REAL delegated task ID.
-      // For executor sub-delegation this must bind to subTaskId (not parent taskId).
-      if (sessionKey) {
-        autoTrack({ sessionKey, sessionKeyRole: 'sender' }, delegatedTaskId, 'sender');
-      }
-
-      log.info(
-        { taskId, delegatedTaskId, parentTaskId: payload?.parentTaskId, toBotId: body.toBotId, delegationMode },
-        'Task delegated via /gateway/tasks/:taskId/delegate',
-      );
-      if (delegationMode === 'sub-task') {
-        textReply(reply, `Sub-task ${delegatedTaskId} (parent: ${taskId}) delegated to ${body.toBotId} (enqueued and notification sent).`);
-      } else {
-        textReply(reply, `Task ${delegatedTaskId} delegated to ${body.toBotId} (enqueued and notification sent).`);
-      }
+      log.info({ taskId, toBotId: body.toBotId }, 'Task delegated via /gateway/tasks/:taskId/delegate');
+      textReply(reply, `Task ${taskId} delegated to ${body.toBotId} (enqueued and notification sent).`);
     } catch (err) {
       textReply(reply, formatErrorResponse((err as Error).message), 502);
     }

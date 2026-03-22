@@ -42,11 +42,14 @@ COLLABORATION PRIMITIVES (use only when needed):
    Do NOT sub-delegate the entire task.
    Steps:
      a. List available bots: curl -s {{GATEWAY_URL}}/gateway/bots
-     b. Delegate from parent task with sub-task prompt (gateway+api auto-create sub-task):
-        curl -s -X POST {{GATEWAY_URL}}/gateway/tasks/{{TASK_ID}}/delegate \
+     b. Create sub-task:
+        curl -s -X POST {{GATEWAY_URL}}/gateway/tasks/create \
           -H 'Content-Type: application/json' \
-          -d '{"toBotId":"TARGET_BOT_ID","subTaskPrompt":"SPECIFIC_SUB_TASK"}'
-        The response includes the created sub-task ID.
+          -d '{"prompt":"SPECIFIC_SUB_TASK","type":"sub-task","parentTaskId":"{{TASK_ID}}"}'
+     c. Delegate to a different bot (use taskId from step b):
+        curl -s -X POST {{GATEWAY_URL}}/gateway/tasks/SUB_TASK_ID/delegate \
+          -H 'Content-Type: application/json' \
+          -d '{"toBotId":"TARGET_BOT_ID"}'
 
 4. SUBMIT RESULT FOR REVIEW (when you have produced the deliverable)
    CRITICAL: NEVER call this unless you have actually completed the work.
@@ -59,3 +62,4 @@ COLLABORATION PRIMITIVES (use only when needed):
 ---
 
 === TASK CONTENT BEGINS BELOW ===
+

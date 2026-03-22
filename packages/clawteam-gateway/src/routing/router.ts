@@ -388,30 +388,18 @@ export class TaskRouter extends EventEmitter {
    * mirroring the logic previously in router-api.ts POST /delegate-intent.
    */
   async routeDelegateIntent(msg: InboxMessage): Promise<RoutingResult> {
-    const { taskId, prompt, capability, parameters } = msg.content || {};
+    const content = (msg.content && typeof msg.content === 'object')
+      ? (msg.content as Record<string, any>)
+      : {};
+    const taskId = typeof content.taskId === 'string' ? content.taskId : '';
+    const prompt = typeof content.prompt === 'string' ? content.prompt : '';
+    const capability = typeof content.capability === 'string' ? content.capability : '';
+    const parameters = (content.parameters && typeof content.parameters === 'object')
+      ? (content.parameters as Record<string, any>)
+      : {};
     const fromBotId = msg.fromBotId;
-    const intentText = typeof prompt === 'string' ? prompt : '';
-    const delegateMeta = this.extractDelegateIntentMeta(parameters);
-    const delegateToBotId = this.extractDelegateIntentToBotId(intentText) || delegateMeta.toBotId;
 
-    const [fromBotResult, toBotResult] = await Promise.allSettled([
-      this.clawteamApi.getBot(fromBotId),
-      delegateToBotId ? this.clawteamApi.getBot(delegateToBotId) : Promise.resolve(null),
-    ]);
-
-    const fromBot = fromBotResult.status === 'fulfilled' ? fromBotResult.value : null;
-    const toBot = toBotResult.status === 'fulfilled' ? toBotResult.value : null;
-
-    const message = this.buildDelegateIntentMessage({
-      taskId,
-      prompt: intentText,
-      fromBotId,
-      fromBotName: fromBot?.name,
-      fromBotOwner: fromBot?.ownerEmail,
-      toBotId: delegateToBotId,
-      toBotName: toBot?.name || delegateMeta.toBotName,
-      toBotOwner: toBot?.ownerEmail || delegateMeta.toBotOwner,
-    });
+    const message = this.buildDelegateIntentMessage(taskId, prompt, fromBotId, parameters);
     const success = await this.openclawSession.sendToMainSession(message);
 
     const result: RoutingResult = {
@@ -443,49 +431,43 @@ export class TaskRouter extends EventEmitter {
    * Build the message sent to main session for delegate_intent.
    * Task value contains only meta block + task facts. The plugin injects sender-specific rules.
    */
-  private buildDelegateIntentMessage(params: {
-    taskId: string;
-    prompt: string;
-    fromBotId: string;
-    fromBotName?: string;
-    fromBotOwner?: string;
-    toBotId?: string;
-    toBotName?: string;
-    toBotOwner?: string;
-  }): string {
-    const {
-      taskId,
-      prompt,
-      fromBotId,
-      fromBotName,
-      fromBotOwner,
-      toBotId,
-      toBotName,
-      toBotOwner,
-    } = params;
+  private buildDelegateIntentMessage(
+    taskId: string,
+    prompt: string,
+    fromBotId: string,
+    parameters: Record<string, any>,
+  ): string {
     const intentText = prompt || '';
+    const cleanPrompt = intentText.trim();
     const taskIdRef = taskId || 'TASK_ID';
-    const fromOwnerLabel = this.formatOwnerLabel(fromBotOwner);
-    const toOwnerLabel = toBotId ? this.formatOwnerLabel(toBotOwner) : '';
+    const delegateIntent = (parameters?.delegateIntent && typeof parameters.delegateIntent === 'object')
+      ? parameters.delegateIntent as Record<string, any>
+      : null;
+    const toBotId = typeof delegateIntent?.toBotId === 'string' ? delegateIntent.toBotId : '';
+    const toBotName = typeof delegateIntent?.toBotName === 'string' ? delegateIntent.toBotName : '';
+    const toBotOwner = typeof delegateIntent?.toBotOwner === 'string' ? delegateIntent.toBotOwner : '';
+    const intentLabel = (toBotId
+      ? `Delegate a task to bot ${toBotId}:`
+      : cleanPrompt) || 'Delegate a task';
 
     // Task content is just the intent — delegation rules come from the sender template
-    const taskContent = [
+    const taskContentLines = [
       `From Bot: ${fromBotId}`,
-      ...(fromBotName ? [`From Bot Name: ${fromBotName}`] : []),
-      `From Owner: ${fromOwnerLabel}`,
-      ...(toBotId ? [`To Bot: ${toBotId}`] : []),
-      ...(toBotId && toBotName ? [`To Bot Name: ${toBotName}`] : []),
-      ...(toBotId ? [`To Bot Owner: ${toOwnerLabel}`] : []),
-      `Intent: ${intentText.trim()}`,
+      `Intent: ${intentLabel}`,
       `Task ID: ${taskIdRef}`,
-    ].join('\n');
+    ];
+    if (cleanPrompt && cleanPrompt !== intentLabel) taskContentLines.push(`Prompt: ${cleanPrompt}`);
+    if (toBotId) taskContentLines.push(`To Bot: ${toBotId}`);
+    if (toBotName) taskContentLines.push(`To Bot Name: ${toBotName}`);
+    if (toBotOwner) taskContentLines.push(`To Bot Owner: ${toBotOwner}`);
+    const taskContent = taskContentLines.join('\n');
 
-    const tokenData: Record<string, string> = { role: 'sender' };
+    const tokenData: Record<string, string> = {
+      role: 'sender',
+      fromBotId: fromBotId || '',
+    };
     if (taskId) tokenData.taskId = taskId;
-    tokenData.fromBotId = fromBotId;
     if (toBotId) tokenData.toBotId = toBotId;
-    if (toBotName) tokenData.toBotName = toBotName;
-    if (toBotOwner) tokenData.toBotOwner = toBotOwner;
     const token = `<!--CLAWTEAM:${JSON.stringify(tokenData)}-->`;
     const taskValue = `${token}\n${taskContent}`;
 
@@ -496,12 +478,7 @@ export class TaskRouter extends EventEmitter {
     return [
       '[ClawTeam Delegate Intent]',
       `From Bot: ${fromBotId}`,
-      ...(fromBotName ? [`From Bot Name: ${fromBotName}`] : []),
-      `From Owner: ${fromOwnerLabel}`,
-      ...(toBotId ? [`To Bot: ${toBotId}`] : []),
-      ...(toBotId && toBotName ? [`To Bot Name: ${toBotName}`] : []),
-      ...(toBotId ? [`To Bot Owner: ${toOwnerLabel}`] : []),
-      `Intent: ${intentText.trim()}`,
+      `Intent: ${intentLabel}`,
       taskIdLine,
       '',
       'ACTION REQUIRED: Spawn a sub-session now.',
@@ -513,81 +490,11 @@ export class TaskRouter extends EventEmitter {
       taskValue,
       '---TASK VALUE END---',
       '',
-      `label: "${intentText.trim().substring(0, 60)}"`,
+      `label: "${intentLabel.substring(0, 60)}"`,
       '',
       'Pass everything between the START/END markers as the task value.',
       'No follow-up sessions_send is needed — all task details are included in the task value.',
     ].join('\n');
-  }
-
-  /**
-   * Extract target botId from dashboard delegate intent text.
-   * Example: "Delegate a task to bot <BOT_ID>: ..."
-   */
-  private extractDelegateIntentToBotId(intentText: string): string | undefined {
-    const match = intentText.match(/Delegate\s+a\s+task\s+to\s+bot\s+([^\s:]+)\s*:/i);
-    return match?.[1];
-  }
-
-  private extractDelegateIntentMeta(parameters: unknown): {
-    toBotId?: string;
-    toBotName?: string;
-    toBotOwner?: string;
-  } {
-    const top = this.asRecord(parameters);
-    const delegateIntent = this.asRecord(top?.delegateIntent);
-    const dashboardDelegate = this.asRecord(top?.dashboardDelegate);
-
-    const toBotId = this.firstNonEmptyString(
-      top?.toBotId,
-      top?.targetBotId,
-      delegateIntent?.toBotId,
-      delegateIntent?.targetBotId,
-      dashboardDelegate?.toBotId,
-      dashboardDelegate?.targetBotId,
-    );
-
-    const toBotName = this.firstNonEmptyString(
-      top?.toBotName,
-      top?.targetBotName,
-      delegateIntent?.toBotName,
-      delegateIntent?.targetBotName,
-      dashboardDelegate?.toBotName,
-      dashboardDelegate?.targetBotName,
-    );
-
-    const toBotOwner = this.firstNonEmptyString(
-      top?.toBotOwner,
-      top?.targetBotOwner,
-      top?.toOwner,
-      delegateIntent?.toBotOwner,
-      delegateIntent?.targetBotOwner,
-      delegateIntent?.toOwner,
-      dashboardDelegate?.toBotOwner,
-      dashboardDelegate?.targetBotOwner,
-      dashboardDelegate?.toOwner,
-    );
-
-    return { toBotId, toBotName, toBotOwner };
-  }
-
-  private asRecord(value: unknown): Record<string, unknown> | undefined {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
-    return value as Record<string, unknown>;
-  }
-
-  private firstNonEmptyString(...values: unknown[]): string | undefined {
-    for (const value of values) {
-      if (typeof value !== 'string') continue;
-      const trimmed = value.trim();
-      if (trimmed) return trimmed;
-    }
-    return undefined;
-  }
-
-  private formatOwnerLabel(ownerEmail?: string): string {
-    const owner = ownerEmail?.trim();
-    return owner || 'unknown';
   }
 
   private async sendToMain(decision: RoutingDecision): Promise<RoutingResult> {

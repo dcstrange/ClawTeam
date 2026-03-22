@@ -2,21 +2,24 @@
  * Simple Migration Runner
  *
  * Usage:
- *   npx ts-node packages/api/scripts/migrate.ts up
- *   npx ts-node packages/api/scripts/migrate.ts down
+ *   npx tsx packages/api/scripts/migrate.ts up
+ *   npx tsx packages/api/scripts/migrate.ts down
  */
 
 import { Client } from 'pg';
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+import { config as loadEnv } from 'dotenv';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const MIGRATIONS_DIR = path.resolve(__dirname, '../migrations');
+loadEnv({ path: path.resolve(__dirname, '../../../.env') });
 
 async function getClient(): Promise<Client> {
-  const connectionString = process.env.DATABASE_URL || 'postgresql://clawteam:clawteam_secret@localhost:5432/clawteam';
+  const defaultPassword = process.env.POSTGRES_PASSWORD || 'changeme';
+  const connectionString = process.env.DATABASE_URL || `postgresql://clawteam:${defaultPassword}@localhost:5432/clawteam`;
   const client = new Client({ connectionString });
   await client.connect();
   return client;
