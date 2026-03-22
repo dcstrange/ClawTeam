@@ -1,5 +1,8 @@
 # OpenClaw 真实使用案例合集
 
+> ⚠️ Historical Notice: 本目录以背景资料/调研为主，不是当前实现规范。
+> 当前规范请优先参考：`docs/spec/README.md` 与各域 canonical 文档。
+
 > OpenClaw（原名 Clawdbot / Moltbot）是一个开源的本地 AI 智能助手，
 > 能够自主执行任务、控制电脑、管理日常生活。以下是真实用户的使用案例。
 

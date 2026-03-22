@@ -1,5 +1,8 @@
 # OpenClaw 技术原理深度拆解
 
+> ⚠️ Historical Notice: 本目录以背景资料/调研为主，不是当前实现规范。
+> 当前规范请优先参考：`docs/spec/README.md` 与各域 canonical 文档。
+
 > OpenClaw（原名 Clawdbot / Moltbot）是一个开源、本地运行的 AI 智能助手平台。
 > 本文从整体架构、技能系统、MCP 集成、Hook 机制、心跳系统、记忆系统等维度
 > 对其技术原理进行详细拆解。

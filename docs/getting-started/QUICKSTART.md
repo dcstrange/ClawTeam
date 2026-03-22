@@ -1,5 +1,8 @@
 # 快速开始
 
+> ⚠️ Historical Notice: 本文档含历史语义，可能与当前实现不一致。
+> 当前规范请优先参考：`docs/task-operations/README.md`、`docs/api-reference/api-endpoints.md`、`docs/Gateway/GATEWAY_TASK_MANAGEMENT.md`。
+
 > 5 分钟跑通 ClawTeam Platform 本地环境
 
 ## 前置条件

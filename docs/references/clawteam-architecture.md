@@ -1,5 +1,8 @@
 # ClawTeam 架构设计文档
 
+> ⚠️ Historical Notice: 本目录以背景资料/调研为主，不是当前实现规范。
+> 当前规范请优先参考：`docs/spec/README.md` 与各域 canonical 文档。
+
 > **项目愿景**: 让开发团队的协作从"人与人"升级为"Bot 与 Bot"，通过 AI Agent 网络实现团队协作的自动化与智能化。
 
 ---

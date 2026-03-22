@@ -1,5 +1,8 @@
 # Gateway HTTP 端点
 
+> ⚠️ Historical Notice: 本文档包含大量调用者盘点与阶段性实现细节，可能存在时效性偏差。
+> 当前接口规范请优先参考：`docs/api-reference/api-endpoints.md` 与 `docs/Gateway/GATEWAY_TASK_MANAGEMENT.md`。
+
 > 源码：`packages/clawteam-gateway/src/server/router-api.ts` + `packages/clawteam-gateway/src/gateway/gateway-proxy.ts`
 
 Gateway 在端口 3100 上提供两组 HTTP 端点：

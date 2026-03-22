@@ -1,180 +1,118 @@
-# 接受 / 开始 / 完成 (Accept / Start / Complete)
+# 接受 / 提交结果 / 审批 (Accept / Submit-Result / Approve / Reject / Complete)
 
-> 我是一个被路由到 OpenClaw session 的 Task。这是我被执行并完成的过程。
+> 说明：文件名保留历史命名，但内容已按当前实现更新。当前没有独立 `start` 接口。
 
-这三个操作通常由同一个子 session 按顺序调用，是我生命周期中的"正常执行路径"。
-
----
-
-## Accept — 接受任务
+## 1) Accept — 接受并进入执行
 
 ### 触发
 
-ClawTeam Gateway 路由成功后自动调用，或子 session 通过 Gateway curl 端点 `POST /gateway/tasks/:taskId/accept` 调用。
+- API: `POST /api/v1/tasks/:taskId/accept`
+- Gateway 兜底: `POST /gateway/tasks/:taskId/accept`
 
-### 流转过程
+### 核心语义
 
-```
-ClawTeam Gateway / Sub-session
-  │
-  │ POST /api/v1/tasks/{myId}/accept
-  │ Body: { executorSessionKey?: "agent:main:subagent:abc" }
-  ▼
-┌─────────────────────────────────────────────────────────┐
-│ API Server — TaskCompleter.accept()                     │
-│ 📁 packages/api/src/task-coordinator/completer.ts:39    │
-│                                                         │
-│ 1. loadTask() — 从 DB 加载我                             │
-│ 2. 校验 toBotId === 请求方 botId                         │
-│ 3. 校验 status === 'pending'                             │
-│ 4. UPDATE tasks SET                                     │
-│      status = 'accepted',                               │
-│      executor_session_key = $1,                         │
-│      accepted_at = NOW()                                │
-│ 5. LREM — 从 Redis 优先级队列中移除我                    │
-│ 6. ZADD processing_set — 加入超时检测集合                │
-│ 7. HSET cache — 更新缓存状态                             │
-│ 8. messageBus.publish('task_assigned', status='accepted')│
-└─────────────────────────────────────────────────────────┘
-```
+- `accept` 直接执行 `pending -> processing`。
+- 若请求体带 `executorSessionKey`，会同时写入任务的执行会话。
 
-### 状态变化
+### 权限与状态
 
-```
-pending → accepted
-```
+- 仅 `toBotId` 可调用。
+- 仅允许 `pending`。
 
 ---
 
-## Start — 开始处理
+## 2) Submit Result — 执行者提交结果待审
 
 ### 触发
 
-ClawTeam Gateway 路由成功后紧接 accept 自动调用（Gateway 的 accept 端点会自动执行 accept + start）。
+- API: `POST /api/v1/tasks/:taskId/submit-result`
+- Gateway: `POST /gateway/tasks/:taskId/submit-result`
 
-### 流转过程
+### 核心语义
 
-```
-ClawTeam Gateway / Sub-session
-  │
-  │ POST /api/v1/tasks/{myId}/start
-  ▼
-┌─────────────────────────────────────────────────────────┐
-│ API Server — TaskCompleter.start()                      │
-│ 📁 packages/api/src/task-coordinator/completer.ts:81    │
-│                                                         │
-│ 1. loadTask() — 从 DB 加载我                             │
-│ 2. 校验 toBotId === 请求方 botId                         │
-│ 3. 校验 status === 'accepted'                            │
-│ 4. UPDATE tasks SET                                     │
-│      status = 'processing',                             │
-│      started_at = NOW()                                 │
-│ 5. HSET cache — 更新缓存状态                             │
-└─────────────────────────────────────────────────────────┘
-```
+- 执行者提交产出后进入 `pending_review`，由委托者决策。
+- 该阶段任务尚未最终完成，不会写入最终 `result` 字段。
+
+### 权限与状态
+
+- 仅 `toBotId` 可调用。
+- 允许状态：`accepted` / `processing` / `waiting_for_input`。
 
 ### 状态变化
 
-```
-accepted → processing
+```text
+accepted | processing | waiting_for_input -> pending_review
 ```
 
 ---
 
-## Complete — 完成任务
+## 3) Approve / Reject — 委托者评审
+
+### Approve
+
+- API: `POST /api/v1/tasks/:taskId/approve`
+- Gateway: `POST /gateway/tasks/:taskId/approve`
+- 仅 `fromBotId` 可调用。
+- `pending_review -> completed`。
+
+### Reject
+
+- API: `POST /api/v1/tasks/:taskId/reject`
+- Gateway: `POST /gateway/tasks/:taskId/reject`
+- 仅 `fromBotId` 可调用。
+- `pending_review -> processing`（执行者返工）。
+
+---
+
+## 4) Complete — 直接终结（非主路径）
 
 ### 触发
 
-子 session 完成工作后通过 Gateway curl 端点 `POST /gateway/tasks/:taskId/complete` 调用。
+- API: `POST /api/v1/tasks/:taskId/complete`
+- Gateway: `POST /gateway/tasks/:taskId/complete`
 
-### 流转过程
+### 核心语义
 
-```
-Sub-session (执行完毕)
-  │
-  │ POST /api/v1/tasks/{myId}/complete
-  │ Body: { status: 'completed', result: {...} }
-  │   或  { status: 'failed', error: { code, message } }
-  ▼
-┌─────────────────────────────────────────────────────────┐
-│ API Server — TaskCompleter.complete()                   │
-│ 📁 packages/api/src/task-coordinator/completer.ts:108   │
-│                                                         │
-│ 1. loadTask() — 从 DB 加载我                             │
-│ 2. 校验 toBotId === 请求方 botId                         │
-│ 3. 校验 status ∈ ['accepted', 'processing']              │
-│ 4. 推断 finalStatus:                                    │
-│    - 有 result → 'completed'                            │
-│    - 有 error → 'failed'                                │
-│    - body.status 显式指定                                │
-│ 5. UPDATE tasks SET                                     │
-│      status = $finalStatus,                             │
-│      result = $result,                                  │
-│      error = $error,                                    │
-│      completed_at = NOW()                               │
-│ 6. ZREM processing_set — 从超时检测集合移除              │
-│ 7. DEL cache — 清除缓存                                 │
-│ 8. 记录 Metrics:                                        │
-│    - tasksCompletedTotal++                              │
-│    - taskDuration (从 created_at 到 completed_at)       │
-│ 9. messageBus.publish('task_completed' 或 'task_failed') │
-└─────────────────────────────────────────────────────────┘
-  │
-  │ WebSocket 事件: task_completed / task_failed
-  ▼
-Delegator Bot 收到结果通知
-```
+- 这是“直接终结”路径，不经过 `pending_review`。
+- 当前约束：
+  - 常规完成：仅 `fromBotId`（委托者）可直接 `complete`。
+  - 执行者仅在失败上报场景可通过 `complete(status=failed)`。
+
+### 使用现状（2026-03）
+
+- 该接口仍在生产链路中使用，并未废弃。
+- Gateway 的 `POST /gateway/tasks/:taskId/complete` 仍转发到 API `/complete`。
+- Recovery 的“强制失败”路径通过 `/complete(status=failed)` 实现。
+- client-sdk / 示例代码 / 部分测试仍保留直接调用 `/complete` 的兼容路径。
+- 但 executor 的推荐主路径已切换为 `submit-result -> approve/reject`。
+
+### 允许状态
+
+- `accepted` / `processing` / `waiting_for_input` / `pending_review`
 
 ### 状态变化
 
-```
-accepted / processing → completed  (有 result)
-accepted / processing → failed     (有 error)
-```
-
-## 涉及模块
-
-| 模块 | 角色 | 关键文件 |
-|------|------|---------|
-| API Server — Completer | 状态转换、持久化 | `completer.ts` |
-| PostgreSQL | 存储状态变更 | `tasks` 表 |
-| Redis | 队列管理、缓存、超时集合 | 多个 key |
-| MessageBus | 广播事件给 WebSocket 客户端 | `message-bus/` |
-| Metrics | 记录完成/失败计数和耗时 | `completer.ts` 内 |
-
-## 完整的正常执行时序
-
-```
-时间 ──────────────────────────────────────────────────►
-
-Router          API Server          Sub-session
-  │                │                     │
-  │ pollPending    │                     │
-  │───────────────►│                     │
-  │  返回 [我]     │                     │
-  │◄───────────────│                     │
-  │                │                     │
-  │ accept(myId)   │                     │
-  │───────────────►│ pending→accepted    │
-  │                │                     │
-  │ start(myId)    │                     │
-  │───────────────►│ accepted→processing │
-  │                │                     │
-  │ sendToMain()   │                     │
-  │─────────────────────────────────────►│ spawn
-  │                │                     │
-  │                │                     │ (工作中...)
-  │                │                     │
-  │                │   complete(myId)    │
-  │                │◄────────────────────│
-  │                │ processing→completed│
-  │                │                     │
-  │                │ WS: task_completed  │
-  │                │──────────────────►  Delegator Bot
+```text
+... -> completed
+... -> failed
 ```
 
-## 我完成后
+---
 
-- SessionTracker 在下一次 HeartbeatLoop 或 RecoveryLoop 检测到我已完成时会 untrack 我
-- 我的数据永久保留在 PostgreSQL 中
-- Redis 缓存和队列中的痕迹已被清除
+## 推荐时序（端到端）
+
+```text
+pending
+  -> accept
+processing
+  -> submit-result
+pending_review
+  -> approve  => completed
+  -> reject   => processing (继续执行后可再次 submit-result)
+```
+
+## 相关代码
+
+- `packages/api/src/task-coordinator/completer.ts`
+- `packages/api/src/task-coordinator/routes/index.ts`
+- `packages/clawteam-gateway/src/gateway/gateway-proxy.ts`

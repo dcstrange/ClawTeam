@@ -1,76 +1,80 @@
-# 创建 (Delegate)
+# 创建与委托 (Create / Delegate)
 
-> 我是一个 Task。这是我被创建的过程。
+> 当前实现将“创建记录”和“实际委托”拆成两步。
 
-## 触发
+## 1) 创建任务记录
 
-Delegator Bot 调用 `POST /api/v1/tasks/delegate`，携带我的描述信息。
+### 接口
 
-## 流转过程
+- API: `POST /api/v1/tasks/create`
+- Gateway: `POST /gateway/tasks/create`
 
-```
-Delegator Bot (或 Gateway curl 端点)
-  │
-  │ POST /api/v1/tasks/delegate
-  │ Body: { toBotId, capability, parameters, priority?, type?, timeoutSeconds? }
-  ▼
-┌─────────────────────────────────────────────────────────┐
-│ API Server — TaskDispatcher.delegate()                  │
-│ 📁 packages/api/src/task-coordinator/dispatcher.ts:47   │
-│                                                         │
-│ 1. validateRequest() — 校验必填字段                      │
-│ 2. registry.getBot(toBotId) — 确认目标 Bot 存在          │
-│ 3. getQueueSize() — 检查目标 Bot 队列是否已满            │
-│ 4. INSERT INTO tasks — 我被写入 PostgreSQL               │
-│    status='pending', from_bot_id, to_bot_id,            │
-│    capability, parameters, priority, type,              │
-│    timeout_seconds, sender_session_key                  │
-│ 5. RPUSH redis queue — 我被推入 Redis 优先级队列         │
-│    key: clawteam:tasks:{toBotId}:{priority}             │
-│ 6. HSET redis cache — 我的详情被缓存                     │
-│    key: clawteam:task:{taskId}                          │
-│ 7. LPUSH inbox — 写入统一收件箱                          │
-│    key: clawteam:inbox:{toBotId}:{priority}             │
-│    payload: task_notification JSON (含 taskId,           │
-│    capability, parameters 等)                           │
-│ 8. INSERT INTO messages — 持久化到消息历史表             │
-└─────────────────────────────────────────────────────────┘
-  │
-  │ Router 通过 GET /messages/inbox 发现我
-  ▼
-ClawTeam Gateway 的 TaskPollingLoop 在下次轮询收件箱时发现我
+### 语义
+
+- 仅写入 `tasks` 记录，初始 `status = pending`。
+- 此时通常 `toBotId` 仍为空（等待后续 delegate）。
+- 不入任务队列，不写 task_notification inbox。
+
+---
+
+## 2) 执行委托
+
+### 接口
+
+- API: `POST /api/v1/tasks/:taskId/delegate`
+- Gateway: `POST /gateway/tasks/:taskId/delegate`
+
+### 两种模式
+
+#### 直接委托（direct）
+
+```json
+{ "toBotId": "<BOT_ID>" }
 ```
 
-## 涉及模块
+- 使用现有 taskId，设置目标执行者并入队。
+- 仅原始委托者可对 pending 任务执行 direct delegate。
 
-| 模块 | 角色 | 关键文件 |
-|------|------|---------|
-| API Server | 创建我、持久化、入队、写收件箱 | `dispatcher.ts`, `routes/index.ts:133` |
-| PostgreSQL | 存储我的完整数据 | `tasks` 表, `messages` 表 |
-| Redis | 优先级队列 + 缓存 + 统一收件箱 | `clawteam:tasks:*`, `clawteam:task:*`, `clawteam:inbox:*` |
+#### 子委托（sub-task）
 
-## 状态变化
-
-```
-无 → pending
+```json
+{ "toBotId": "<BOT_ID>", "subTaskPrompt": "<子任务描述>" }
 ```
 
-## 我被创建后的去向
+- 由 API 自动创建子任务（新 taskId）。
+- `parentTaskId = 当前任务 ID`。
+- 子任务再被 delegate 给目标 bot。
+- 任务参与者（`fromBotId`/`toBotId`）都可发起。
 
-我进入 Redis 统一收件箱等待。接下来有两条路径找到我：
+---
 
-1. **ClawTeam Gateway 的 TaskPollingLoop** — 定时轮询 `GET /api/v1/messages/inbox`，发现我的 `task_notification` 消息后将我路由到 OpenClaw session → 见 [ROUTING.md](./ROUTING.md)
-2. **Executor Bot 主动轮询** — 通过 `GET /api/v1/messages/inbox` 或 Gateway curl 端点发现我
+## 3) 会话绑定与身份校验
 
-## 关键参数
+### 会话绑定
 
-| 字段 | 说明 | 默认值 |
-|------|------|--------|
-| `toBotId` | 目标执行 Bot | 必填 |
-| `capability` | 需要的能力名称 | 必填 |
-| `parameters` | 任务参数 (JSON) | `{}` |
-| `priority` | `urgent` / `high` / `normal` / `low` | `normal` |
-| `type` | `new` / `sub-task` | `new` |
-| `timeoutSeconds` | 超时时间 | 3600 (1小时) |
-| `parentTaskId` | 父任务 ID (sub-task 必填) | null |
-| `senderSessionKey` | 发送方 session 标识 | null |
+- plugin 会在 curl body 自动注入 `sessionKey`。
+- gateway 在 delegate 时会把会话绑定到“真实被委托的 taskId”（对子委托即子任务 ID）。
+
+### 身份校验
+
+- `/gateway/tasks/:taskId/delegate` 若 body 带 `fromBotId`，必须与本地 botId 一致。
+- sender spawn 也会在 plugin 层校验 `fromBotId === 本地 botId`。
+
+---
+
+## 4) 状态变化
+
+```text
+create:      无 -> pending
+delegate:    pending (保持)
+accept后:    pending -> processing
+```
+
+> 委托动作本身不把任务推进到 processing；processing 由执行者 accept 触发。
+
+## 5) 相关代码
+
+- `packages/api/src/task-coordinator/dispatcher.ts`
+- `packages/api/src/task-coordinator/routes/index.ts`
+- `packages/clawteam-gateway/src/gateway/gateway-proxy.ts`
+- `packages/openclaw-plugin/index.ts`

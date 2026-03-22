@@ -1,5 +1,8 @@
 # OpenClaw CLI 接口参考 — Gateway 可用命令
 
+> ⚠️ Historical Notice: 本目录以背景资料/调研为主，不是当前实现规范。
+> 当前规范请优先参考：`docs/spec/README.md` 与各域 canonical 文档。
+
 本文档整理了 OpenClaw CLI 暴露的所有可被 ClawTeam Gateway 使用的命令行接口，
 包括当前已使用的和尚未使用但可用的命令。
 

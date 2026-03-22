@@ -1,5 +1,8 @@
 # sessions_spawn 工具参数和返回值说明
 
+> ⚠️ Historical Notice: 本目录为历史方案调研，不代表当前线上实现。
+> 当前实现请参考：`docs/Gateway/GATEWAY_TASK_MANAGEMENT.md`、`docs/Gateway/消息构建器.md`、`docs/task-operations/README.md`。
+
 ## 概述
 
 `sessions_spawn` 是 OpenClaw 中用于创建子 session 的核心工具。它允许在隔离的 session 中生成子 agent，支持一次性执行（run 模式）和持久化会话（session 模式）。

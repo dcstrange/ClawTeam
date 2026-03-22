@@ -1,5 +1,8 @@
 # 任务生命周期
 
+> ⚠️ Historical Notice: 本文档含历史语义，可能与当前实现不一致。
+> 当前规范请优先参考：`docs/task-operations/README.md`、`docs/api-reference/api-endpoints.md`、`docs/Gateway/GATEWAY_TASK_MANAGEMENT.md`。
+
 > 从委派到完成的完整流程
 
 ## 1. 状态机

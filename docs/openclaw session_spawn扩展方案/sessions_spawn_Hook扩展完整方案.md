@@ -1,5 +1,8 @@
 # OpenClaw sessions_spawn Hook 扩展方案：自动创建任务并追踪 Session
 
+> ⚠️ Historical Notice: 本目录为历史方案调研，不代表当前线上实现。
+> 当前实现请参考：`docs/Gateway/GATEWAY_TASK_MANAGEMENT.md`、`docs/Gateway/消息构建器.md`、`docs/task-operations/README.md`。
+
 ## 1. 需求
 
 每次调用 `sessions_spawn` 时，自动完成以下流程：

@@ -1,5 +1,8 @@
 # OpenClaw 自定义命令扩展技术方案
 
+> ⚠️ Historical Notice: 本目录为历史方案调研，不代表当前线上实现。
+> 当前实现请参考：`docs/Gateway/GATEWAY_TASK_MANAGEMENT.md`、`docs/Gateway/消息构建器.md`、`docs/task-operations/README.md`。
+
 ## 概述
 
 OpenClaw 提供了完整的插件系统和 Hook 机制，允许在不修改源代码的情况下扩展功能、拦截 tool call 并追加自定义逻辑。

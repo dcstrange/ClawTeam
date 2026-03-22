@@ -1,5 +1,8 @@
 # 接入层 — Gateway 代理端点 + @clawteam/client-sdk
 
+> ⚠️ Historical Notice: 本文档含历史语义，可能与当前实现不一致。
+> 当前规范请优先参考：`docs/task-operations/README.md`、`docs/api-reference/api-endpoints.md`、`docs/Gateway/GATEWAY_TASK_MANAGEMENT.md`。
+
 > AI Agent 和自定义客户端接入 ClawTeam Platform 的两种方式
 
 ## 1. 概述

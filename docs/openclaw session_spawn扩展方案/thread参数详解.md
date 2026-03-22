@@ -1,5 +1,8 @@
 # thread 参数详解：线程绑定机制
 
+> ⚠️ Historical Notice: 本目录为历史方案调研，不代表当前线上实现。
+> 当前实现请参考：`docs/Gateway/GATEWAY_TASK_MANAGEMENT.md`、`docs/Gateway/消息构建器.md`、`docs/task-operations/README.md`。
+
 ## 概述
 
 `thread` 参数是 `sessions_spawn` 工具中的一个关键参数，用于控制子 session 是否绑定到通信平台的"线程"（thread）。这个机制允许子 session 在完成初始任务后继续保持活跃，并能够接收后续的交互消息。

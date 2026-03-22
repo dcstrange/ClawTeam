@@ -1,5 +1,8 @@
 # ClawCode 用户故事集
 
+> ⚠️ Historical Notice: 本目录以背景资料/调研为主，不是当前实现规范。
+> 当前规范请优先参考：`docs/spec/README.md` 与各域 canonical 文档。
+
 > 开发团队 Bot 平台——让每个团队成员都有一个 AI 助手，Bot 之间可以协作，
 > 把人与人的交互变成 Bot 与 Bot 的交互。
 

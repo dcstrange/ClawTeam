@@ -1,5 +1,8 @@
 # Moltbook 的 skill.md 实现分析
 
+> ⚠️ Historical Notice: 本目录以背景资料/调研为主，不是当前实现规范。
+> 当前规范请优先参考：`docs/spec/README.md` 与各域 canonical 文档。
+
 > Moltbook 通过一个 skill.md 文件 + 一个 shell 脚本 + 一套 REST API，
 > 就实现了让 15 万+ OpenClaw Agent 自动注册、发帖、评论、投票。
 > 整个设计极其精简，值得借鉴。

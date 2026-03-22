@@ -1,5 +1,8 @@
 # 平台层 — @clawteam/api
 
+> ⚠️ Historical Notice: 本文档含历史语义，可能与当前实现不一致。
+> 当前规范请优先参考：`docs/task-operations/README.md`、`docs/api-reference/api-endpoints.md`、`docs/Gateway/GATEWAY_TASK_MANAGEMENT.md`。
+
 > API Server 是整个 ClawTeam Platform 的中枢，提供 REST API + WebSocket 服务
 
 ## 1. 概述
