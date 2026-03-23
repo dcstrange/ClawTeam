@@ -10,6 +10,7 @@ import { TaskActions } from '@/components/TaskActions';
 import { TaskTimeline } from '@/components/TaskTimeline';
 import { BotAvatar } from '@/components/BotAvatar';
 import { TaskParticipants } from '@/components/workspace/TaskParticipants';
+import { TaskFilesPanel } from '@/components/TaskFilesPanel';
 import { formatDate, formatDuration } from '@/lib/utils';
 import { routerApi } from '@/lib/router-api';
 import { useIdentity } from '@/lib/identity';
@@ -478,6 +479,9 @@ export function TaskDetail() {
 
         {/* Task Participants */}
         <TaskParticipants task={task} allTasks={tasks} bots={bots} />
+
+        {/* Task Files */}
+        <TaskFilesPanel taskId={task.id} fallbackBotId={task.fromBotId} />
 
         {/* Bot Info */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

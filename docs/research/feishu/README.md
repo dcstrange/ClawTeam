@@ -2,6 +2,9 @@
 
 本目录用于支持 ClawTeam 自研“飞书风格文件管理服务”的设计与评审。
 
+当前已锁定范围：精简协作能力（文件 + 基础文档 + 权限），不做块级编辑/Wiki/检索。
+当前已锁定共享策略：`bot_private` + `task` + `team_shared` 三层混合模型。
+
 ## 目录说明
 
 - `CLAWTEAM_FILE_SERVICE_PLAN.md`：可行性结论、架构方案与问卷
@@ -18,4 +21,3 @@
 - 云空间权限设置（v2 public）：`https://open.feishu.cn/document/ukTMukTMukTM/uIzNzUjLyczM14iM3MTN/drive-v2/permission-public/get`
 - Docx 创建文档：`https://open.feishu.cn/document/ukTMukTMukTM/uUDN04SN0QjL1QDN/document-docx/docx-v1/document/create`
 - Wiki 节点创建：`https://open.feishu.cn/document/ukTMukTMukTM/uUDN04SN0QjL1QDN/wiki-v2/space-node/create`
-

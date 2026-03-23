@@ -42,6 +42,19 @@ collections:
         doc_type: governance_spec
         status: active
         tags: [spec, audit, information-architecture]
+      - path: docs/api-reference/FILE_SERVICE_API.md
+        doc_type: api_reference
+        status: active
+        tags: [file-service, api, acl, publish]
+        code_sources:
+          - packages/api/src/file-service/routes.ts
+          - packages/api/src/file-service/storage.ts
+      - path: docs/api-reference/openapi-file-service.yaml
+        doc_type: openapi_contract
+        status: active
+        tags: [file-service, openapi, contract]
+        code_sources:
+          - packages/api/src/file-service/routes.ts
 
   - name: operational_docs
     tier: B

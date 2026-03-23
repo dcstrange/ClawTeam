@@ -17,6 +17,7 @@ API Server (localhost:3000)
   - /api/v1/tasks/*
   - /api/v1/bots/*
   - /api/v1/messages/*
+  - /api/v1/files/*
   - /api/v1/capabilities/*
 ```
 
@@ -134,7 +135,37 @@ active -> timeout (timeout detector)
 
 ---
 
-## 5) 身份头约定
+## 5) API Server 文件接口（`/api/v1/files/*`）
+
+### 5.1 受保护接口
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/v1/files/folders` | 创建文件夹 |
+| POST | `/api/v1/files/docs` | 创建文档（raw） |
+| GET | `/api/v1/files/docs/:docId/raw` | 读取文档纯文本 |
+| PUT | `/api/v1/files/docs/:docId/raw` | 更新文档纯文本（revision+1） |
+| POST | `/api/v1/files/upload` | base64 上传文件 |
+| GET | `/api/v1/files/download/:nodeId` | 下载文件（可 `?format=json`） |
+| GET | `/api/v1/files` | 按 parent/scope 列表 |
+| GET | `/api/v1/files/:nodeId` | 节点详情 |
+| POST | `/api/v1/files/move` | 移动/重命名 |
+| POST | `/api/v1/files/copy` | 复制资源（含文件夹递归） |
+| DELETE | `/api/v1/files/:nodeId` | 软删除（递归） |
+| GET | `/api/v1/files/acl/:nodeId` | ACL 列表（manage） |
+| POST | `/api/v1/files/acl/grant` | 添加 ACL |
+| POST | `/api/v1/files/acl/revoke` | 删除 ACL |
+| POST | `/api/v1/files/publish` | 发布到 team_shared |
+
+关键约束：
+
+- bot 默认落点：`bot_private` 或 `task`。
+- bot 不能直接写 `team_shared`；需走 `publish`。
+- `publish` 调用者必须是 delegator 链路（`fromBotId` 或 owner）。
+
+---
+
+## 6) 身份头约定
 
 - 用户级 API Key 场景下，Dashboard 代表某 bot 操作时应携带 `X-Bot-Id`。
 - gateway 代理调用自动带 bearer + `X-Bot-Id(本地 botId)`。
@@ -142,7 +173,7 @@ active -> timeout (timeout detector)
 
 ---
 
-## 6) 调用者与状态矩阵（摘要）
+## 7) 调用者与状态矩阵（摘要）
 
 | 接口 | 允许调用者 | 允许状态（摘要） |
 |------|------|------|
@@ -159,3 +190,10 @@ active -> timeout (timeout detector)
 | `POST /api/v1/tasks/:taskId/track-session` | 任务参与者 | 任意（任务存在即可） |
 
 详细拒绝码和边界行为见 [REST_API.md](/Users/fei/WorkStation/git/ClawTeam/docs/api-reference/REST_API.md) 的「调用者与状态校验矩阵（API 真值）」章节。
+
+文件接口契约见：
+
+- [FILE_SERVICE_API.md](/Users/fei/WorkStation/git/ClawTeam/docs/api-reference/FILE_SERVICE_API.md)
+- [openapi-file-service.yaml](/Users/fei/WorkStation/git/ClawTeam/docs/api-reference/openapi-file-service.yaml)
+- Swagger UI：`GET /docs`
+- OpenAPI Spec：`GET /api/v1/openapi/file-service.yaml`

@@ -182,7 +182,45 @@ Authorization: Bearer <api-key>
 
 ---
 
-## 6. 状态流转摘要
+## 6. File Service 接口（`/api/v1/files/*`）
+
+### 6.1 资源管理
+
+- `POST /api/v1/files/folders`
+- `POST /api/v1/files/docs`
+- `GET /api/v1/files/docs/:docId/raw`
+- `PUT /api/v1/files/docs/:docId/raw`
+- `POST /api/v1/files/upload`
+- `GET /api/v1/files/download/:nodeId`
+- `GET /api/v1/files`
+- `GET /api/v1/files/:nodeId`
+- `POST /api/v1/files/move`
+- `POST /api/v1/files/copy`
+- `DELETE /api/v1/files/:nodeId`（软删除）
+
+### 6.2 ACL 与发布
+
+- `GET /api/v1/files/acl/:nodeId`
+- `POST /api/v1/files/acl/grant`
+- `POST /api/v1/files/acl/revoke`
+- `POST /api/v1/files/publish`
+
+关键约束：
+
+- bot 默认写入 `bot_private` 或 `task`，不能直接写 `team_shared`。
+- `publish` 仅允许 delegator 链路（`fromBotId` 或 owner）执行。
+- ACL 判定顺序：`deny > allow > 继承 > namespace 默认策略`。
+
+详见：
+
+- [FILE_SERVICE_API.md](/Users/fei/WorkStation/git/ClawTeam/docs/api-reference/FILE_SERVICE_API.md)
+- [openapi-file-service.yaml](/Users/fei/WorkStation/git/ClawTeam/docs/api-reference/openapi-file-service.yaml)
+- Swagger UI 运行时入口：`GET /docs`
+- OpenAPI 运行时入口：`GET /api/v1/openapi/file-service.yaml`
+
+---
+
+## 7. 状态流转摘要
 
 ```text
 pending -> processing (accept)
@@ -199,7 +237,7 @@ active -> cancelled (cancel)
 
 ---
 
-## 7. 调用者与状态校验矩阵（API 真值）
+## 8. 调用者与状态校验矩阵（API 真值）
 
 > 口径来源：`packages/api/src/task-coordinator/routes/index.ts` + `completer.ts` + `dispatcher.ts`。
 > 下表用于回答“谁在什么状态下可以调用哪些接口”，并明确典型拒绝条件。

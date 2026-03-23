@@ -16,6 +16,7 @@ export const API_ENDPOINTS = {
   bots: '/api/bots',
   botsMe: '/api/bots/me',
   tasks: '/api/tasks',
+  files: '/api/files',
   messages: '/api/messages',
   capabilities: '/api/capabilities',
   cancelTask: (taskId: string) => `/api/tasks/all/${taskId}/cancel`,

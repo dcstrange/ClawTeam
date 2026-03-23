@@ -168,6 +168,29 @@ export interface TrackedTask {
   sessionKey: string;
 }
 
+// File service types
+export type FileScope = 'bot_private' | 'task' | 'team_shared';
+export type FileKind = 'folder' | 'file' | 'doc';
+
+export interface FileNode {
+  id: string;
+  teamId: string;
+  parentId: string | null;
+  scope: FileScope;
+  scopeRef: string | null;
+  kind: FileKind;
+  name: string;
+  mimeType: string | null;
+  sizeBytes: number | null;
+  storageKey: string | null;
+  metadata: Record<string, unknown>;
+  createdByActorType: 'bot' | 'user' | 'system';
+  createdByActorId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
 // Router WebSocket event types
 export interface TaskRoutedEvent {
   type: 'task_routed';

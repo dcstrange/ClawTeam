@@ -1,0 +1,424 @@
+openapi: 3.0.3
+info:
+  title: ClawTeam File Service API
+  version: "2026-03-23"
+  description: |
+    File Service contract for /api/v1/files.
+    This contract reflects current implementation in packages/api/src/file-service/routes.ts.
+servers:
+  - url: http://localhost:3000/api/v1
+    description: Local API server
+security:
+  - bearerAuth: []
+tags:
+  - name: Files
+  - name: Docs
+  - name: ACL
+  - name: Publish
+paths:
+  /files:
+    get:
+      tags: [Files]
+      summary: List file nodes
+      parameters:
+        - in: query
+          name: parentId
+          schema: { type: string, format: uuid }
+        - in: query
+          name: scope
+          schema:
+            $ref: '#/components/schemas/FileScope'
+        - in: query
+          name: scopeRef
+          schema: { type: string, format: uuid }
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        "200":
+          description: File list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /files/folders:
+    post:
+      tags: [Files]
+      summary: Create folder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                parentId: { type: string, format: uuid }
+                scope:
+                  $ref: '#/components/schemas/FileScope'
+                scopeRef: { type: string, format: uuid }
+                taskId: { type: string, format: uuid }
+                metadata: { type: object, additionalProperties: true }
+                clientToken: { type: string }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /files/docs:
+    post:
+      tags: [Docs]
+      summary: Create doc
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string }
+                content: { type: string }
+                parentId: { type: string, format: uuid }
+                scope:
+                  $ref: '#/components/schemas/FileScope'
+                scopeRef: { type: string, format: uuid }
+                taskId: { type: string, format: uuid }
+                metadata: { type: object, additionalProperties: true }
+                clientToken: { type: string }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /files/docs/{docId}/raw:
+    get:
+      tags: [Docs]
+      summary: Get doc raw text
+      parameters:
+        - in: path
+          name: docId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Raw content
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+    put:
+      tags: [Docs]
+      summary: Update doc raw text
+      parameters:
+        - in: path
+          name: docId
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content: { type: string }
+                clientToken: { type: string }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /files/upload:
+    post:
+      tags: [Files]
+      summary: Upload file (base64)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, contentBase64]
+              properties:
+                name: { type: string }
+                contentBase64: { type: string }
+                mimeType: { type: string }
+                parentId: { type: string, format: uuid }
+                scope:
+                  $ref: '#/components/schemas/FileScope'
+                scopeRef: { type: string, format: uuid }
+                taskId: { type: string, format: uuid }
+                metadata: { type: object, additionalProperties: true }
+                clientToken: { type: string }
+      responses:
+        "201":
+          description: Uploaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /files/download/{nodeId}:
+    get:
+      tags: [Files]
+      summary: Download file
+      parameters:
+        - in: path
+          name: nodeId
+          required: true
+          schema: { type: string, format: uuid }
+        - in: query
+          name: format
+          schema:
+            type: string
+            enum: [binary, json]
+      responses:
+        "200":
+          description: Downloaded content (binary or JSON base64)
+
+  /files/move:
+    post:
+      tags: [Files]
+      summary: Move or rename node
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nodeId]
+              properties:
+                nodeId: { type: string, format: uuid }
+                targetParentId: { type: string, format: uuid }
+                newName: { type: string }
+                scope:
+                  $ref: '#/components/schemas/FileScope'
+                scopeRef: { type: string, format: uuid }
+                taskId: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Moved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /files/copy:
+    post:
+      tags: [Files]
+      summary: Copy node
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sourceNodeId]
+              properties:
+                sourceNodeId: { type: string, format: uuid }
+                targetParentId: { type: string, format: uuid }
+                newName: { type: string }
+                scope:
+                  $ref: '#/components/schemas/FileScope'
+                scopeRef: { type: string, format: uuid }
+                taskId: { type: string, format: uuid }
+                clientToken: { type: string }
+      responses:
+        "201":
+          description: Copied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /files/acl/{nodeId}:
+    get:
+      tags: [ACL]
+      summary: List ACL entries for a node
+      parameters:
+        - in: path
+          name: nodeId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: ACL entries
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /files/acl/grant:
+    post:
+      tags: [ACL]
+      summary: Grant ACL entry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nodeId, subjectType, subjectId, permission]
+              properties:
+                nodeId: { type: string, format: uuid }
+                subjectType:
+                  type: string
+                  enum: [user, bot, group, role]
+                subjectId: { type: string }
+                permission:
+                  $ref: '#/components/schemas/AccessPermission'
+                effect:
+                  $ref: '#/components/schemas/AclEffect'
+      responses:
+        "200":
+          description: Granted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /files/acl/revoke:
+    post:
+      tags: [ACL]
+      summary: Revoke ACL entries
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nodeId, subjectType, subjectId]
+              properties:
+                nodeId: { type: string, format: uuid }
+                subjectType:
+                  type: string
+                  enum: [user, bot, group, role]
+                subjectId: { type: string }
+                permission:
+                  $ref: '#/components/schemas/AccessPermission'
+                effect:
+                  $ref: '#/components/schemas/AclEffect'
+      responses:
+        "200":
+          description: Revoked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /files/publish:
+    post:
+      tags: [Publish]
+      summary: Publish node to team_shared
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sourceNodeId]
+              properties:
+                sourceNodeId: { type: string, format: uuid }
+                targetPath: { type: string }
+                taskId: { type: string, format: uuid }
+                clientToken: { type: string }
+      responses:
+        "201":
+          description: Published
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /files/{nodeId}:
+    get:
+      tags: [Files]
+      summary: Get node detail
+      parameters:
+        - in: path
+          name: nodeId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Node detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+    delete:
+      tags: [Files]
+      summary: Soft delete node (recursive)
+      parameters:
+        - in: path
+          name: nodeId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API Key
+  schemas:
+    FileScope:
+      type: string
+      enum: [bot_private, task, team_shared]
+    AccessPermission:
+      type: string
+      enum: [view, edit, manage]
+    AclEffect:
+      type: string
+      enum: [allow, deny]
+    SuccessResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          type: object
+          additionalProperties: true
+        traceId:
+          type: string
+    ErrorResponse:
+      type: object
+      required: [success, error]
+      properties:
+        success:
+          type: boolean
+          enum: [false]
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+        traceId:
+          type: string
