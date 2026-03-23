@@ -353,7 +353,7 @@ export class TaskCompleter {
 
       if (input) {
         try {
-          await this.writeResumeInputToInbox(task, input, botId);
+          await this.writeResumeInputToInbox(task, input, botId, botId);
         } catch (err) {
           this.logger.error('Failed to write humanInput to inbox', { taskId, err });
         }
@@ -390,10 +390,10 @@ export class TaskCompleter {
 
       const messageTarget = targetBotId || botId;
       try {
-        await this.writeContinueToInbox(task, input || task.prompt || '', messageTarget);
-      } catch (err) {
-        this.logger.error('Failed to write continue message to inbox', { taskId, messageTarget, err });
-      }
+          await this.writeContinueToInbox(task, input || task.prompt || '', messageTarget, botId);
+        } catch (err) {
+          this.logger.error('Failed to write continue message to inbox', { taskId, messageTarget, err });
+        }
 
       // Write task_continuation message for Activity Tree
       try {
@@ -421,7 +421,12 @@ export class TaskCompleter {
   /**
    * Write a direct_message with humanInput to the requesting bot's inbox.
    */
-  private async writeResumeInputToInbox(task: Task, humanInput: string, targetBotId: string): Promise<void> {
+  private async writeResumeInputToInbox(
+    task: Task,
+    humanInput: string,
+    targetBotId: string,
+    senderBotId: string,
+  ): Promise<void> {
     const messageId = randomUUID();
     const traceId = randomUUID();
     const now = new Date();
@@ -432,7 +437,7 @@ export class TaskCompleter {
 
     const inboxMessage = JSON.stringify({
       messageId,
-      fromBotId: task.fromBotId,
+      fromBotId: senderBotId,
       toBotId: targetBotId,
       type: 'direct_message',
       contentType: 'text',
@@ -448,16 +453,21 @@ export class TaskCompleter {
     await this.db.query(
       `INSERT INTO messages (id, from_bot_id, to_bot_id, type, content_type, content, priority, status, task_id, trace_id, created_at)
        VALUES ($1, $2, $3, 'direct_message', 'text', $4, 'high', 'delivered', $5, $6, $7)`,
-      [messageId, task.fromBotId, targetBotId, JSON.stringify(content), task.id, traceId, now],
+      [messageId, senderBotId, targetBotId, JSON.stringify(content), task.id, traceId, now],
     );
 
-    this.logger.info('Wrote humanInput to requesting bot inbox', { taskId: task.id, targetBotId });
+    this.logger.info('Wrote humanInput to requesting bot inbox', { taskId: task.id, senderBotId, targetBotId });
   }
 
   /**
    * Write a direct_message with continuation instructions to the target bot's inbox.
    */
-  private async writeContinueToInbox(task: Task, prompt: string, targetBotId: string): Promise<void> {
+  private async writeContinueToInbox(
+    task: Task,
+    prompt: string,
+    targetBotId: string,
+    senderBotId: string,
+  ): Promise<void> {
     const messageId = randomUUID();
     const traceId = randomUUID();
     const now = new Date();
@@ -468,7 +478,7 @@ export class TaskCompleter {
 
     const inboxMessage = JSON.stringify({
       messageId,
-      fromBotId: task.fromBotId,
+      fromBotId: senderBotId,
       toBotId: targetBotId,
       type: 'direct_message',
       contentType: 'text',
@@ -484,10 +494,10 @@ export class TaskCompleter {
     await this.db.query(
       `INSERT INTO messages (id, from_bot_id, to_bot_id, type, content_type, content, priority, status, task_id, trace_id, created_at)
        VALUES ($1, $2, $3, 'direct_message', 'text', $4, 'high', 'delivered', $5, $6, $7)`,
-      [messageId, task.fromBotId, targetBotId, JSON.stringify(content), task.id, traceId, now],
+      [messageId, senderBotId, targetBotId, JSON.stringify(content), task.id, traceId, now],
     );
 
-    this.logger.info('Wrote continuation message to target bot inbox', { taskId: task.id, targetBotId });
+    this.logger.info('Wrote continuation message to target bot inbox', { taskId: task.id, senderBotId, targetBotId });
   }
 
   /**

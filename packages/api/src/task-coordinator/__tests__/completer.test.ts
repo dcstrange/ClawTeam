@@ -339,6 +339,51 @@ describe('TaskCompleter', () => {
     });
   });
 
+  describe('resume', () => {
+    it('should write human input message as caller bot (not fixed delegator bot)', async () => {
+      db.query
+        .mockResolvedValueOnce({
+          rows: [createTaskRow({
+            status: 'waiting_for_input',
+            result: {
+              waitingRequests: [{ botId: 'bot-b', reason: 'Need details' }],
+              waitingRequestedBy: 'bot-b',
+              waitingReason: 'Need details',
+            },
+          })],
+          rowCount: 1,
+        })
+        // UPDATE tasks ... status=processing
+        .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+        // INSERT human_input_response event
+        .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+        // INSERT direct_message into messages
+        .mockResolvedValueOnce({ rows: [], rowCount: 1 });
+
+      await completer.resume('task-1', 'bot-b', 'Please use Gemini CLI');
+
+      expect(redis.lpush).toHaveBeenCalledWith(
+        'clawteam:inbox:bot-b:high',
+        expect.any(String),
+      );
+
+      const payload = (redis.lpush as jest.Mock).mock.calls[0][1];
+      const inboxMsg = JSON.parse(payload);
+      expect(inboxMsg.type).toBe('direct_message');
+      expect(inboxMsg.taskId).toBe('task-1');
+      expect(inboxMsg.fromBotId).toBe('bot-b');
+      expect(inboxMsg.toBotId).toBe('bot-b');
+      expect(inboxMsg.content?.text).toContain('Please use Gemini CLI');
+
+      const insertDirectMessageCall = (db.query as jest.Mock).mock.calls.find(
+        (call) => typeof call[0] === 'string' && call[0].includes("INSERT INTO messages") && call[0].includes("'direct_message'"),
+      );
+      expect(insertDirectMessageCall).toBeTruthy();
+      expect(insertDirectMessageCall?.[1]?.[1]).toBe('bot-b'); // from_bot_id
+      expect(insertDirectMessageCall?.[1]?.[2]).toBe('bot-b'); // to_bot_id
+    });
+  });
+
   // ===== reset =====
 
   describe('reset', () => {

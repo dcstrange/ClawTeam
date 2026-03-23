@@ -88,17 +88,17 @@ export const routerApi = {
       },
     ),
 
-  resumeTask: (taskId: string, humanInput?: string, fromBotId?: string) =>
+  resumeTask: (taskId: string, humanInput?: string, callerBotId?: string) =>
     fetchJson<{ success: boolean }>(`/api/tasks/${taskId}/resume`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...getAuthHeaders(), ...(fromBotId ? { 'X-Bot-Id': fromBotId } : {}) },
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders(), ...(callerBotId ? { 'X-Bot-Id': callerBotId } : {}) },
       body: JSON.stringify(humanInput ? { input: humanInput } : {}),
     }),
 
-  continueTask: (taskId: string, prompt: string, fromBotId?: string) =>
+  continueTask: (taskId: string, prompt: string, callerBotId?: string) =>
     fetchJson<{ success: boolean; reason?: string }>(`/api/tasks/${taskId}/resume`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...getAuthHeaders(), ...(fromBotId ? { 'X-Bot-Id': fromBotId } : {}) },
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders(), ...(callerBotId ? { 'X-Bot-Id': callerBotId } : {}) },
       body: JSON.stringify({ input: prompt }),
     }),
 

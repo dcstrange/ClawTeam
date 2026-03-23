@@ -173,7 +173,8 @@ export function TaskDetail() {
     if (!taskId || !rawTask) return;
     setResumeLoading(true);
     try {
-      await routerApi.resumeTask(taskId, resumeInput || undefined, rawTask.fromBotId);
+      const callerBotId = me?.currentBot?.id || rawTask.fromBotId;
+      await routerApi.resumeTask(taskId, resumeInput || undefined, callerBotId);
       setResumeInput('');
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
     } catch {
@@ -181,7 +182,7 @@ export function TaskDetail() {
     } finally {
       setResumeLoading(false);
     }
-  }, [taskId, rawTask, resumeInput, queryClient]);
+  }, [taskId, rawTask, resumeInput, queryClient, me?.currentBot?.id]);
 
   const handleContinue = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
@@ -189,7 +190,8 @@ export function TaskDetail() {
     setContinueLoading(true);
     setContinueError(null);
     try {
-      const result = await routerApi.continueTask(taskId, continuePrompt, rawTask.fromBotId);
+      const callerBotId = me?.currentBot?.id || rawTask.fromBotId;
+      const result = await routerApi.continueTask(taskId, continuePrompt, callerBotId);
       if (!result.success) {
         setContinueError(`Continue failed: ${result.reason || 'unknown error'}`);
         return;
@@ -201,7 +203,7 @@ export function TaskDetail() {
     } finally {
       setContinueLoading(false);
     }
-  }, [taskId, rawTask, continuePrompt, queryClient]);
+  }, [taskId, rawTask, continuePrompt, queryClient, me?.currentBot?.id]);
 
   // Build bot lookup map for avatar enrichment
   const botMap = useMemo(() => {
