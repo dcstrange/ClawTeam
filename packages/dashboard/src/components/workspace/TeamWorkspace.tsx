@@ -120,6 +120,21 @@ function screenToSvg(svg: SVGSVGElement, screenX: number, screenY: number) {
 }
 
 const NO_OWNER = '__no_owner__';
+const MIN_ZOOM = 0.35;
+const MAX_ZOOM = 3;
+const ZOOM_WHEEL_SENSITIVITY = 0.0015;
+const PAN_WHEEL_SENSITIVITY = 0.8;
+
+function normalizeWheelDelta(delta: number, deltaMode: number): number {
+  // deltaMode: 0=pixel, 1=line, 2=page
+  if (deltaMode === 1) return delta * 16;
+  if (deltaMode === 2) return delta * 800;
+  return delta;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
 
 export function TeamWorkspace({ compact = false, filterTaskId, onBotSelect, selectedBotId }: TeamWorkspaceProps) {
   const { data: allBots = [] } = useBots();
@@ -738,15 +753,18 @@ export function TeamWorkspace({ compact = false, filterTaskId, onBotSelect, sele
     if (compact || !svgRef.current) return;
     const svg = svgRef.current;
     const handleWheel = (e: WheelEvent) => {
+      const deltaX = normalizeWheelDelta(e.deltaX, e.deltaMode);
+      const deltaY = normalizeWheelDelta(e.deltaY, e.deltaMode);
+
       if (e.ctrlKey || e.metaKey) {
         e.preventDefault();
-        const rect = svg.getBoundingClientRect();
-        const mouseX = e.clientX - rect.left;
-        const mouseY = e.clientY - rect.top;
         const svgPt = screenToSvg(svg, e.clientX, e.clientY);
-        const delta = e.deltaY > 0 ? -0.1 : 0.1;
+
+        // Continuous exponential zoom: smoother and less jumpy than fixed ±0.1 steps.
+        const zoomFactor = Math.exp(-deltaY * ZOOM_WHEEL_SENSITIVITY);
         setZoom((prev) => {
-          const newZoom = Math.max(0.5, Math.min(3, prev + delta));
+          const newZoom = clamp(prev * zoomFactor, MIN_ZOOM, MAX_ZOOM);
+          if (newZoom === prev) return prev;
           const scale = newZoom / prev;
           setPanX((px) => svgPt.x - (svgPt.x - px) / scale);
           setPanY((py) => svgPt.y - (svgPt.y - py) / scale);
@@ -754,9 +772,9 @@ export function TeamWorkspace({ compact = false, filterTaskId, onBotSelect, sele
         });
       } else {
         e.preventDefault();
-        const factor = 1 / zoom;
-        setPanX((px) => px + e.deltaX * factor);
-        setPanY((py) => py + e.deltaY * factor);
+        const factor = (1 / zoom) * PAN_WHEEL_SENSITIVITY;
+        setPanX((px) => px + deltaX * factor);
+        setPanY((py) => py + deltaY * factor);
       }
     };
     svg.addEventListener('wheel', handleWheel, { passive: false });
@@ -791,10 +809,10 @@ export function TeamWorkspace({ compact = false, filterTaskId, onBotSelect, sele
 
   // --- Zoom controls ---
   const handleZoomIn = useCallback(() => {
-    setZoom((z) => Math.min(3, z * 1.25));
+    setZoom((z) => Math.min(MAX_ZOOM, z * 1.18));
   }, []);
   const handleZoomOut = useCallback(() => {
-    setZoom((z) => Math.max(0.5, z / 1.25));
+    setZoom((z) => Math.max(MIN_ZOOM, z / 1.18));
   }, []);
   const handleZoomReset = useCallback(() => {
     setZoom(1);
@@ -817,7 +835,10 @@ export function TeamWorkspace({ compact = false, filterTaskId, onBotSelect, sele
   }
 
   return (
-    <div ref={containerRef} className="relative">
+    <div
+      ref={containerRef}
+      className={compact ? 'relative' : 'relative h-[calc(100vh-160px)] min-h-[640px]'}
+    >
       {compact && (
         <div className="absolute top-2 right-2 z-10">
           <Link
@@ -846,10 +867,10 @@ export function TeamWorkspace({ compact = false, filterTaskId, onBotSelect, sele
       <svg
         ref={svgRef}
         viewBox={compact ? `0 0 ${canvasWidth} ${canvasHeight}` : `${panX} ${panY} ${canvasWidth / zoom} ${canvasHeight / zoom}`}
-        className="w-full"
+        className={compact ? 'w-full' : 'w-full h-full'}
         style={{
-          height: compact ? 260 : undefined,
-          maxHeight: compact ? 260 : 'calc(100vh - 200px)',
+          height: compact ? 260 : '100%',
+          maxHeight: compact ? 260 : undefined,
           userSelect: (dragState || panDrag) ? 'none' : undefined,
           cursor: spaceHeld ? (panDrag ? 'grabbing' : 'grab') : undefined,
         }}
@@ -1015,7 +1036,7 @@ export function TeamWorkspace({ compact = false, filterTaskId, onBotSelect, sele
         <div className="absolute bottom-3 right-3 z-10 flex items-center gap-1 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-lg shadow-sm px-1 py-0.5">
           <button
             onClick={handleZoomOut}
-            disabled={zoom <= 0.5}
+            disabled={zoom <= MIN_ZOOM}
             className="w-7 h-7 flex items-center justify-center text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm"
             title="Zoom out"
           >
@@ -1026,7 +1047,7 @@ export function TeamWorkspace({ compact = false, filterTaskId, onBotSelect, sele
           </span>
           <button
             onClick={handleZoomIn}
-            disabled={zoom >= 3}
+            disabled={zoom >= MAX_ZOOM}
             className="w-7 h-7 flex items-center justify-center text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm"
             title="Zoom in"
           >

@@ -14,6 +14,140 @@ import { formatDate, formatDuration } from '@/lib/utils';
 import { routerApi } from '@/lib/router-api';
 import { useIdentity } from '@/lib/identity';
 
+type ActivityExportNode =
+  | { kind: 'task'; createdAt: string; task: TaskLike; children: ActivityExportNode[] }
+  | { kind: 'message'; createdAt: string; message: MessageLike };
+
+type TaskLike = ReturnType<typeof normalizeTaskForExport>;
+type MessageLike = ReturnType<typeof normalizeMessageForExport>;
+
+function normalizeTaskForExport(task: any) {
+  return {
+    id: task.id,
+    parentTaskId: task.parentTaskId || null,
+    type: task.type || 'new',
+    status: task.status,
+    priority: task.priority,
+    title: task.title || null,
+    prompt: task.prompt || null,
+    capability: task.capability || 'general',
+    fromBotId: task.fromBotId,
+    fromBotName: task.fromBotName || null,
+    toBotId: task.toBotId,
+    toBotName: task.toBotName || null,
+    senderSessionKey: task.senderSessionKey || null,
+    executorSessionKey: task.executorSessionKey || null,
+    createdAt: task.createdAt,
+    acceptedAt: task.acceptedAt || null,
+    startedAt: task.startedAt || null,
+    completedAt: task.completedAt || null,
+    submittedAt: task.submittedAt || null,
+    submittedResult: task.submittedResult ?? null,
+    result: task.result ?? null,
+    error: task.error ?? null,
+    parameters: task.parameters ?? {},
+    rejectionReason: task.rejectionReason || null,
+  };
+}
+
+function normalizeMessageForExport(message: any) {
+  return {
+    messageId: message.messageId,
+    taskId: message.taskId || null,
+    type: message.type,
+    contentType: message.contentType,
+    priority: message.priority,
+    status: message.status,
+    fromBotId: message.fromBotId,
+    fromBotName: message.fromBotName || null,
+    toBotId: message.toBotId,
+    toBotName: message.toBotName || null,
+    content: message.content ?? null,
+    traceId: message.traceId || null,
+    createdAt: message.createdAt,
+    readAt: message.readAt || null,
+  };
+}
+
+function buildActivityTreeExport(focusTaskId: string, tasks: any[], messages: any[]): { rootTaskId: string; tree: ActivityExportNode | null } {
+  const taskMap = new Map(tasks.map((t) => [t.id, t]));
+  if (!taskMap.has(focusTaskId)) {
+    return { rootTaskId: focusTaskId, tree: null };
+  }
+
+  let rootTaskId = focusTaskId;
+  const visited = new Set<string>();
+  while (true) {
+    if (visited.has(rootTaskId)) break;
+    visited.add(rootTaskId);
+    const t = taskMap.get(rootTaskId);
+    if (!t?.parentTaskId || !taskMap.has(t.parentTaskId)) break;
+    rootTaskId = t.parentTaskId;
+  }
+
+  const childrenMap = new Map<string, string[]>();
+  for (const t of tasks) {
+    if (t.parentTaskId && taskMap.has(t.parentTaskId)) {
+      const arr = childrenMap.get(t.parentTaskId) || [];
+      arr.push(t.id);
+      childrenMap.set(t.parentTaskId, arr);
+    }
+  }
+
+  const msgByTask = new Map<string, any[]>();
+  for (const m of messages) {
+    if (!m.taskId) continue;
+    const arr = msgByTask.get(m.taskId) || [];
+    arr.push(m);
+    msgByTask.set(m.taskId, arr);
+  }
+
+  const ts = (dateStr?: string) => new Date(dateStr || 0).getTime();
+  const build = (taskId: string, depth: number): ActivityExportNode | null => {
+    if (depth > 20) return null;
+    const task = taskMap.get(taskId);
+    if (!task) return null;
+
+    const children: ActivityExportNode[] = [];
+    const childIds = childrenMap.get(taskId) || [];
+    for (const childId of childIds) {
+      const child = build(childId, depth + 1);
+      if (child) children.push(child);
+    }
+
+    const msgs = msgByTask.get(taskId) || [];
+    for (const m of msgs) {
+      children.push({
+        kind: 'message',
+        createdAt: m.createdAt,
+        message: normalizeMessageForExport(m),
+      });
+    }
+
+    children.sort((a, b) => ts(a.createdAt) - ts(b.createdAt));
+    return {
+      kind: 'task',
+      createdAt: task.createdAt,
+      task: normalizeTaskForExport(task),
+      children,
+    };
+  };
+
+  return { rootTaskId, tree: build(rootTaskId, 0) };
+}
+
+function downloadJsonFile(filename: string, data: unknown): void {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
 export function TaskDetail() {
   const { taskId } = useParams<{ taskId: string }>();
   const navigate = useNavigate();
@@ -140,6 +274,26 @@ export function TaskDetail() {
     tasks.some(t => t.parentTaskId === task.id) ||
     messages.some(m => m.taskId === task.id)
   );
+
+  const activityExport = useMemo(() => {
+    if (!task) return null;
+    const { rootTaskId, tree } = buildActivityTreeExport(task.id, enrichedTasks, enrichedMessages);
+    if (!tree) return null;
+
+    return {
+      schemaVersion: 1,
+      exportedAt: new Date().toISOString(),
+      focusTaskId: task.id,
+      rootTaskId,
+      tree,
+    };
+  }, [task, enrichedTasks, enrichedMessages]);
+
+  const handleDownloadActivity = useCallback(() => {
+    if (!task || !activityExport) return;
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    downloadJsonFile(`activity-tree-${task.id}-${timestamp}.json`, activityExport);
+  }, [task, activityExport]);
 
   if (isLoading) {
     return (
@@ -425,7 +579,17 @@ export function TaskDetail() {
         {/* Activity Tree (sub-tasks + messages, hierarchical + chronological) */}
         {hasActivity && (
           <div className="bg-white rounded-xl p-6 card-gradient">
-            <h3 className="text-sm font-semibold text-gray-700 mb-4">Activity Tree</h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold text-gray-700">Activity Tree</h3>
+              <button
+                type="button"
+                onClick={handleDownloadActivity}
+                disabled={!activityExport}
+                className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Download Task History
+              </button>
+            </div>
             <TaskTimeline
               focusTaskId={task.id}
               tasks={enrichedTasks}
