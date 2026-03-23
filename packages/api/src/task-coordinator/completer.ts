@@ -490,6 +490,51 @@ export class TaskCompleter {
     this.logger.info('Wrote continuation message to target bot inbox', { taskId: task.id, targetBotId });
   }
 
+  /**
+   * Write a direct_message to delegator inbox when executor submits final result.
+   * This is consumed by gateway poller and routed to delegator session for review.
+   */
+  private async writePendingReviewToInbox(task: Task, submittedResult: any, submittedAt: Date): Promise<void> {
+    const messageId = randomUUID();
+    const traceId = randomUUID();
+
+    const content = {
+      text:
+        `[Task Pending Review]\n\n` +
+        `Task ${task.id} has entered pending_review.\n` +
+        `The executor submitted a final result. Review must be done via your delegator bot session (approve/reject).`,
+      submittedResult,
+      submittedAt: submittedAt.toISOString(),
+    };
+
+    const inboxMessage = JSON.stringify({
+      messageId,
+      fromBotId: task.toBotId,
+      toBotId: task.fromBotId,
+      type: 'direct_message',
+      contentType: 'text',
+      content,
+      priority: 'high',
+      taskId: task.id,
+      traceId,
+      timestamp: submittedAt.toISOString(),
+    });
+
+    await this.redis.lpush(`clawteam:inbox:${task.fromBotId}:high`, inboxMessage);
+
+    await this.db.query(
+      `INSERT INTO messages (id, from_bot_id, to_bot_id, type, content_type, content, priority, status, task_id, trace_id, created_at)
+       VALUES ($1, $2, $3, 'direct_message', 'text', $4, 'high', 'delivered', $5, $6, $7)`,
+      [messageId, task.toBotId, task.fromBotId, JSON.stringify(content), task.id, traceId, submittedAt],
+    );
+
+    this.logger.info('Wrote pending_review notification to delegator inbox', {
+      taskId: task.id,
+      fromBotId: task.toBotId,
+      toBotId: task.fromBotId,
+    });
+  }
+
   async submitResult(taskId: string, result: any, botId: string): Promise<void> {
     const task = await this.loadTask(taskId);
 
@@ -521,6 +566,13 @@ export class TaskCompleter {
 
     // Keep in processing ZSET (timeout still applies until approved)
     await this.updateCacheStatus(taskId, 'pending_review');
+
+    // Ensure delegator receives this in inbox so gateway can route into delegator session.
+    try {
+      await this.writePendingReviewToInbox(task, result, now);
+    } catch (err) {
+      this.logger.error('Failed to write pending_review message to delegator inbox', { taskId, err });
+    }
 
     // Notify delegator
     await this.safePublish('task_pending_review', {

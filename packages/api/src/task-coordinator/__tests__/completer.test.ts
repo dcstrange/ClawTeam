@@ -255,6 +255,43 @@ describe('TaskCompleter', () => {
 
   // ===== cancel =====
 
+  // ===== submit-result =====
+
+  describe('submitResult', () => {
+    it('should move task to pending_review and notify delegator inbox', async () => {
+      db.query
+        .mockResolvedValueOnce({
+          rows: [createTaskRow({ status: 'processing' })],
+          rowCount: 1,
+        })
+        // UPDATE tasks ... status = pending_review
+        .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+        // INSERT messages (direct_message to delegator inbox)
+        .mockResolvedValueOnce({ rows: [], rowCount: 1 });
+
+      const finalResult = { summary: 'done' };
+      await completer.submitResult('task-1', finalResult, 'bot-b');
+
+      // Should enqueue a direct_message to delegator (to bot-a in fixture)
+      expect(redis.lpush).toHaveBeenCalledWith(
+        'clawteam:inbox:bot-a:high',
+        expect.any(String),
+      );
+
+      const payload = (redis.lpush as jest.Mock).mock.calls[0][1];
+      const inboxMsg = JSON.parse(payload);
+      expect(inboxMsg.type).toBe('direct_message');
+      expect(inboxMsg.taskId).toBe('task-1');
+      expect(inboxMsg.fromBotId).toBe('bot-b');
+      expect(inboxMsg.toBotId).toBe('bot-a');
+      expect(inboxMsg.content?.submittedResult).toEqual(finalResult);
+
+      // Should still publish event bus notification for dashboard/ws consumers
+      const messages = messageBus.getPublishedMessages();
+      expect(messages.some(m => m.event === 'task_pending_review')).toBe(true);
+    });
+  });
+
   describe('cancel', () => {
     it('should cancel a pending task by the sender', async () => {
       db.query.mockResolvedValueOnce({
