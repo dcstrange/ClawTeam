@@ -23,6 +23,7 @@
 
 ## 当前建议的主入口
 
+- 协作强约束：`docs/协作原则.md`
 - 任务执行与状态：`docs/task-operations/`
 - Gateway 代理与路由：`docs/Gateway/`（注意部分文件存在历史内容）
 - 代码级权威来源：

@@ -607,6 +607,18 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
           }
         }
 
+        if (res.status === 409 && currentStatus === 'pending') {
+          textReply(
+            reply,
+            formatErrorResponse(
+              `Wait failed (HTTP 409): task is currently "pending". ` +
+              `The executor must accept the task first (POST /gateway/tasks/${taskId}/accept) before /need-human-input can transition it to waiting_for_input.`
+            ),
+            409,
+          );
+          return;
+        }
+
         if (res.status === 409 && currentStatus) {
           textReply(
             reply,

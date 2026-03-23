@@ -230,7 +230,7 @@ export class TaskRouter extends EventEmitter {
         'Task not tracked in any sub-session, routing task-context message to main',
       );
 
-      const prompt = this.buildTaskContextMessagePrompt(message, task);
+      const prompt = await this.buildTaskContextMessagePrompt(message, task);
       const success = await this.openclawSession.sendToMainSession(prompt);
 
       const result: RoutingResult = {
@@ -272,7 +272,7 @@ export class TaskRouter extends EventEmitter {
     sessionKey: string,
     task: Task | null,
   ): Promise<RoutingResult> {
-    const prompt = this.buildTaskContextMessagePrompt(message, task);
+    const prompt = await this.buildTaskContextMessagePrompt(message, task);
     const success = await this.openclawSession.sendToSession(sessionKey, prompt);
 
     if (success) {
@@ -343,7 +343,7 @@ export class TaskRouter extends EventEmitter {
     ].join('\n');
   }
 
-  private buildTaskContextMessagePrompt(message: InboxMessage, task: Task | null): string {
+  private async buildTaskContextMessagePrompt(message: InboxMessage, task: Task | null): Promise<string> {
     const lines: string[] = [
       '[ClawTeam Message -- Task Context]',
       `Task ID: ${message.taskId}`,
@@ -354,8 +354,22 @@ export class TaskRouter extends EventEmitter {
       lines.push(`Task Status: ${task.status}`);
     }
 
+    let fromBotName = '';
+    let fromOwner = '';
+    try {
+      const fromBot = await this.clawteamApi.getBot(message.fromBotId);
+      if (fromBot) {
+        fromBotName = fromBot.name || '';
+        fromOwner = fromBot.ownerEmail || '';
+      }
+    } catch {
+      // best-effort enrichment
+    }
+
     lines.push(
       `From Bot: ${message.fromBotId}`,
+      `From Bot Name: ${fromBotName || 'unknown'}`,
+      `From Owner: ${fromOwner || 'unknown'}`,
       `Message ID: ${message.messageId}`,
       `Priority: ${message.priority}`,
       '',

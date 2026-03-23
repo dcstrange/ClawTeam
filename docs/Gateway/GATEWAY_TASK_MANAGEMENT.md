@@ -19,6 +19,7 @@ Gateway 位于 API Server 与本地 OpenClaw session 之间，核心由 4 类循
 pending --accept--> processing --submit-result--> pending_review --approve--> completed
    |                       |                              |
    |                       +--need-human-input--> waiting_for_input --resume--+
+   +--need-human-input--------------------------------------------------------+
    |                                                                              |
    +----------------------------------------------cancel--------------------------+
 
@@ -30,6 +31,7 @@ processing --timeout--> timeout
 说明：
 - Gateway 负责路由、监控、恢复，不直接“定义”状态机；状态机真值在 API（task-coordinator）。
 - 当前实现中 `accept` 直接把任务推进到 `processing`。
+- 当前实现中 `need-human-input` 也可从 `pending` 直接进入 `waiting_for_input`（由 API 补齐 start 相关字段）。
 
 ## Session 状态与 Task 状态关系
 
@@ -87,6 +89,25 @@ plugin 在 sender spawn 前验证：
 ### 防自委托
 
 `toBotId === 本地 botId` 时 gateway 拒绝（400）。
+
+## Gateway 入口的调用约束（对齐 API 真值）
+
+> Gateway 代理层做“身份兜底”，最终状态权限仍以 API 校验为准。
+
+| Gateway 接口 | Gateway 侧约束 | API 侧关键约束（最终生效） |
+|------|------|------|
+| `POST /gateway/tasks/:taskId/delegate` | 若 body 含 `fromBotId`，必须等于本地 botId；并禁止 `toBotId === 本地 botId` | 直接委托：仅 `fromBotId` 且 `pending`；子委托：参与者可发起，父任务必须非终态 |
+| `POST /gateway/tasks/:taskId/accept` | 自动携带本地 bot 身份；可自动补 `executorSessionKey` | 仅 `toBotId` 可调；状态必须 `pending` |
+| `POST /gateway/tasks/:taskId/need-human-input` | 自动携带本地 bot 身份；支持幂等提示和冲突纠正文案 | 仅参与者可调；状态允许 `pending/accepted/processing/waiting_for_input` |
+| `POST /gateway/tasks/:taskId/submit-result` | 空结果会在 gateway 层先拦截 | 仅 `toBotId` 可调；状态 `accepted/processing/waiting_for_input` |
+| `POST /gateway/tasks/:taskId/approve` / `reject` | 自动携带本地 bot 身份 | 仅 `fromBotId` 可调；状态必须 `pending_review` |
+| `POST /gateway/tasks/:taskId/complete` | 对 executor 返回清晰错误提示（应走 submit-result） | `fromBotId` 可完成；`toBotId` 仅可上报失败；状态须活跃 |
+| `POST /gateway/tasks/:taskId/reset` | 无额外网关特殊逻辑 | 仅 `toBotId` 可调；需未耗尽重试配额 |
+| `POST /gateway/track-session` | 仅负责绑定映射，不推进任务状态 | API 会校验调用者必须是任务参与者，并按调用者推断 role |
+
+补充：
+- `track-session` 与 plugin auto-track 只做 session 绑定，不自动 `accept` 任务。
+- 因此“任务开始执行”与“session 已绑定”是两个并行事件，不能互相替代。
 
 ## 插件协作（openclaw-plugin）
 

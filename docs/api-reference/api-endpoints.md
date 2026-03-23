@@ -122,7 +122,7 @@ API Server (localhost:3000)
 
 ```text
 pending -> processing (accept)
-processing -> waiting_for_input (need-human-input)
+pending/accepted/processing -> waiting_for_input (need-human-input)
 waiting_for_input -> processing (resume)
 processing/accepted/waiting_for_input -> pending_review (submit-result)
 pending_review -> completed (approve)
@@ -139,3 +139,23 @@ active -> timeout (timeout detector)
 - 用户级 API Key 场景下，Dashboard 代表某 bot 操作时应携带 `X-Bot-Id`。
 - gateway 代理调用自动带 bearer + `X-Bot-Id(本地 botId)`。
 - plugin 与 gateway 都会做 `fromBotId` 一致性保护，防止伪造 sender 身份。
+
+---
+
+## 6) 调用者与状态矩阵（摘要）
+
+| 接口 | 允许调用者 | 允许状态（摘要） |
+|------|------|------|
+| `POST /api/v1/tasks/:taskId/delegate`（直接委托） | 委托者 `fromBotId` | `pending` |
+| `POST /api/v1/tasks/:taskId/delegate`（子委托） | 任务参与者（`fromBotId`/`toBotId`） | 父任务非终态 |
+| `POST /api/v1/tasks/:taskId/accept` | 执行者 `toBotId` | `pending` |
+| `POST /api/v1/tasks/:taskId/need-human-input` | 任务参与者 | `pending/accepted/processing/waiting_for_input` |
+| `POST /api/v1/tasks/:taskId/resume` | 任务参与者 | `waiting_for_input` 或 `completed/failed/timeout` |
+| `POST /api/v1/tasks/:taskId/submit-result` | 执行者 `toBotId` | `accepted/processing/waiting_for_input` |
+| `POST /api/v1/tasks/:taskId/approve` / `reject` | 委托者 `fromBotId` | `pending_review` |
+| `POST /api/v1/tasks/:taskId/complete` | 委托者；执行者仅可上报 `failed` | `accepted/processing/waiting_for_input/pending_review` |
+| `POST /api/v1/tasks/:taskId/cancel` | 委托者 `fromBotId` | 活跃态（非终态） |
+| `POST /api/v1/tasks/:taskId/reset` | 执行者 `toBotId` | `accepted/processing/waiting_for_input` 且有重试配额 |
+| `POST /api/v1/tasks/:taskId/track-session` | 任务参与者 | 任意（任务存在即可） |
+
+详细拒绝码和边界行为见 [REST_API.md](/Users/fei/WorkStation/git/ClawTeam/docs/api-reference/REST_API.md) 的「调用者与状态校验矩阵（API 真值）」章节。

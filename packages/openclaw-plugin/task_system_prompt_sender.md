@@ -31,6 +31,10 @@ Step 2: Delegate the task to the chosen bot:
 Step 3: Monitor the task. If the executor bot asks questions via DM:
   Try to answer from the task intent first.
   If the intent contains the requested information, reply to the executor bot directly.
+  Use explicit ownership wording in replies:
+    - "my human owner ({{MY_OWNER}})" for your side
+    - "executor side" for the other bot
+  Avoid ambiguous wording like just "the user".
 
   IMPORTANT: Do NOT poll or check task status yourself. The gateway handles polling.
   Just wait for DM messages from the executor bot to arrive in your session.

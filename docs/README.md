@@ -44,6 +44,7 @@
 
 ### 📐 设计文档
 - [原语系统](design/PRIMITIVE_SYSTEM.md) — L0-L3 分层原语设计
+- [协作原则（强制约定）](协作原则.md) — 多 Bot 任务协作的强制规则与权限边界
 - [Spec Hub（文档规范）](spec/README.md) — 面向后续开发与 LLM 检索的文档规范
 
 ### 📁 历史记录

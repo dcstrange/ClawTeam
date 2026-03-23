@@ -216,7 +216,10 @@ export class TaskCompleter {
     if (task.toBotId !== botId && task.fromBotId !== botId) {
       throw new UnauthorizedTaskError(taskId, botId);
     }
-    const validStates = ['accepted', 'processing', 'waiting_for_input'];
+    // Also allow pending:
+    // - Delegator may need to request human input before executor explicitly accepts.
+    // - Executor may call need-human-input immediately after receiving assignment.
+    const validStates = ['pending', 'accepted', 'processing', 'waiting_for_input'];
     if (!validStates.includes(task.status)) {
       throw new InvalidTaskStateError(taskId, task.status, validStates);
     }
@@ -243,14 +246,28 @@ export class TaskCompleter {
       waitingReason: reason,
       waitingRequestedBy: requestedBy,
     };
+    const wasPending = task.status === 'pending';
     const updateResult = await this.db.query(
-      `UPDATE tasks SET status = 'waiting_for_input', result = $1, updated_at = NOW()
-       WHERE id = $2 AND status IN ('accepted', 'processing', 'waiting_for_input')`,
+      `UPDATE tasks
+       SET status = 'waiting_for_input',
+           result = $1,
+           accepted_at = CASE WHEN status = 'pending' THEN COALESCE(accepted_at, NOW()) ELSE accepted_at END,
+           started_at = CASE WHEN status = 'pending' THEN COALESCE(started_at, NOW()) ELSE started_at END,
+           updated_at = NOW()
+       WHERE id = $2 AND status IN ('pending', 'accepted', 'processing', 'waiting_for_input')`,
       [JSON.stringify(result), taskId],
     );
 
     if (updateResult.rowCount === 0) {
       throw new InvalidTaskStateError(taskId, task.status, validStates);
+    }
+
+    // pending -> waiting_for_input is a task-start transition:
+    // remove from pending queue and add to processing set for timeout tracking.
+    if (wasPending) {
+      await this.removeFromQueue(taskId, task.toBotId);
+      const timeoutAt = Date.now() + task.timeoutSeconds * 1000;
+      await this.redis.zadd(REDIS_KEYS.PROCESSING_SET, timeoutAt.toString(), taskId);
     }
 
     await this.updateCacheStatus(taskId, 'waiting_for_input');
