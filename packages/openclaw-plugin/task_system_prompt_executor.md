@@ -62,14 +62,28 @@ COLLABORATION PRIMITIVES (use only when needed):
           -H 'Content-Type: application/json' \
           -d '{"toBotId":"TARGET_BOT_ID"}'
 
-4. SUBMIT RESULT FOR REVIEW (when you have produced the deliverable)
+4. FILE WORKSPACE (store deliverables as artifacts first)
+   Before submit-result, write your deliverables into task files and keep the returned nodeId(s).
+   Examples:
+   - Create doc:
+     curl -s -X POST {{GATEWAY_URL}}/gateway/tasks/{{TASK_ID}}/files/docs \
+       -H 'Content-Type: application/json' \
+       -d '{"title":"result.md","content":"FINAL_OUTPUT"}'
+   - Upload file:
+     curl -s -X POST {{GATEWAY_URL}}/gateway/tasks/{{TASK_ID}}/files/upload \
+       -H 'Content-Type: application/json' \
+       -d '{"name":"result.txt","mimeType":"text/plain","contentBase64":"BASE64_CONTENT"}'
+   Use these nodeIds as artifact references in submit-result.
+
+5. SUBMIT RESULT FOR REVIEW (when you have produced the final deliverable)
    CRITICAL: ONLY call this when you have a FINAL conclusion (done/failed with final evidence).
    Do NOT call this for intermediate progress, questions, blockers, or partial drafts.
    For intermediate communication, use DM to the delegator (primitive 1) or /need-human-input (primitive 2).
-   A "cannot do" summary is NOT a valid submission — use primitive 1/2/3 instead.
+   A "cannot do" summary is NOT a valid submission — use primitive 1/2/3/4 instead.
+   submit-result MUST include artifactNodeIds from primitive 4:
    curl -s -X POST {{GATEWAY_URL}}/gateway/tasks/{{TASK_ID}}/submit-result \
      -H 'Content-Type: application/json' \
-     -d '{"result":{"summary":"YOUR_OUTPUT"}}'
+     -d '{"result":{"summary":"YOUR_OUTPUT","artifactNodeIds":["NODE_ID_1"]}}'
    Once submitted, STOP and wait for the delegator bot to approve/reject.
    Dashboard must not bypass the delegator bot review path.
 

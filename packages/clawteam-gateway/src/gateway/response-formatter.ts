@@ -155,3 +155,87 @@ export function formatApproveResponse(taskId: string): string {
 export function formatRejectResponse(taskId: string, reason: string): string {
   return `Task rejected. Executor should rework.\n\ntaskId: ${taskId}\nStatus: processing\nReason: ${reason}`;
 }
+
+function trimJson(value: any, maxLen = 200): string {
+  const raw = typeof value === 'string' ? value : JSON.stringify(value);
+  if (raw.length <= maxLen) return raw;
+  return `${raw.slice(0, maxLen)}...`;
+}
+
+export function formatFilesListResponse(data: any): string {
+  const items = Array.isArray(data?.items) ? data.items : [];
+  if (items.length === 0) return 'No files found.';
+
+  const lines = [`Found ${items.length} file node(s):\n`];
+  items.forEach((node: any, i: number) => {
+    lines.push(`${i + 1}. ${node.name || '(unnamed)'} (${node.id})`);
+    lines.push(`   kind: ${node.kind}`);
+    lines.push(`   scope: ${node.scope}${node.scopeRef ? `/${node.scopeRef}` : ''}`);
+    if (node.sizeBytes !== null && node.sizeBytes !== undefined) {
+      lines.push(`   sizeBytes: ${node.sizeBytes}`);
+    }
+    if (node.updatedAt) {
+      lines.push(`   updatedAt: ${node.updatedAt}`);
+    }
+    lines.push('');
+  });
+  return lines.join('\n').trimEnd();
+}
+
+export function formatFileNodeResponse(action: string, node: any): string {
+  const lines = [
+    `${action} succeeded.`,
+    '',
+    `nodeId: ${node?.id || '-'}`,
+    `name: ${node?.name || '-'}`,
+    `kind: ${node?.kind || '-'}`,
+    `scope: ${node?.scope || '-'}${node?.scopeRef ? `/${node.scopeRef}` : ''}`,
+  ];
+  if (node?.parentId) lines.push(`parentId: ${node.parentId}`);
+  if (node?.sizeBytes !== undefined && node?.sizeBytes !== null) lines.push(`sizeBytes: ${node.sizeBytes}`);
+  return lines.join('\n');
+}
+
+export function formatFileDeleteResponse(nodeId: string, deletedCount: number): string {
+  return `Delete succeeded.\n\nnodeId: ${nodeId}\ndeletedCount: ${deletedCount}`;
+}
+
+export function formatFileDownloadResponse(data: any): string {
+  const lines = [
+    'Download payload (base64) prepared.',
+    '',
+    `nodeId: ${data?.nodeId || '-'}`,
+    `name: ${data?.name || '-'}`,
+    `mimeType: ${data?.mimeType || '-'}`,
+    `sizeBytes: ${data?.sizeBytes ?? '-'}`,
+    data?.checksumSha256 ? `checksumSha256: ${data.checksumSha256}` : '',
+    `contentBase64: ${trimJson(data?.contentBase64 || '', 120)}`,
+  ].filter(Boolean);
+  return lines.join('\n');
+}
+
+export function formatDocRawResponse(data: any): string {
+  const lines = [
+    `docId: ${data?.docId || '-'}`,
+    `revision: ${data?.revision ?? '-'}`,
+    data?.updatedAt ? `updatedAt: ${data.updatedAt}` : '',
+    '',
+    'content:',
+    typeof data?.content === 'string' ? data.content : '',
+  ].filter(Boolean);
+  return lines.join('\n');
+}
+
+export function formatPublishResponse(data: any): string {
+  const lines = [
+    'Publish succeeded.',
+    '',
+    `sourceNodeId: ${data?.sourceNodeId || '-'}`,
+    `taskId: ${data?.taskId || '-'}`,
+  ];
+  if (data?.node) {
+    lines.push(`publishedNodeId: ${data.node.id}`);
+    lines.push(`publishedScope: ${data.node.scope}${data.node.scopeRef ? `/${data.node.scopeRef}` : ''}`);
+  }
+  return lines.join('\n');
+}
