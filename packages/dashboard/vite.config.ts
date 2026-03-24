@@ -42,7 +42,10 @@ export default defineConfig(({ mode }) => {
           target: devApiTarget,
           changeOrigin: true,
           rewrite: (path) => {
-            if (path === '/api/messages' || path === '/api/messages/') return '/api/v1/messages/all';
+            const [pathname, query = ''] = path.split('?')
+            if (pathname === '/api/messages' || pathname === '/api/messages/') {
+              return `/api/v1/messages/all${query ? `?${query}` : ''}`
+            }
             return path.replace(/^\/api/, '/api/v1');
           },
         },

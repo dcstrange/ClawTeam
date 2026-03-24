@@ -58,7 +58,7 @@ export interface Task {
 }
 
 // Message types
-export type MessageType = 'direct_message' | 'task_notification' | 'broadcast' | 'system' | 'human_input_request' | 'human_input_response' | 'task_continuation';
+export type MessageType = 'direct_message' | 'task_notification' | 'delegate_intent' | 'broadcast' | 'system' | 'human_input_request' | 'human_input_response' | 'task_continuation';
 export type MessageStatus = 'delivered' | 'read';
 
 export interface Message {

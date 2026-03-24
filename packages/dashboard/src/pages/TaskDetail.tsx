@@ -149,21 +149,143 @@ function downloadJsonFile(filename: string, data: unknown): void {
   URL.revokeObjectURL(url);
 }
 
+interface TaskStatusStep {
+  key: string;
+  label: string;
+  description: string;
+  reached: boolean;
+  current: boolean;
+  tone: 'active' | 'waiting' | 'review' | 'success' | 'error' | 'neutral';
+  timestamp?: string | null;
+}
+
+function buildTaskStatusTimeline(task: any, messages: any[]): TaskStatusStep[] {
+  const status = String(task.status || 'pending');
+  const terminalStatuses = new Set(['completed', 'failed', 'timeout', 'cancelled']);
+  const processingStatuses = new Set(['processing', 'waiting_for_input', 'pending_review', 'completed', 'failed', 'timeout', 'cancelled']);
+
+  const waitingRequestAt = messages
+    .filter((m) => m.taskId === task.id && m.type === 'human_input_request')
+    .map((m) => m.createdAt)
+    .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())
+    .pop() || null;
+
+  const hasWaiting = status === 'waiting_for_input' || Boolean(waitingRequestAt);
+  const hasPendingReview = Boolean(
+    task.submittedAt ||
+    task.submittedResult !== undefined ||
+    task.rejectionReason ||
+    status === 'pending_review' ||
+    status === 'completed',
+  );
+
+  const steps: TaskStatusStep[] = [
+    {
+      key: 'pending',
+      label: 'Pending',
+      description: 'Task created and waiting to be handled.',
+      reached: true,
+      current: status === 'pending',
+      tone: status === 'pending' ? 'active' : 'neutral',
+      timestamp: task.createdAt,
+    },
+    {
+      key: 'accepted',
+      label: 'Accepted',
+      description: 'Executor accepted ownership of the task.',
+      reached: Boolean(task.acceptedAt) || status !== 'pending',
+      current: status === 'accepted',
+      tone: 'active',
+      timestamp: task.acceptedAt || null,
+    },
+    {
+      key: 'processing',
+      label: 'Processing',
+      description: 'Bots are actively working on task execution.',
+      reached: Boolean(task.startedAt) || processingStatuses.has(status),
+      current: status === 'processing',
+      tone: 'active',
+      timestamp: task.startedAt || null,
+    },
+  ];
+
+  if (hasWaiting) {
+    steps.push({
+      key: 'waiting_for_input',
+      label: 'Waiting for Input',
+      description: 'Task is blocked until human clarification is provided.',
+      reached: hasWaiting,
+      current: status === 'waiting_for_input',
+      tone: 'waiting',
+      timestamp: waitingRequestAt,
+    });
+  }
+
+  if (hasPendingReview) {
+    steps.push({
+      key: 'pending_review',
+      label: 'Pending Review',
+      description: 'Executor submitted a result and delegator review is required.',
+      reached: hasPendingReview,
+      current: status === 'pending_review',
+      tone: 'review',
+      timestamp: task.submittedAt || null,
+    });
+  }
+
+  if (terminalStatuses.has(status)) {
+    const terminalMeta: Record<string, { label: string; description: string; tone: TaskStatusStep['tone'] }> = {
+      completed: {
+        label: 'Completed',
+        description: 'Task finished and approved by delegator.',
+        tone: 'success',
+      },
+      failed: {
+        label: 'Failed',
+        description: 'Task ended with an execution failure.',
+        tone: 'error',
+      },
+      timeout: {
+        label: 'Timed Out',
+        description: 'Task exceeded timeout and was terminated.',
+        tone: 'error',
+      },
+      cancelled: {
+        label: 'Cancelled',
+        description: 'Task was cancelled before completion.',
+        tone: 'error',
+      },
+    };
+
+    const meta = terminalMeta[status] || terminalMeta.failed;
+    steps.push({
+      key: status,
+      label: meta.label,
+      description: meta.description,
+      reached: true,
+      current: true,
+      tone: meta.tone,
+      timestamp: task.completedAt || null,
+    });
+  }
+
+  return steps.filter((step) => step.key === 'pending' || step.reached || step.current);
+}
+
 export function TaskDetail() {
   const { taskId } = useParams<{ taskId: string }>();
   const navigate = useNavigate();
   const { data: tasks = [], isLoading } = useTasks();
-  const { data: messages = [] } = useMessages();
+  const { data: messages = [] } = useMessages(taskId);
   const { data: bots = [] } = useBots();
   const { data: sessions = [] } = useSessions();
   const { me } = useIdentity();
-  const [panelOpen, setPanelOpen] = useState(false);
-  const handlePanelChange = useCallback((open: boolean) => setPanelOpen(open), []);
   const [resumeInput, setResumeInput] = useState('');
   const [resumeLoading, setResumeLoading] = useState(false);
   const [continuePrompt, setContinuePrompt] = useState('');
   const [continueLoading, setContinueLoading] = useState(false);
   const [continueError, setContinueError] = useState<string | null>(null);
+  const [wrapResult, setWrapResult] = useState(true);
   const queryClient = useQueryClient();
 
   const rawTask = tasks.find(t => t.id === taskId);
@@ -298,6 +420,15 @@ export function TaskDetail() {
     downloadJsonFile(`activity-tree-${task.id}-${timestamp}.json`, activityExport);
   }, [task, activityExport]);
 
+  const taskStatusTimeline = useMemo(
+    () => (task ? buildTaskStatusTimeline(task, enrichedMessages) : []),
+    [task, enrichedMessages],
+  );
+  const reversedTaskStatusTimeline = useMemo(
+    () => [...taskStatusTimeline].reverse(),
+    [taskStatusTimeline],
+  );
+
   if (isLoading) {
     return (
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -326,16 +457,8 @@ export function TaskDetail() {
     ? new Date(task.completedAt).getTime() - new Date(task.startedAt).getTime()
     : null;
 
-  // Timeline steps
-  const timeline = [
-    { label: 'Created', time: task.createdAt, active: true },
-    { label: 'Started', time: task.startedAt, active: !!task.startedAt },
-    { label: task.status === 'failed' ? 'Failed' : task.status === 'timeout' ? 'Timed Out' : 'Completed',
-      time: task.completedAt, active: !!task.completedAt },
-  ];
-
   return (
-    <div className={`mx-auto px-4 sm:px-6 lg:px-8 py-8 transition-all duration-300 ${panelOpen ? 'max-w-full' : 'max-w-4xl'}`}>
+    <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
       {/* Back + Header */}
       <button onClick={() => navigate('/tasks')} className="text-sm text-gray-500 hover:text-gray-700 mb-4 inline-block">
         &larr; Back to tasks
@@ -354,28 +477,127 @@ export function TaskDetail() {
         <TaskActions task={task} />
       </div>
 
-      <div className="space-y-6">
-        {/* Timeline */}
-        <div className="bg-white rounded-xl p-6 card-gradient">
-          <h3 className="text-sm font-semibold text-gray-700 mb-4">Timeline</h3>
-          <div className="flex items-center gap-0">
-            {timeline.map((step, i) => (
-              <div key={step.label} className="flex items-center">
-                <div className="flex flex-col items-center">
-                  <div className={`w-3 h-3 rounded-full ${step.active ? 'bg-primary-600' : 'bg-gray-300'}`} />
-                  <p className="text-xs font-medium text-gray-700 mt-1">{step.label}</p>
-                  <p className="text-xs text-gray-500">{step.time ? formatDate(step.time) : '—'}</p>
-                </div>
-                {i < timeline.length - 1 && (
-                  <div className={`w-24 h-0.5 mx-2 ${step.active ? 'bg-primary-300' : 'bg-gray-200'}`} />
-                )}
+      <div className="grid grid-cols-1 xl:grid-cols-[21rem,minmax(0,1fr)] gap-6">
+        <aside className="xl:sticky xl:top-24 self-start">
+          <div className="space-y-6">
+            <div className="bg-white rounded-xl p-6 card-gradient">
+              <h3 className="text-sm font-semibold text-gray-700 mb-1">Task Status Timeline</h3>
+              <p className="text-[11px] text-gray-500 mb-4">Latest status is shown first.</p>
+              <div className="space-y-3">
+                {reversedTaskStatusTimeline.map((step, index) => {
+                  const dotTone = !step.reached
+                    ? 'bg-gray-200 border-gray-300'
+                    : step.tone === 'success'
+                      ? 'bg-green-500 border-green-300'
+                      : step.tone === 'error'
+                        ? 'bg-red-500 border-red-300'
+                        : step.tone === 'waiting'
+                          ? 'bg-amber-500 border-amber-300'
+                          : step.tone === 'review'
+                            ? 'bg-indigo-500 border-indigo-300'
+                            : 'bg-primary-600 border-primary-300';
+                  const connectorTone = step.reached ? 'bg-primary-300' : 'bg-gray-200';
+                  return (
+                    <div key={step.key} className="flex items-start gap-3">
+                      <div className="flex flex-col items-center pt-0.5">
+                        <div className={`w-3 h-3 rounded-full border-2 ${dotTone} ${step.current ? 'ring-2 ring-primary-300' : ''}`} />
+                        {index < reversedTaskStatusTimeline.length - 1 && (
+                          <div className={`w-0.5 h-8 mt-1 ${connectorTone}`} />
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1 pb-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-semibold text-gray-900">{step.label}</p>
+                          {step.current && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border border-primary-300 bg-primary-100 text-primary-700">
+                              CURRENT
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-600">{step.description}</p>
+                        <p className="text-[11px] text-gray-500 mt-0.5">{step.timestamp ? formatDate(step.timestamp) : '—'}</p>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-            ))}
+              {duration !== null && (
+                <p className="text-xs text-gray-500 mt-3">Duration: {formatDuration(duration)}</p>
+              )}
+            </div>
+
+            <TaskFilesPanel taskId={task.id} fallbackBotId={task.fromBotId} />
+
+            <TaskParticipants task={task} allTasks={tasks} bots={bots} />
+
+            <div className="bg-white rounded-xl p-4 card-gradient">
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">From / To</h3>
+              <div className="space-y-4">
+                <div>
+                  <h4 className="text-xs font-medium text-gray-500 uppercase mb-2">From</h4>
+                  <div className="flex items-center gap-3">
+                    <BotAvatar name={task.fromBotName || task.fromBotId} id={task.fromBotId} avatarColor={task.fromAvatarColor} avatarUrl={task.fromAvatarUrl} size="lg" />
+                    <div className="min-w-0">
+                      <p className="font-medium text-gray-900 truncate">{task.fromBotName || task.fromBotId}</p>
+                      <p className="text-xs text-gray-500 font-mono mt-0.5 break-all">{task.fromBotId}</p>
+                      {task.senderSessionKey && (
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          Session: <code className="font-mono text-gray-900 bg-gray-50 px-1 rounded break-all">{task.senderSessionKey}</code>
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="border-t border-gray-100 pt-4">
+                  <h4 className="text-xs font-medium text-gray-500 uppercase mb-2">To</h4>
+                  <div className="flex items-center gap-3">
+                    <BotAvatar name={task.toBotName || task.toBotId} id={task.toBotId} avatarColor={task.toAvatarColor} avatarUrl={task.toAvatarUrl} size="lg" />
+                    <div className="min-w-0">
+                      <p className="font-medium text-gray-900 truncate">{task.toBotName || task.toBotId}</p>
+                      <p className="text-xs text-gray-500 font-mono mt-0.5 break-all">{task.toBotId}</p>
+                      {task.executorSessionKey && (
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          Session: <code className="font-mono text-gray-900 bg-gray-50 px-1 rounded break-all">{task.executorSessionKey}</code>
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {Object.keys(task.parameters || {}).length > 0 && (
+              <div className="bg-white rounded-xl p-6 card-gradient">
+                <h3 className="text-sm font-semibold text-gray-700 mb-3">Parameters</h3>
+                <pre className="bg-gray-50 rounded p-3 text-xs text-gray-900 overflow-x-auto max-h-48">
+                  {JSON.stringify(task.parameters, null, 2)}
+                </pre>
+              </div>
+            )}
           </div>
-          {duration !== null && (
-            <p className="text-xs text-gray-500 mt-3">Duration: {formatDuration(duration)}</p>
+        </aside>
+
+        <div className="space-y-6">
+          {hasActivity && (
+            <div className="bg-white rounded-xl p-6 card-gradient">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold text-gray-700">Message History</h3>
+                <button
+                  type="button"
+                  onClick={handleDownloadActivity}
+                  disabled={!activityExport}
+                  className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Download Task History
+                </button>
+              </div>
+              <TaskTimeline
+                focusTaskId={task.id}
+                tasks={enrichedTasks}
+                messages={enrichedMessages}
+              />
+            </div>
           )}
-        </div>
 
         {/* Waiting for Input Banner — only shown to the human whose bot requested input */}
         {(() => {
@@ -386,7 +608,7 @@ export function TaskDetail() {
             || (result?.waitingRequestedBy === me.currentBot.id ? { botId: me.currentBot.id, reason: result?.waitingReason } : null);
           if (!myRequest) return null;
           return (
-          <div className="bg-amber-50 rounded-xl p-6">
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-6">
             <div className="flex items-start gap-3">
               <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse mt-2" />
               <div className="flex-1">
@@ -398,7 +620,7 @@ export function TaskDetail() {
                     value={resumeInput}
                     onChange={(e) => setResumeInput(e.target.value)}
                     placeholder="Type your reply..."
-                    className="flex-1 px-3 py-2 text-sm bg-amber-50 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    className="flex-1 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-500 bg-amber-50 border border-amber-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400"
                     disabled={resumeLoading}
                   />
                   <button
@@ -417,7 +639,7 @@ export function TaskDetail() {
 
         {/* Pending Review Banner — shown when executor submitted result for review */}
         {task.status === 'pending_review' && (
-          <div className="bg-indigo-50 rounded-xl p-6">
+          <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-6">
             <div className="flex items-start gap-3">
               <div className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse mt-2" />
               <div className="flex-1">
@@ -428,7 +650,7 @@ export function TaskDetail() {
                 {task.submittedResult !== undefined && task.submittedResult !== null && (
                   <div className="mb-3">
                     <p className="text-xs font-medium text-indigo-600 mb-1">Submitted Result:</p>
-                    <pre className="bg-indigo-100 rounded p-3 text-xs overflow-x-auto max-h-48">
+                    <pre className="bg-indigo-100 rounded p-3 text-xs text-gray-900 overflow-x-auto max-h-48 whitespace-pre-wrap break-words">
                       {typeof task.submittedResult === 'object' ? JSON.stringify(task.submittedResult, null, 2) : String(task.submittedResult)}
                     </pre>
                   </div>
@@ -446,74 +668,6 @@ export function TaskDetail() {
             </div>
           </div>
         )}
-
-        {/* Continue Task Banner — shown for completed/failed/timeout tasks */}
-        {['completed', 'failed', 'timeout'].includes(task.status) && (
-          <div className="bg-green-50 rounded-xl p-6">
-            <div className="flex items-start gap-3">
-              <div className="w-2 h-2 rounded-full bg-green-400 mt-2" />
-              <div className="flex-1">
-                <h3 className="text-sm font-semibold text-green-800 mb-1">Continue this task</h3>
-                <p className="text-sm text-green-700 mb-3">Provide new instructions to reopen and continue this task.</p>
-                <form onSubmit={handleContinue} className="space-y-2">
-                  <textarea
-                    value={continuePrompt}
-                    onChange={(e) => setContinuePrompt(e.target.value)}
-                    placeholder="Enter additional instructions..."
-                    className="w-full px-3 py-2 text-sm bg-green-50 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-400"
-                    rows={3}
-                  />
-                  {continueError && (
-                    <p className="text-sm text-red-600">{continueError}</p>
-                  )}
-                  <button
-                    type="submit"
-                    disabled={continueLoading || !continuePrompt.trim()}
-                    className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-50"
-                  >
-                    {continueLoading ? 'Continuing...' : 'Continue Task'}
-                  </button>
-                </form>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Task Participants */}
-        <TaskParticipants task={task} allTasks={tasks} bots={bots} />
-
-        {/* Task Files */}
-        <TaskFilesPanel taskId={task.id} fallbackBotId={task.fromBotId} />
-
-        {/* Bot Info */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="bg-white rounded-xl p-4 card-gradient">
-            <h4 className="text-xs font-medium text-gray-500 uppercase mb-2">From</h4>
-            <div className="flex items-center gap-3">
-              <BotAvatar name={task.fromBotName || task.fromBotId} id={task.fromBotId} avatarColor={task.fromAvatarColor} avatarUrl={task.fromAvatarUrl} size="lg" />
-              <div>
-                <p className="font-medium text-gray-900">{task.fromBotName || task.fromBotId}</p>
-                <p className="text-xs text-gray-500 font-mono mt-0.5">{task.fromBotId}</p>
-                {task.senderSessionKey && (
-                  <p className="text-xs text-gray-500 mt-0.5">Session: <code className="font-mono bg-gray-50 px-1 rounded">{task.senderSessionKey}</code></p>
-                )}
-              </div>
-            </div>
-          </div>
-          <div className="bg-white rounded-xl p-4 card-gradient">
-            <h4 className="text-xs font-medium text-gray-500 uppercase mb-2">To</h4>
-            <div className="flex items-center gap-3">
-              <BotAvatar name={task.toBotName || task.toBotId} id={task.toBotId} avatarColor={task.toAvatarColor} avatarUrl={task.toAvatarUrl} size="lg" />
-              <div>
-                <p className="font-medium text-gray-900">{task.toBotName || task.toBotId}</p>
-                <p className="text-xs text-gray-500 font-mono mt-0.5">{task.toBotId}</p>
-                {task.executorSessionKey && (
-                  <p className="text-xs text-gray-500 mt-0.5">Session: <code className="font-mono bg-gray-50 px-1 rounded">{task.executorSessionKey}</code></p>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
 
         {/* Session State (from Router) */}
         {session && (
@@ -542,31 +696,26 @@ export function TaskDetail() {
           </div>
         )}
 
-        {/* Prompt */}
-        {task.prompt && (
-          <div className="bg-white rounded-xl p-6 card-gradient">
-            <h3 className="text-sm font-semibold text-gray-700 mb-3">Prompt</h3>
-            <pre className="bg-gray-50 rounded p-3 text-xs overflow-x-auto max-h-48 whitespace-pre-wrap break-words">
-              {task.prompt}
-            </pre>
-          </div>
-        )}
-
-        {/* Parameters */}
-        {Object.keys(task.parameters || {}).length > 0 && (
-          <div className="bg-white rounded-xl p-6 card-gradient">
-            <h3 className="text-sm font-semibold text-gray-700 mb-3">Parameters</h3>
-            <pre className="bg-gray-50 rounded p-3 text-xs overflow-x-auto max-h-48">
-              {JSON.stringify(task.parameters, null, 2)}
-            </pre>
-          </div>
-        )}
-
         {/* Result */}
         {task.result !== undefined && task.result !== null && (
           <div className="bg-white rounded-xl p-6 card-gradient">
-            <h3 className="text-sm font-semibold text-gray-700 mb-3">Result</h3>
-            <pre className="bg-green-50 rounded p-3 text-xs overflow-x-auto max-h-48">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-gray-700">Result</h3>
+              <label className="inline-flex items-center gap-2 text-xs text-gray-600 select-none">
+                <input
+                  type="checkbox"
+                  checked={wrapResult}
+                  onChange={(e) => setWrapResult(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                />
+                <span>Auto Wrap</span>
+              </label>
+            </div>
+            <pre
+              className={`bg-green-50 rounded p-3 text-xs text-gray-900 max-h-48 ${
+                wrapResult ? 'whitespace-pre-wrap break-words overflow-y-auto' : 'overflow-x-auto'
+              }`}
+            >
               {typeof task.result === 'object' ? JSON.stringify(task.result, null, 2) : String(task.result)}
             </pre>
           </div>
@@ -582,29 +731,39 @@ export function TaskDetail() {
           </div>
         )}
 
-        {/* Activity Tree (sub-tasks + messages, hierarchical + chronological) */}
-        {hasActivity && (
-          <div className="bg-white rounded-xl p-6 card-gradient">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-gray-700">Activity Tree</h3>
-              <button
-                type="button"
-                onClick={handleDownloadActivity}
-                disabled={!activityExport}
-                className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Download Task History
-              </button>
+        {/* Continue Task Banner — keep at bottom of page */}
+        {['completed', 'failed', 'timeout'].includes(task.status) && (
+          <div className="bg-green-50 border border-green-200 rounded-xl p-6">
+            <div className="flex items-start gap-3">
+              <div className="w-2 h-2 rounded-full bg-green-400 mt-2" />
+              <div className="flex-1">
+                <h3 className="text-sm font-semibold text-green-800 mb-1">Continue this task</h3>
+                <p className="text-sm text-green-700 mb-3">Provide new instructions to reopen and continue this task.</p>
+                <form onSubmit={handleContinue} className="space-y-2">
+                  <textarea
+                    value={continuePrompt}
+                    onChange={(e) => setContinuePrompt(e.target.value)}
+                    placeholder="Enter additional instructions..."
+                    className="w-full px-3 py-2 text-sm text-gray-900 placeholder:text-gray-500 bg-green-50 border border-green-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-400"
+                    rows={3}
+                  />
+                  {continueError && (
+                    <p className="text-sm text-red-600">{continueError}</p>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={continueLoading || !continuePrompt.trim()}
+                    className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-50"
+                  >
+                    {continueLoading ? 'Continuing...' : 'Continue Task'}
+                  </button>
+                </form>
+              </div>
             </div>
-            <TaskTimeline
-              focusTaskId={task.id}
-              tasks={enrichedTasks}
-              messages={enrichedMessages}
-              onPanelChange={handlePanelChange}
-            />
           </div>
         )}
       </div>
+    </div>
     </div>
   );
 }

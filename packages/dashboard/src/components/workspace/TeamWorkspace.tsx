@@ -332,11 +332,13 @@ export function TeamWorkspace({ compact = false, filterTaskId, onBotSelect, sele
       switch (type) {
         case 'direct_message': return 'direct_message';
         case 'task_notification': return 'task_notification';
+        case 'delegate_intent': return 'task_notification';
         case 'broadcast': return 'broadcast';
         case 'human_input_request':
         case 'human_input_response': return 'human_input';
         case 'system': return 'system';
         case 'task_continuation': return 'task_continuation';
+        default: return 'system';
       }
     };
 

@@ -292,6 +292,70 @@ describe('TaskCompleter', () => {
     });
   });
 
+  describe('review decision history messages', () => {
+    it('should write approve decision into executor inbox and messages history', async () => {
+      const now = new Date();
+      db.query
+        .mockResolvedValueOnce({
+          rows: [createTaskRow({
+            status: 'pending_review',
+            submitted_result: { summary: 'candidate result' },
+            submitted_at: now,
+          })],
+          rowCount: 1,
+        })
+        // UPDATE tasks ... completed
+        .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+        // INSERT messages (approve decision)
+        .mockResolvedValueOnce({ rows: [], rowCount: 1 });
+
+      await completer.approve('task-1', 'bot-a');
+
+      expect(redis.lpush).toHaveBeenCalledWith(
+        'clawteam:inbox:bot-b:high',
+        expect.any(String),
+      );
+
+      const payload = (redis.lpush as jest.Mock).mock.calls[0][1];
+      const inboxMsg = JSON.parse(payload);
+      expect(inboxMsg.type).toBe('direct_message');
+      expect(inboxMsg.fromBotId).toBe('bot-a');
+      expect(inboxMsg.toBotId).toBe('bot-b');
+      expect(inboxMsg.content?.reviewAction).toBe('approved');
+      expect(inboxMsg.content?.approvedResult).toEqual({ summary: 'candidate result' });
+    });
+
+    it('should write reject decision into executor inbox and messages history', async () => {
+      db.query
+        .mockResolvedValueOnce({
+          rows: [createTaskRow({
+            status: 'pending_review',
+            submitted_result: { summary: 'candidate result' },
+          })],
+          rowCount: 1,
+        })
+        // UPDATE tasks ... processing with rejection reason
+        .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+        // INSERT messages (reject decision)
+        .mockResolvedValueOnce({ rows: [], rowCount: 1 });
+
+      await completer.reject('task-1', 'bot-a', 'Need clearer flight options');
+
+      expect(redis.lpush).toHaveBeenCalledWith(
+        'clawteam:inbox:bot-b:high',
+        expect.any(String),
+      );
+
+      const payload = (redis.lpush as jest.Mock).mock.calls[0][1];
+      const inboxMsg = JSON.parse(payload);
+      expect(inboxMsg.type).toBe('direct_message');
+      expect(inboxMsg.fromBotId).toBe('bot-a');
+      expect(inboxMsg.toBotId).toBe('bot-b');
+      expect(inboxMsg.content?.reviewAction).toBe('rejected');
+      expect(inboxMsg.content?.rejectionReason).toBe('Need clearer flight options');
+    });
+  });
+
   describe('cancel', () => {
     it('should cancel a pending task by the sender', async () => {
       db.query.mockResolvedValueOnce({

@@ -184,6 +184,7 @@ body {
 
   /* Border overrides */
   .border-gray-200   { border-color: var(--color-border) !important; }
+  .border-gray-300   { border-color: var(--color-border) !important; }
   .border-gray-100   { border-color: var(--color-border-light) !important; }
 
   /* Status badge overrides */
@@ -201,8 +202,22 @@ body {
   .text-orange-800   { color: var(--color-orange-text) !important; }
   .bg-cyan-100       { background-color: var(--color-cyan-bg) !important; }
   .text-cyan-800     { color: var(--color-cyan-text) !important; }
+  .bg-cyan-50        { background-color: var(--color-cyan-bg) !important; }
+  .text-cyan-700     { color: var(--color-cyan-text) !important; }
   .bg-indigo-100     { background-color: var(--color-indigo-bg) !important; }
+  .bg-indigo-50      { background-color: var(--color-indigo-bg) !important; }
+  .text-indigo-500   { color: var(--color-indigo-text) !important; }
+  .text-indigo-600   { color: var(--color-indigo-text) !important; }
+  .text-indigo-700   { color: var(--color-indigo-text) !important; }
   .text-indigo-800   { color: var(--color-indigo-text) !important; }
+  .bg-sky-50         { background-color: var(--color-blue-bg) !important; }
+  .bg-sky-100        { background-color: var(--color-blue-bg) !important; }
+  .text-sky-700      { color: var(--color-blue-text) !important; }
+  .text-sky-800      { color: var(--color-blue-text) !important; }
+  .bg-rose-50        { background-color: var(--color-red-bg) !important; }
+  .bg-rose-100       { background-color: var(--color-red-bg) !important; }
+  .text-rose-700     { color: var(--color-red-text) !important; }
+  .text-rose-800     { color: var(--color-red-text) !important; }
 
   /* Emerald overrides */
   .bg-emerald-50     { background-color: var(--color-emerald-bg) !important; }
@@ -225,6 +240,14 @@ body {
   /* Warning bar */
   .bg-yellow-50      { background-color: var(--color-yellow-bg) !important; }
   .border-yellow-200 { border-color: var(--color-yellow-text) !important; }
+  .border-amber-200  { border-color: var(--color-yellow-text) !important; }
+  .border-indigo-200 { border-color: var(--color-indigo-text) !important; }
+  .border-cyan-200   { border-color: var(--color-cyan-text) !important; }
+  .border-sky-200    { border-color: var(--color-blue-text) !important; }
+  .border-green-200  { border-color: var(--color-green-text) !important; }
+  .border-emerald-200 { border-color: var(--color-emerald-text) !important; }
+  .border-rose-200   { border-color: var(--color-red-text) !important; }
+  .border-red-200    { border-color: var(--color-red-text) !important; }
   .text-yellow-800   { color: var(--color-yellow-text) !important; }
   .text-yellow-700   { color: var(--color-yellow-text) !important; }
 

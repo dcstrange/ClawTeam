@@ -545,6 +545,68 @@ export class TaskCompleter {
     });
   }
 
+  /**
+   * Write review decision event to executor inbox for full activity history:
+   * - approved: delegator accepted submitted result
+   * - rejected: delegator requested rework with reason
+   */
+  private async writeReviewDecisionToInbox(
+    task: Task,
+    decision: { action: 'approved' | 'rejected'; reason?: string; result?: any },
+    reviewedAt: Date,
+  ): Promise<void> {
+    const messageId = randomUUID();
+    const traceId = randomUUID();
+
+    const content =
+      decision.action === 'approved'
+        ? {
+          text:
+            `[Task Review Approved]\n\n` +
+            `Task ${task.id} was approved by delegator ${task.fromBotId}.`,
+          reviewAction: 'approved',
+          approvedResult: decision.result ?? null,
+          reviewedAt: reviewedAt.toISOString(),
+        }
+        : {
+          text:
+            `[Task Review Rejected]\n\n` +
+            `Task ${task.id} was rejected by delegator ${task.fromBotId}.\n` +
+            `Reason: ${decision.reason || 'Rejected'}`,
+          reviewAction: 'rejected',
+          rejectionReason: decision.reason || 'Rejected',
+          reviewedAt: reviewedAt.toISOString(),
+        };
+
+    const inboxMessage = JSON.stringify({
+      messageId,
+      fromBotId: task.fromBotId,
+      toBotId: task.toBotId,
+      type: 'direct_message',
+      contentType: 'text',
+      content,
+      priority: 'high',
+      taskId: task.id,
+      traceId,
+      timestamp: reviewedAt.toISOString(),
+    });
+
+    await this.redis.lpush(`clawteam:inbox:${task.toBotId}:high`, inboxMessage);
+
+    await this.db.query(
+      `INSERT INTO messages (id, from_bot_id, to_bot_id, type, content_type, content, priority, status, task_id, trace_id, created_at)
+       VALUES ($1, $2, $3, 'direct_message', 'text', $4, 'high', 'delivered', $5, $6, $7)`,
+      [messageId, task.fromBotId, task.toBotId, JSON.stringify(content), task.id, traceId, reviewedAt],
+    );
+
+    this.logger.info('Wrote review decision notification to executor inbox', {
+      taskId: task.id,
+      action: decision.action,
+      fromBotId: task.fromBotId,
+      toBotId: task.toBotId,
+    });
+  }
+
   async submitResult(taskId: string, result: any, botId: string): Promise<void> {
     const task = await this.loadTask(taskId);
 
@@ -629,6 +691,13 @@ export class TaskCompleter {
     await this.redis.zrem(REDIS_KEYS.PROCESSING_SET, taskId);
     await this.redis.del(`${REDIS_KEYS.TASK_CACHE}:${taskId}`);
 
+    // Persist review decision event in message history for Activity Tree.
+    try {
+      await this.writeReviewDecisionToInbox(task, { action: 'approved', result: finalResult }, now);
+    } catch (err) {
+      this.logger.error('Failed to write approve decision message', { taskId, err });
+    }
+
     // Notify executor
     await this.safePublish('task_completed', {
       taskId,
@@ -662,6 +731,13 @@ export class TaskCompleter {
     }
 
     await this.updateCacheStatus(taskId, 'processing');
+
+    // Persist review decision event in message history for Activity Tree.
+    try {
+      await this.writeReviewDecisionToInbox(task, { action: 'rejected', reason }, new Date());
+    } catch (err) {
+      this.logger.error('Failed to write reject decision message', { taskId, err });
+    }
 
     // Notify executor with rejection details
     await this.safePublish('task_rejected', {
