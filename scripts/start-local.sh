@@ -1,12 +1,12 @@
 #!/bin/bash
 set -e
 
-# ClawTeam 本地部署脚本（Dashboard + Gateway + Skill 安装）
+# ClawTeam 本地部署脚本（Dashboard + Gateway + Skills 安装）
 # 在项目根目录执行
 #
 # 首次部署（分两步）：
 #   1. bash scripts/start-local.sh --setup --ec2-ip <IP>
-#      → 配置文件 + 安装 Skill + 同步 openclaw.json
+#      → 配置文件 + 安装 Skills + 同步 openclaw.json
 #      → 然后启动 OpenClaw 输入"连接 ClawTeam"获取 API Key
 #   2. bash scripts/start-local.sh --api-key <KEY>
 #      → 写入 API Key 并启动所有服务
@@ -17,7 +17,7 @@ set -e
 # 可选参数：
 #   --ec2-ip <IP>       设置 EC2 API Server IP
 #   --api-key <KEY>     设置 API Key
-#   --setup             只配置不启动（用于首次安装 Skill 后去 OpenClaw 注册）
+#   --setup             只配置不启动（用于首次安装 Skills 后去 OpenClaw 注册）
 #   --force-install     强制重装依赖（清除 node_modules 后重新安装）
 
 # ── Helper: convert path for Node.js on MINGW/Git Bash ──
@@ -36,8 +36,10 @@ CONFIG_DIR="$HOME/.clawteam"
 CONFIG_FILE="$CONFIG_DIR/config.yaml"
 VITE_CONFIG="$PROJECT_ROOT/packages/dashboard/vite.config.ts"
 OPENCLAW_CONFIG="$HOME/.openclaw/openclaw.json"
-SKILL_SRC="$PROJECT_ROOT/packages/openclaw-skill/SKILL.md"
-SKILL_DIR="$HOME/.openclaw/skills/clawteam"
+CORE_SKILL_SRC="$PROJECT_ROOT/packages/openclaw-skill/SKILL.md"
+CORE_SKILL_DIR="$HOME/.openclaw/skills/clawteam"
+FILES_SKILL_SRC="$PROJECT_ROOT/packages/openclaw-files-skill/SKILL.md"
+FILES_SKILL_DIR="$HOME/.openclaw/skills/clawteam-files"
 PLUGIN_SRC="$PROJECT_ROOT/packages/openclaw-plugin"
 PLUGIN_DIR="$HOME/.openclaw/extensions/clawteam-auto-tracker"
 
@@ -247,20 +249,28 @@ EOF
   fi
 fi
 
-# ── Step 4: Install ClawTeam Skill + auto-configure OpenClaw ──
-# 4a. Copy SKILL.md
-if [ -f "$SKILL_SRC" ]; then
-  if [ ! -f "$SKILL_DIR/SKILL.md" ] || ! diff -q "$SKILL_SRC" "$SKILL_DIR/SKILL.md" &>/dev/null; then
-    echo "==> Installing ClawTeam Skill to OpenClaw..."
-    mkdir -p "$SKILL_DIR"
-    cp "$SKILL_SRC" "$SKILL_DIR/SKILL.md"
-    echo "    Copied SKILL.md → $SKILL_DIR/"
+# ── Step 4: Install ClawTeam Skills + auto-configure OpenClaw ──
+# 4a. Copy SKILL.md (core + files)
+install_skill() {
+  local skill_name="$1"
+  local src_path="$2"
+  local dst_dir="$3"
+  if [ -f "$src_path" ]; then
+    if [ ! -f "$dst_dir/SKILL.md" ] || ! diff -q "$src_path" "$dst_dir/SKILL.md" &>/dev/null; then
+      echo "==> Installing $skill_name skill to OpenClaw..."
+      mkdir -p "$dst_dir"
+      cp "$src_path" "$dst_dir/SKILL.md"
+      echo "    Copied SKILL.md → $dst_dir/"
+    else
+      echo "==> $skill_name skill already up to date."
+    fi
   else
-    echo "==> ClawTeam Skill already up to date."
+    echo "==> WARNING: SKILL.md not found at $src_path, skipping $skill_name skill install."
   fi
-else
-  echo "==> WARNING: SKILL.md not found at $SKILL_SRC, skipping skill install."
-fi
+}
+
+install_skill "clawteam (core)" "$CORE_SKILL_SRC" "$CORE_SKILL_DIR"
+install_skill "clawteam-files" "$FILES_SKILL_SRC" "$FILES_SKILL_DIR"
 
 # 4b. Install OpenClaw Plugin (clawteam-auto-tracker) via official CLI
 if [ -d "$PLUGIN_SRC" ]; then
@@ -306,7 +316,7 @@ NEEDS_UPDATE=false
 
 if [ ! -f "$OPENCLAW_CONFIG" ]; then
   NEEDS_UPDATE=true
-elif ! grep -q '"clawteam"' "$OPENCLAW_CONFIG" 2>/dev/null; then
+elif ! grep -q '"clawteam"' "$OPENCLAW_CONFIG" 2>/dev/null || ! grep -q '"clawteam-files"' "$OPENCLAW_CONFIG" 2>/dev/null; then
   NEEDS_UPDATE=true
 else
   CURRENT_URL=$(grep -oE 'http://[^"]+' "$OPENCLAW_CONFIG" | grep -E ':[0-9]+$' | head -1)
@@ -341,6 +351,7 @@ if [ "$NEEDS_UPDATE" = true ]; then
       const env = { CLAWTEAM_API_URL: apiUrl };
       if (apiKey) env.CLAWTEAM_API_KEY = apiKey;
       cfg.skills.entries.clawteam = { enabled: true, env };
+      cfg.skills.entries['clawteam-files'] = { enabled: true, env };
       if (!cfg.plugins) cfg.plugins = {};
       if (!cfg.plugins.allow) cfg.plugins.allow = [];
       if (!cfg.plugins.allow.includes('clawteam-auto-tracker')) cfg.plugins.allow.push('clawteam-auto-tracker');
@@ -351,7 +362,7 @@ if [ "$NEEDS_UPDATE" = true ]; then
       if (!cfg.plugins.load.paths.includes(pluginSrc)) cfg.plugins.load.paths.push(pluginSrc);
       fs.writeFileSync(p, JSON.stringify(cfg, null, 2) + '\n');
     "
-    echo "    Merged clawteam into existing $OPENCLAW_CONFIG"
+    echo "    Merged clawteam + clawteam-files into existing $OPENCLAW_CONFIG"
   else
     # Build env JSON with optional API Key
     if [ -n "$API_KEY_VAL" ]; then
@@ -364,6 +375,12 @@ if [ "$NEEDS_UPDATE" = true ]; then
   "skills": {
     "entries": {
       "clawteam": {
+        "enabled": true,
+        "env": {
+          $ENV_JSON
+        }
+      },
+      "clawteam-files": {
         "enabled": true,
         "env": {
           $ENV_JSON
@@ -401,7 +418,8 @@ if [ "$SETUP_ONLY" = true ]; then
   echo ""
   echo "    ~/.clawteam/config.yaml    → Gateway config (API URL set)"
   echo "    ~/.openclaw/openclaw.json  → OpenClaw skill config (auto-synced)"
-  echo "    ~/.openclaw/skills/clawteam/SKILL.md → Skill definition (installed)"
+  echo "    ~/.openclaw/skills/clawteam/SKILL.md → Core skill (installed)"
+  echo "    ~/.openclaw/skills/clawteam-files/SKILL.md → Files skill (installed)"
   echo "    ~/.openclaw/extensions/clawteam-auto-tracker/ → Plugin (installed)"
   echo ""
   echo "==> Next steps:"
@@ -443,7 +461,8 @@ echo "    Configuration OK"
 echo ""
 echo "    ~/.clawteam/config.yaml    → Gateway config (API URL + Key)"
 echo "    ~/.openclaw/openclaw.json  → OpenClaw skill config (auto-synced)"
-echo "    ~/.openclaw/skills/clawteam/SKILL.md → Skill definition (auto-synced)"
+echo "    ~/.openclaw/skills/clawteam/SKILL.md → Core skill (auto-synced)"
+echo "    ~/.openclaw/skills/clawteam-files/SKILL.md → Files skill (auto-synced)"
 echo "    ~/.openclaw/extensions/clawteam-auto-tracker/ → Plugin (auto-synced)"
 
 # ── Step 7: Clean up old processes ──

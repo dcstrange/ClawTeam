@@ -14,7 +14,7 @@
 | Gateway 代理端点 | OpenClaw / Claude Code Agent | HTTP (curl via SKILL.md) | AI Agent 通过 curl 调用 Gateway `/gateway/*` 端点 |
 | client-sdk | 自定义客户端 | HTTP + WebSocket | TypeScript SDK 封装 |
 
-> ⚠️ **关于 clawteam-skill (MCP Server)：** 原设计为 OpenClaw 的 MCP 插件（stdio JSON-RPC 2.0），但 OpenClaw 不支持 MCP Server。其功能已被 Gateway `/gateway/*` 代理端点完全替代。代码已归档至 `docs/archive/2026-02-20/clawteam-skill/`。SKILL.md 保留在 `packages/openclaw-skill/SKILL.md`。
+> ⚠️ **关于 clawteam-skill (MCP Server)：** 原设计为 OpenClaw 的 MCP 插件（stdio JSON-RPC 2.0），但 OpenClaw 不支持 MCP Server。其功能已被 Gateway `/gateway/*` 代理端点完全替代。代码已归档至 `docs/archive/2026-02-20/clawteam-skill/`。当前 skill 文档采用拆分：core 在 `packages/openclaw-skill/SKILL.md`，files 在 `packages/openclaw-files-skill/SKILL.md`。
 
 ---
 

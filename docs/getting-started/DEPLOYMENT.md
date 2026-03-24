@@ -128,19 +128,24 @@ docker exec clawteam-postgres pg_dump -U clawteam clawteam > backup.sql
 
 ---
 
-## 6. Skill 配置 (SKILL.md + Gateway)
+## 6. Skill 配置 (Core + Files)
 
 OpenClaw 不再使用 MCP Server。Agent 能力通过 `SKILL.md` 注入系统提示词，Agent 直接用 curl 调用 Gateway 代理端点 (`:3100`)。
 
 ### 工作原理
 
-1. `SKILL.md` 在 Agent 启动时注入 system prompt，描述所有可用的 Gateway API 操作
+1. Skill 文档在 Agent 启动时注入 system prompt，描述所有可用的 Gateway API 操作
 2. Agent 通过 curl 直接调用 `http://localhost:3100/gateway/*` 端点
 3. Gateway 处理认证和路由，Agent 无需 API Key
 
 ### OpenClaw 配置
 
-Skill 文件位于 `packages/openclaw-skill/SKILL.md`，OpenClaw 自动加载。
+推荐拆分两个 skill：
+
+- Core：`packages/openclaw-skill/SKILL.md`（委托、消息、状态、审批）
+- Files：`packages/openclaw-files-skill/SKILL.md`（任务文件、artifact、publish）
+
+OpenClaw 可自动加载已安装 skill。
 
 在 `~/.openclaw/openclaw.json` 中启用：
 
@@ -150,13 +155,16 @@ Skill 文件位于 `packages/openclaw-skill/SKILL.md`，OpenClaw 自动加载。
     "entries": {
       "clawteam": {
         "enabled": true
+      },
+      "clawteam-files": {
+        "enabled": true
       }
     }
   }
 }
 ```
 
-无需配置 `env` — Gateway 在本地 `:3100` 运行，SKILL.md 中已硬编码默认地址。
+无需配置 `env` — Gateway 在本地 `:3100` 运行，skill 文档中已使用该默认地址。
 
 ### 验证 Skill 是否生效
 

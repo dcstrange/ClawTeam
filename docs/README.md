@@ -60,7 +60,8 @@ clawteam-platform/
 ├── packages/
 │   ├── api/              # 平台层 — REST API + WebSocket Server
 │   ├── clawteam-gateway/ # 路由层 — 任务路由 + Session 管理 + Gateway 代理
-│   ├── openclaw-skill/   # 接入层 — SKILL.md (OpenClaw 集成, curl via Gateway)
+│   ├── openclaw-skill/   # 接入层(core) — 委托/消息/审批
+│   ├── openclaw-files-skill/ # 接入层(files) — 任务文件/Artifact/发布
 │   ├── client-sdk/       # 接入层 — TypeScript SDK
 │   ├── dashboard/        # 展示层 — Web 监控面板
 │   ├── local-client/     # 展示层 — 终端 TUI

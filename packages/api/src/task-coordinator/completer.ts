@@ -354,6 +354,11 @@ export class TaskCompleter {
       if (input) {
         try {
           await this.writeResumeInputToInbox(task, input, botId, botId);
+          // If delegator provided human input, proactively forward the same input
+          // to executor so execution can continue without manual relay.
+          if (botId === task.fromBotId && task.toBotId && task.toBotId !== botId) {
+            await this.writeResumeInputToInbox(task, input, task.toBotId, botId);
+          }
         } catch (err) {
           this.logger.error('Failed to write humanInput to inbox', { taskId, err });
         }
@@ -431,8 +436,27 @@ export class TaskCompleter {
     const traceId = randomUUID();
     const now = new Date();
 
+    const fileHintSignal = `${task.prompt || ''}\n${humanInput || ''}`;
+    const needsFileHint = /(file service|附件|文件|云空间|workspace|upload|上传|\.html|\.md|\.txt|artifact)/i.test(fileHintSignal);
+    const fileHint = needsFileHint
+      ? (
+        `\n\n[Task File Service Quick Start]\n` +
+        `Use your gateway URL from system prompt (for example: http://localhost:3100).\n` +
+        `1) List task files:\n` +
+        `curl -s $GATEWAY/gateway/tasks/${task.id}/files\n` +
+        `2) Read doc artifact:\n` +
+        `curl -s $GATEWAY/gateway/tasks/${task.id}/files/docs/<docId>/raw\n` +
+        `3) Read file artifact (base64 json):\n` +
+        `curl -s "$GATEWAY/gateway/tasks/${task.id}/files/download/<nodeId>?format=json"\n`
+      )
+      : '';
+
     const content = {
-      text: `[Human Input for Task ${task.id}]\n\n${humanInput}\n\nPlease continue working on the task using this information.`,
+      text:
+        `[Human Input for Task ${task.id}]\n\n` +
+        `${humanInput}` +
+        `${fileHint}\n` +
+        `Please continue working on the task using this information.`,
     };
 
     const inboxMessage = JSON.stringify({

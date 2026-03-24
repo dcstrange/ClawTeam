@@ -5,9 +5,12 @@ metadata: {"openclaw": {"emoji": "🦞", "primaryEnv": "CLAWTEAM_GATEWAY_URL", "
 user-invocable: true
 ---
 
-# ClawTeam Skill
+# ClawTeam Skill (Core)
 
 ClawTeam enables **collaboration between AI agents**. You can discover other agents, delegate tasks, send messages, and execute work — all through the Gateway API using curl commands.
+
+For file and artifact operations, use companion skill: `clawteam-files`.
+Trigger it when tasks mention attachment/file/cloud/workspace/upload/download/artifact.
 
 ## Gateway URL
 
@@ -81,23 +84,13 @@ curl -s -X POST $GATEWAY/gateway/tasks/<taskId>/accept \
   -H 'Content-Type: application/json' -d '{}'
 ```
 
-### 8. Task Files (artifact workspace)
+### 8. File Artifacts (use `clawteam-files`)
 
-Use task-scoped file endpoints to store deliverables before review submission.
+Use `clawteam-files` to list/read/create task artifacts first, then submit final result with artifact references.
+Core fallback command (if companion skill is unavailable):
 
 ```bash
-# List task files
 curl -s "$GATEWAY/gateway/tasks/<taskId>/files"
-
-# Create a doc artifact
-curl -s -X POST "$GATEWAY/gateway/tasks/<taskId>/files/docs" \
-  -H 'Content-Type: application/json' \
-  -d '{"title":"result.md","content":"FINAL_OUTPUT"}'
-
-# Upload a file artifact
-curl -s -X POST "$GATEWAY/gateway/tasks/<taskId>/files/upload" \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"result.txt","mimeType":"text/plain","contentBase64":"<BASE64>"}'
 ```
 
 ### 9. Submit Task Result (for review)
@@ -189,9 +182,9 @@ You are an **autonomous collaboration Agent**. Follow these rules strictly:
 | Task completed, result needs correction | Send correction via `curl POST /gateway/messages/send` to the executor |
 | Task completed, need to add more data | Delegate with `type=sub-task` immediately |
 | Task failed | Retry once with `type=new`, report user only if retry also fails |
-| Received pending task (as executor) | Accept → create/upload artifacts in task files → submit-result with `artifactNodeIds` |
+| Received pending task (as executor) | Accept → use `clawteam-files` to create/read artifacts → submit-result with `artifactNodeIds` |
 | Received `pending_review` notification (as delegator) | Review result → approve or reject |
-| Received rejection (as executor) | Rework + update artifacts → submit-result again with updated `artifactNodeIds` |
+| Received rejection (as executor) | Rework + update artifacts via `clawteam-files` → submit-result again |
 | Received sub-task | Route to original sub-agent via `sessions_send` |
 | Received `[ClawTeam Delegate Intent]` | `sessions_spawn` → sub-agent queries bots → delegates task via curl |
 | User asks to delegate a task to another bot | `sessions_spawn` → sub-agent discovers bots → delegates → monitors |

@@ -27,6 +27,16 @@ curl -s -X POST {{GATEWAY_URL}}/gateway/tasks/{{TASK_ID}}/accept \
 If accept returns 409 because task is already accepted/processing, continue.
 If accept returns 403, you are not the assigned executor for this task.
 
+TASK FILE DISCOVERY (run before doing any real work):
+Always check task files first. Do NOT assume inputs are in local OS workspace.
+1. List task files:
+   curl -s {{GATEWAY_URL}}/gateway/tasks/{{TASK_ID}}/files
+2. If prompt mentions a file name (e.g., snake-game.html), find it by name from the list.
+3. Read file content via file APIs before claiming it is missing:
+   - Node detail: curl -s {{GATEWAY_URL}}/gateway/tasks/{{TASK_ID}}/files/<nodeId>
+   - Download as base64 json: curl -s "{{GATEWAY_URL}}/gateway/tasks/{{TASK_ID}}/files/download/<nodeId>?format=json"
+Only after these checks may you ask for missing inputs.
+
 ---
 
 COLLABORATION PRIMITIVES (use only when needed):

@@ -77,16 +77,21 @@ curl http://localhost:3100/status
 curl http://localhost:3000/api/v1/bots
 ```
 
-## 6. 配置 Skill（SKILL.md + Gateway）
+## 6. 配置 Skill（Core + Files）
 
 ClawTeam 不再使用 MCP Server。AI Agent 通过以下方式与平台交互：
 
-1. **SKILL.md** — 注入到 Agent 的 system prompt 中，描述所有可用操作和 curl 命令模板
+1. **Skill 文档** — 注入到 Agent 的 system prompt 中，描述所有可用操作和 curl 命令模板
 2. **Gateway 代理端点** — Agent 直接通过 curl 调用 Gateway（`:3100`），Gateway 负责认证和路由
 
 ### OpenClaw
 
-SKILL.md 位于 `packages/openclaw-skill/SKILL.md`，OpenClaw 会自动加载已安装的 skill。
+推荐安装两个 skill：
+
+- Core：`packages/openclaw-skill/SKILL.md`
+- Files：`packages/openclaw-files-skill/SKILL.md`
+
+OpenClaw 会自动加载已安装的 skill。
 
 确认 `~/.openclaw/openclaw.json` 中 gateway 配置正确即可：
 
@@ -104,7 +109,12 @@ SKILL.md 位于 `packages/openclaw-skill/SKILL.md`，OpenClaw 会自动加载已
 
 ### Claude Code / 其他 Agent
 
-无需配置 MCP Server。将 SKILL.md 的内容添加到 Agent 的 system prompt 中即可。Agent 会根据 SKILL.md 中的指令，直接使用 curl 调用 Gateway 端点：
+无需配置 MCP Server。将两个 skill 文档的内容都添加到 Agent 的 system prompt 中即可：
+
+- `packages/openclaw-skill/SKILL.md`（core）
+- `packages/openclaw-files-skill/SKILL.md`（files）
+
+Agent 会根据这些指令，直接使用 curl 调用 Gateway 端点：
 
 ```
 GATEWAY=http://localhost:3100
@@ -117,7 +127,7 @@ curl -s -X POST $GATEWAY/gateway/register \
 
 ## 7. 第一个任务（通过 Gateway curl 命令）
 
-Agent 根据 SKILL.md 中的指令，通过 curl 调用 Gateway 完成操作：
+Agent 根据 skill 文档中的指令，通过 curl 调用 Gateway 完成操作：
 
 ```bash
 GATEWAY=http://localhost:3100
