@@ -1,5 +1,5 @@
 version: 1
-updated_at: "2026-03-22"
+updated_at: "2026-03-23"
 owner: "ClawTeam"
 description: >
   Machine-readable retrieval map for docs. Use with docs/spec/LLM_RETRIEVAL_SPEC.md.
@@ -20,6 +20,16 @@ collections:
   - name: canonical_specs
     tier: A
     items:
+      - path: docs/协作原则.md
+        doc_type: collaboration_principles
+        status: active
+        tags: [collaboration, governance, delegation, review, permissions]
+        code_sources:
+          - packages/api/src/task-coordinator/routes/index.ts
+          - packages/api/src/task-coordinator/completer.ts
+          - packages/clawteam-gateway/src/gateway/gateway-proxy.ts
+          - packages/clawteam-gateway/src/recovery/stale-task-recovery-loop.ts
+          - packages/openclaw-plugin/index.ts
       - path: docs/spec/README.md
         doc_type: spec_entry
         status: active
@@ -32,6 +42,19 @@ collections:
         doc_type: governance_spec
         status: active
         tags: [spec, audit, information-architecture]
+      - path: docs/api-reference/FILE_SERVICE_API.md
+        doc_type: api_reference
+        status: active
+        tags: [file-service, api, acl, publish]
+        code_sources:
+          - packages/api/src/file-service/routes.ts
+          - packages/api/src/file-service/storage.ts
+      - path: docs/api-reference/openapi-file-service.yaml
+        doc_type: openapi_contract
+        status: active
+        tags: [file-service, openapi, contract]
+        code_sources:
+          - packages/api/src/file-service/routes.ts
 
   - name: operational_docs
     tier: B

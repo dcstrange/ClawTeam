@@ -25,6 +25,7 @@ import type {
 } from './types.js';
 import { analyzeTail, buildJsonlPath } from './jsonl-analyzer.js';
 import type { SessionTracker } from '../routing/session-tracker.js';
+import { buildOpenclawCliEnv } from '../utils/openclaw-env.js';
 
 /** On Windows, execFile needs shell:true to resolve .cmd shims */
 const IS_WINDOWS = os.platform() === 'win32';
@@ -152,6 +153,7 @@ export class SessionStatusResolver {
       const { stdout } = await execFileAsync(this.openclawBin, ['sessions', '--json'], {
         timeout: 10_000,
         shell: IS_WINDOWS,
+        env: buildOpenclawCliEnv(this.openclawHome),
       });
 
       const data = parseJsonOutput(stdout);

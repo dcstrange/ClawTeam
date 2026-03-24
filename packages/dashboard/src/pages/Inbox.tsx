@@ -12,10 +12,11 @@ interface InboxItemProps {
   task: Task;
   isExecutor: boolean;
   waitingReason: string;
+  currentBotId: string;
   onResume: () => void;
 }
 
-function InboxItem({ task, onResume, isExecutor, waitingReason }: InboxItemProps) {
+function InboxItem({ task, onResume, isExecutor, waitingReason, currentBotId }: InboxItemProps) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +26,7 @@ function InboxItem({ task, onResume, isExecutor, waitingReason }: InboxItemProps
     setLoading(true);
     setError(null);
     try {
-      await routerApi.resumeTask(task.id, input || undefined, task.fromBotId);
+      await routerApi.resumeTask(task.id, input || undefined, currentBotId);
       setInput('');
       onResume();
     } catch (err) {
@@ -157,6 +158,7 @@ export function Inbox() {
                 task={task}
                 isExecutor={task.toBotId === me?.currentBot?.id}
                 waitingReason={reason}
+                currentBotId={me?.currentBot?.id || task.fromBotId}
                 onResume={() => queryClient.invalidateQueries({ queryKey: ['tasks'] })}
               />
             </div>

@@ -187,12 +187,14 @@ export class MockTaskCoordinator implements ITaskCoordinator {
 
   async waitForInput(taskId: string, botId: string, reason: string, _targetBotId?: string): Promise<void> {
     const task = this.getTaskOrThrow(taskId);
-    if (task.toBotId !== botId) throw new UnauthorizedTaskError(taskId, botId);
-    if (task.status !== 'accepted' && task.status !== 'processing') {
-      throw new InvalidTaskStateError(taskId, task.status, ['accepted', 'processing']);
+    if (task.toBotId !== botId && task.fromBotId !== botId) throw new UnauthorizedTaskError(taskId, botId);
+    if (task.status !== 'pending' && task.status !== 'accepted' && task.status !== 'processing' && task.status !== 'waiting_for_input') {
+      throw new InvalidTaskStateError(taskId, task.status, ['pending', 'accepted', 'processing', 'waiting_for_input']);
     }
     task.status = 'waiting_for_input' as TaskStatus;
     task.result = { ...(task.result || {}), waitingReason: reason };
+    if (!task.acceptedAt) task.acceptedAt = new Date().toISOString();
+    if (!task.startedAt) task.startedAt = new Date().toISOString();
   }
 
   async resume(taskId: string, botId: string, input?: string, _targetBotId?: string): Promise<void> {

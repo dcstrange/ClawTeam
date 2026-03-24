@@ -15,7 +15,7 @@ export function TeamPage() {
   }, [bots, selectedBotId]);
 
   return (
-    <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div className="max-w-[1900px] mx-auto px-3 sm:px-4 lg:px-6 py-6">
       <div className="mb-6">
         <h2 className="text-2xl font-bold text-gray-900">Team Workspace</h2>
         <p className="text-gray-600 mt-1">
@@ -23,8 +23,8 @@ export function TeamPage() {
         </p>
       </div>
 
-      <div className="flex gap-0" style={{ minHeight: 'calc(100vh - 200px)' }}>
-        <div className="flex-1 min-w-0 bg-white rounded-xl p-6 card-gradient">
+      <div className="flex gap-0" style={{ minHeight: 'calc(100vh - 150px)' }}>
+        <div className="flex-1 min-w-0 bg-white rounded-xl p-3 lg:p-4 card-gradient">
           <TeamWorkspace onBotSelect={setSelectedBotId} selectedBotId={selectedBotId} />
         </div>
         {selectedBotId && (

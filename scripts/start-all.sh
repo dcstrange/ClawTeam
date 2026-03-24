@@ -144,11 +144,21 @@ start_all() {
 
   # 5. Run database migrations if needed
   if command -v psql >/dev/null 2>&1; then
-    local table_count=$(PGPASSWORD=clawteam_secret psql -h localhost -U clawteam -d clawteam -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'" 2>/dev/null || echo "0")
+    local pg_password="${POSTGRES_PASSWORD:-}"
+    if [ -z "$pg_password" ] && [ -f "$PROJECT_DIR/.env" ]; then
+      pg_password=$(grep -E '^POSTGRES_PASSWORD=' "$PROJECT_DIR/.env" | tail -n 1 | cut -d '=' -f2- || true)
+      pg_password="${pg_password#\"}"
+      pg_password="${pg_password%\"}"
+      pg_password="${pg_password#\'}"
+      pg_password="${pg_password%\'}"
+    fi
+    pg_password="${pg_password:-changeme}"
+
+    local table_count=$(PGPASSWORD="$pg_password" psql -h localhost -U clawteam -d clawteam -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'" 2>/dev/null || echo "0")
     if [ "$table_count" -lt 5 ] 2>/dev/null; then
       log "Running database migrations..."
       if [ -f "$PROJECT_DIR/DATABASE_SCHEMA.sql" ]; then
-        PGPASSWORD=clawteam_secret psql -h localhost -U clawteam -d clawteam -f "$PROJECT_DIR/DATABASE_SCHEMA.sql" > /dev/null 2>&1 && ok "Database schema applied" || warn "Database schema may already exist"
+        PGPASSWORD="$pg_password" psql -h localhost -U clawteam -d clawteam -f "$PROJECT_DIR/DATABASE_SCHEMA.sql" > /dev/null 2>&1 && ok "Database schema applied" || warn "Database schema may already exist"
       fi
     else
       ok "Database already has $table_count tables"

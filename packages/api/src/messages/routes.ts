@@ -48,6 +48,11 @@ interface MessageListQuery {
   page?: number;
 }
 
+interface MessageAllQuery {
+  taskId?: string;
+  limit?: number;
+}
+
 interface SendMessageBody {
   toBotId: string;
   type?: 'direct_message' | 'task_notification' | 'broadcast' | 'system' | 'delegate_intent';
@@ -282,16 +287,28 @@ export function createMessageRoutes(deps: MessageRoutesDeps): FastifyPluginAsync
     // ========================================================================
     // GET /all — 公开端点，供 Dashboard 使用（无认证）
     // ========================================================================
-    fastify.get(
+    fastify.get<{ Querystring: MessageAllQuery }>(
       '/all',
       async (request, reply) => {
         const traceId = randomUUID();
         try {
+          const limit = Math.min(Math.max(request.query.limit || 200, 1), 2000);
+          const taskId = request.query.taskId?.trim();
+          const params: unknown[] = [];
+          let whereClause = '';
+          if (taskId) {
+            whereClause = 'WHERE task_id = $1';
+            params.push(taskId);
+          }
+          params.push(limit);
+
           const result = await db.query(
             `SELECT id, from_bot_id, to_bot_id, type, content_type, content, priority, status, task_id, trace_id, created_at, read_at
              FROM messages
+             ${whereClause}
              ORDER BY created_at DESC
-             LIMIT 200`
+             LIMIT $${params.length}`,
+            params,
           );
 
           const messages = result.rows.map((row: any) => ({

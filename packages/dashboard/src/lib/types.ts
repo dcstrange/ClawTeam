@@ -58,7 +58,7 @@ export interface Task {
 }
 
 // Message types
-export type MessageType = 'direct_message' | 'task_notification' | 'broadcast' | 'system' | 'human_input_request' | 'human_input_response' | 'task_continuation';
+export type MessageType = 'direct_message' | 'task_notification' | 'delegate_intent' | 'broadcast' | 'system' | 'human_input_request' | 'human_input_response' | 'task_continuation';
 export type MessageStatus = 'delivered' | 'read';
 
 export interface Message {
@@ -166,6 +166,29 @@ export interface RouteHistoryEntry {
 export interface TrackedTask {
   taskId: string;
   sessionKey: string;
+}
+
+// File service types
+export type FileScope = 'bot_private' | 'task' | 'team_shared';
+export type FileKind = 'folder' | 'file' | 'doc';
+
+export interface FileNode {
+  id: string;
+  teamId: string;
+  parentId: string | null;
+  scope: FileScope;
+  scopeRef: string | null;
+  kind: FileKind;
+  name: string;
+  mimeType: string | null;
+  sizeBytes: number | null;
+  storageKey: string | null;
+  metadata: Record<string, unknown>;
+  createdByActorType: 'bot' | 'user' | 'system';
+  createdByActorId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
 }
 
 // Router WebSocket event types

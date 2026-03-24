@@ -11,6 +11,10 @@
 
 import Fastify, { FastifyInstance } from 'fastify';
 import fastifyCors from '@fastify/cors';
+import { existsSync } from 'fs';
+import { readFile } from 'fs/promises';
+import { dirname, resolve } from 'path';
+import { fileURLToPath } from 'url';
 
 import { getConfig, AppConfig } from './common/config';
 import { getDatabase, DatabasePool, closeDatabase } from './common/db';
@@ -26,6 +30,7 @@ import { createTaskRoutes } from './task-coordinator/routes';
 import { PrimitiveService, IPrimitiveService } from './primitives';
 import { createMessageRoutes } from './messages';
 import { createPrimitiveRoutes } from './primitives/routes';
+import { createFileRoutes } from './file-service';
 
 /**
  * 应用上下文 - 包含所有核心服务实例
@@ -39,6 +44,59 @@ export interface AppContext {
   messageBus: IMessageBus;
   taskCoordinator: ITaskCoordinator;
   primitiveService: IPrimitiveService;
+}
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+function resolveFileServiceOpenApiPath(): string | null {
+  const candidates = [
+    resolve(process.cwd(), 'docs/api-reference/openapi-file-service.yaml'),
+    resolve(process.cwd(), '../../docs/api-reference/openapi-file-service.yaml'),
+    resolve(__dirname, '../../../docs/api-reference/openapi-file-service.yaml'),
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+function renderSwaggerDocsHtml(fileServiceSpecUrl: string): string {
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ClawTeam API Docs</title>
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+  <style>
+    body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
+    .topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 16px; border-bottom: 1px solid #e5e7eb; background: #fff;
+    }
+    .topbar h1 { margin: 0; font-size: 14px; font-weight: 600; color: #111827; }
+    .topbar a { color: #1d4ed8; text-decoration: none; font-size: 12px; }
+    #swagger-ui { max-width: 1200px; margin: 0 auto; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <h1>ClawTeam API Docs</h1>
+    <a href="${fileServiceSpecUrl}" target="_blank" rel="noreferrer">Open file-service OpenAPI YAML</a>
+  </div>
+  <div id="swagger-ui"></div>
+  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+  <script>
+    window.ui = SwaggerUIBundle({
+      url: "${fileServiceSpecUrl}",
+      dom_id: '#swagger-ui',
+      deepLinking: true,
+      displayRequestDuration: true
+    });
+  </script>
+</body>
+</html>`;
 }
 
 /**
@@ -125,10 +183,18 @@ export async function createServer(): Promise<{ server: FastifyInstance; context
     },
   });
 
+  const corsOriginRaw = process.env.CORS_ORIGIN?.trim();
+  const corsOrigin =
+    !corsOriginRaw || corsOriginRaw === '*'
+      ? true
+      : (corsOriginRaw.includes(',')
+        ? corsOriginRaw.split(',').map((s) => s.trim()).filter(Boolean)
+        : corsOriginRaw);
+
   // 注册 CORS
   // @ts-expect-error - fastify/cors types mismatch with fastify 4.x
   await server.register(fastifyCors, {
-    origin: true, // 允许所有来源，生产环境应配置具体域名
+    origin: corsOrigin,
     credentials: true,
   });
 
@@ -211,6 +277,45 @@ export async function createServer(): Promise<{ server: FastifyInstance; context
     });
   });
 
+  const fileServiceOpenApiPath = resolveFileServiceOpenApiPath();
+
+  // OpenAPI spec route (file service)
+  server.get('/api/v1/openapi/file-service.yaml', async (_request, reply) => {
+    if (!fileServiceOpenApiPath) {
+      return reply.status(404).send({
+        success: false,
+        error: {
+          code: 'OPENAPI_SPEC_NOT_FOUND',
+          message: 'openapi-file-service.yaml not found in workspace',
+        },
+      });
+    }
+    const content = await readFile(fileServiceOpenApiPath, 'utf8');
+    reply
+      .header('cache-control', 'public, max-age=60')
+      .type('application/yaml; charset=utf-8');
+    return reply.send(content);
+  });
+
+  // Swagger docs site
+  server.get('/docs', async (_request, reply) => {
+    const html = renderSwaggerDocsHtml('/api/v1/openapi/file-service.yaml');
+    return reply.type('text/html; charset=utf-8').send(html);
+  });
+
+  // API docs index
+  server.get('/api/v1', async () => ({
+    name: 'ClawTeam API docs index',
+    swaggerUi: '/docs',
+    openapi: {
+      fileService: '/api/v1/openapi/file-service.yaml',
+    },
+    notes: [
+      'Markdown docs are in workspace: docs/api-reference/FILE_SERVICE_API.md',
+      'Markdown docs are in workspace: docs/api-reference/REST_API.md',
+    ],
+  }));
+
   // 注册 API 路由
   await server.register(
     async (fastify) => {
@@ -224,6 +329,9 @@ export async function createServer(): Promise<{ server: FastifyInstance; context
       // Message 收件箱路由
       await fastify.register(createMessageRoutes({ db, redis, registry, userRepo }), { prefix: '/messages' });
 
+      // File Service 路由
+      await fastify.register(createFileRoutes({ db, registry, userRepo }), { prefix: '/files' });
+
       // Primitive 元数据路由
       await fastify.register(createPrimitiveRoutes({ primitiveService }), { prefix: '/primitives' });
     },
@@ -235,11 +343,13 @@ export async function createServer(): Promise<{ server: FastifyInstance; context
     return {
       name: 'ClawTeam Platform API',
       version: '1.0.0',
-      docs: '/api/v1',
+      docs: '/docs',
       health: '/health',
       websocket: '/ws',
+      openapi: '/api/v1/openapi/file-service.yaml',
       endpoints: {
         tasks: '/api/v1/tasks',
+        files: '/api/v1/files',
         messages: '/api/v1/messages',
         primitives: '/api/v1/primitives',
         bots: '/api/v1/bots',

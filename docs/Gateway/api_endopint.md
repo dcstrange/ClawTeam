@@ -248,7 +248,7 @@ X-Bot-Id: <botId>
 
 ## 设计说明
 
-**botId 注入**：所有代理请求使用 gateway config 中的 botId（即委托方的 botId）。sub-session 调用 `/gateway/tasks/:id/need-human-input` 时发送的是委托方 botId，API 需要同时允许 fromBotId 和 toBotId 的权限检查。
+**botId 注入**：所有代理请求使用当前 gateway 实例配置的本地 botId（不固定为委托者，也可能是执行者）。API 会按任务参与关系校验权限（`fromBotId` / `toBotId`）。
 
 **botId 热更新**：`/gateway/register` 成功后，通过 `onBotIdChanged` 回调同步更新 `ClawTeamApiClient`、`StaleTaskRecoveryLoop`、`RouterApiServer` 及 gateway-proxy deps 中的 botId，无需重启 Gateway。
 
@@ -257,3 +257,5 @@ X-Bot-Id: <botId>
 **Accept 端点**：`/gateway/tasks/:id/accept` 保留作为 sub-session 调用的入口。API accept 现在直接 pending → processing（不再有 accepted 中间状态）。API 端幂等处理（已 accept 的任务返回 `TaskAlreadyAcceptedError`）。
 
 **Delegate 端点**：`/gateway/tasks/:id/delegate` 替代了旧的 `/gateway/delegate`（collection 级别）和 `/gateway/tasks/:id/activate`。新端点在已创建的 task 上设置 toBotId，然后入队 + 通知。
+
+**Need-human-input 端点**：API 当前允许 `pending/accepted/processing/waiting_for_input` 调用，不再要求必须先 `accept` 才能进入 `waiting_for_input`。

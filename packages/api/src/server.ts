@@ -36,7 +36,7 @@ async function main(): Promise<void> {
   server.log.info(`ClawTeam Platform API running at ${address}`);
   server.log.info(`Health check: ${address}/health`);
   server.log.info(`WebSocket: ${address.replace('http', 'ws')}/ws`);
-  server.log.info(`API docs: ${address}/api/v1`);
+  server.log.info(`API docs: ${address}/docs`);
 }
 
 main().catch((err) => {

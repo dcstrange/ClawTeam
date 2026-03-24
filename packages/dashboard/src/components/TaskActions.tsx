@@ -10,19 +10,16 @@ interface TaskActionsProps {
 }
 
 export function TaskActions({ task }: TaskActionsProps) {
-  const [confirmAction, setConfirmAction] = useState<'cancel' | 'retry' | 'nudge' | 'continue' | 'approve' | 'reject' | null>(null);
+  const [confirmAction, setConfirmAction] = useState<'cancel' | 'retry' | 'nudge' | 'continue' | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [continuePrompt, setContinuePrompt] = useState('');
-  const [rejectReason, setRejectReason] = useState('');
   const queryClient = useQueryClient();
 
   const canCancel = ['pending', 'accepted', 'processing', 'waiting_for_input', 'pending_review'].includes(task.status);
   const canRetry = ['failed', 'timeout', 'cancelled'].includes(task.status);
   const canNudge = ['accepted', 'processing'].includes(task.status);
   const canContinue = ['completed', 'failed', 'timeout'].includes(task.status);
-  const canApprove = task.status === 'pending_review';
-  const canReject = task.status === 'pending_review';
 
   async function handleConfirm() {
     setLoading(true);
@@ -77,23 +74,6 @@ export function TaskActions({ task }: TaskActionsProps) {
           setContinuePrompt('');
           break;
         }
-        case 'approve': {
-          const result = await routerApi.approveTask(task.id);
-          if (!result.success) {
-            setError(`Approve failed: ${(result as any).error?.message || 'unknown error'}`);
-            return;
-          }
-          break;
-        }
-        case 'reject': {
-          const result = await routerApi.rejectTask(task.id, rejectReason || 'Rejected from dashboard');
-          if (!result.success) {
-            setError(`Reject failed: ${(result as any).error?.message || 'unknown error'}`);
-            return;
-          }
-          setRejectReason('');
-          break;
-        }
       }
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       queryClient.invalidateQueries({ queryKey: ['router-tracked-tasks'] });
@@ -130,18 +110,6 @@ export function TaskActions({ task }: TaskActionsProps) {
       description: `Continue task ${task.id.slice(0, 8)}... with new instructions?`,
       confirmLabel: 'Continue Task',
       confirmClassName: 'bg-green-600 hover:bg-green-700',
-    },
-    approve: {
-      title: 'Approve Task',
-      description: `Approve the submitted result for task ${task.id.slice(0, 8)}... (${task.capability})? This will mark the task as completed.`,
-      confirmLabel: 'Approve',
-      confirmClassName: 'bg-green-600 hover:bg-green-700',
-    },
-    reject: {
-      title: 'Reject Task',
-      description: `Reject the submitted result for task ${task.id.slice(0, 8)}... (${task.capability})? The executor will be asked to rework.`,
-      confirmLabel: 'Reject',
-      confirmClassName: 'bg-red-600 hover:bg-red-700',
     },
   };
 
@@ -180,22 +148,6 @@ export function TaskActions({ task }: TaskActionsProps) {
             Continue
           </button>
         )}
-        {canApprove && (
-          <button
-            onClick={(e) => { e.stopPropagation(); setConfirmAction('approve'); }}
-            className="px-3 py-1.5 text-xs font-medium text-green-700 bg-green-50 rounded-lg hover:bg-green-100"
-          >
-            Approve
-          </button>
-        )}
-        {canReject && (
-          <button
-            onClick={(e) => { e.stopPropagation(); setConfirmAction('reject'); }}
-            className="px-3 py-1.5 text-xs font-medium text-red-700 bg-red-50 rounded-lg hover:bg-red-100"
-          >
-            Reject
-          </button>
-        )}
       </div>
 
       {confirmAction && (
@@ -223,15 +175,6 @@ export function TaskActions({ task }: TaskActionsProps) {
               onChange={(e) => setContinuePrompt(e.target.value)}
               placeholder="Enter additional instructions..."
               className="mt-2 w-full px-3 py-2 text-sm bg-gray-50 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-400"
-              rows={3}
-            />
-          )}
-          {confirmAction === 'reject' && (
-            <textarea
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)}
-              placeholder="Reason for rejection (optional)..."
-              className="mt-2 w-full px-3 py-2 text-sm bg-gray-50 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-400"
               rows={3}
             />
           )}

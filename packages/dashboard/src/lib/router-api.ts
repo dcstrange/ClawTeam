@@ -88,31 +88,18 @@ export const routerApi = {
       },
     ),
 
-  resumeTask: (taskId: string, humanInput?: string, fromBotId?: string) =>
+  resumeTask: (taskId: string, humanInput?: string, callerBotId?: string) =>
     fetchJson<{ success: boolean }>(`/api/tasks/${taskId}/resume`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...getAuthHeaders(), ...(fromBotId ? { 'X-Bot-Id': fromBotId } : {}) },
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders(), ...(callerBotId ? { 'X-Bot-Id': callerBotId } : {}) },
       body: JSON.stringify(humanInput ? { input: humanInput } : {}),
     }),
 
-  continueTask: (taskId: string, prompt: string, fromBotId?: string) =>
+  continueTask: (taskId: string, prompt: string, callerBotId?: string) =>
     fetchJson<{ success: boolean; reason?: string }>(`/api/tasks/${taskId}/resume`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...getAuthHeaders(), ...(fromBotId ? { 'X-Bot-Id': fromBotId } : {}) },
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders(), ...(callerBotId ? { 'X-Bot-Id': callerBotId } : {}) },
       body: JSON.stringify({ input: prompt }),
     }),
 
-  approveTask: (taskId: string, result?: any) =>
-    fetchJson<{ success: boolean }>(`/api/tasks/all/${taskId}/approve`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(result ? { result } : {}),
-    }),
-
-  rejectTask: (taskId: string, reason?: string) =>
-    fetchJson<{ success: boolean }>(`/api/tasks/all/${taskId}/reject`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reason: reason || 'Rejected from dashboard' }),
-    }),
 };

@@ -14,8 +14,8 @@
     "test": "jest",
     "test:coverage": "jest --coverage",
     "lint": "eslint packages --ext .ts,.tsx",
-    "migrate:up": "npx ts-node packages/api/scripts/migrate.ts up",
-    "migrate:down": "npx ts-node packages/api/scripts/migrate.ts down",
+    "migrate:up": "npx tsx packages/api/scripts/migrate.ts up",
+    "migrate:down": "npx tsx packages/api/scripts/migrate.ts down",
     "migrate:create": "cd packages/api && npm run migrate:create",
     "test:integration": "jest --config jest.integration.config.js"
   },

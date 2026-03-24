@@ -99,16 +99,12 @@ function extractAndTrackSession(
     clawteamApiUrl?: string;
     clawteamApiKey?: string;
   },
-  defaultRole: 'sender' | 'executor' = 'executor',
 ): Record<string, any> {
   const { sessionKey, sessionKeyRole, ...clean } = body;
   if (!sessionKey || !taskId) return body;
-  const effectiveRole = sessionKeyRole === 'sender' || sessionKeyRole === 'executor'
-    ? sessionKeyRole
-    : defaultRole;
 
   deps.sessionTracker.track(taskId, sessionKey);
-  deps.logger.info({ taskId, sessionKey, role: effectiveRole }, 'Auto-tracked session via sessionKey in request body');
+  deps.logger.info({ taskId, sessionKey, role: sessionKeyRole }, 'Auto-tracked session via sessionKey in request body');
 
   // Best-effort persist to API server
   const botId = deps.clawteamBotId;
@@ -117,7 +113,7 @@ function extractAndTrackSession(
     proxyFetch(`${apiBase}/api/v1/tasks/${taskId}/track-session`, {
       method: 'POST',
       headers: authHeaders(deps.clawteamApiKey, botId),
-      body: JSON.stringify({ sessionKey, botId, role: effectiveRole }),
+      body: JSON.stringify({ sessionKey, botId, role: sessionKeyRole || 'executor' }),
     }).catch((err) => {
       deps.logger.warn({ taskId, error: (err as Error).message }, 'Auto-track persist to API failed');
     });
@@ -132,18 +128,14 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
   const key = deps.clawteamApiKey;
 
   /** Shorthand for extractAndTrackSession with gateway deps */
-  const autoTrack = (
-    body: Record<string, any>,
-    taskId: string,
-    defaultRole: 'sender' | 'executor' = 'executor',
-  ) =>
+  const autoTrack = (body: Record<string, any>, taskId: string) =>
     extractAndTrackSession(body, taskId, {
       sessionTracker: deps.sessionTracker,
       logger: log,
       clawteamBotId: deps.clawteamBotId,
       clawteamApiUrl: deps.clawteamApiUrl,
       clawteamApiKey: key,
-    }, defaultRole);
+    });
 
   // 1. POST /gateway/register — register bot using config API key
   server.post('/gateway/register', async (req: FastifyRequest, reply: FastifyReply) => {
@@ -262,31 +254,27 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
   // Called by the delegation sub-session to deliver the task to the executor.
   server.post<{ Params: { taskId: string } }>('/gateway/tasks/:taskId/delegate', async (req, reply) => {
     const { taskId } = req.params;
-    const rawBody = (req.body || {}) as Record<string, any>;
-    const {
-      sessionKey,
-      sessionKeyRole: _ignoredRole,
-      fromBotId: claimedFromBotId,
-      ...body
-    } = rawBody;
+    const body = autoTrack((req.body || {}) as Record<string, any>, taskId);
+    const localBotId = deps.clawteamBotId;
 
     if (!body.toBotId || typeof body.toBotId !== 'string') {
-      textReply(reply, formatErrorResponse('toBotId is required'), 400);
+      textReply(reply, formatErrorResponse('toBotId is required.'), 400);
       return;
     }
 
-    // Optional safety: if caller claims fromBotId in body, it must match local bot identity.
-    if (claimedFromBotId && deps.clawteamBotId && claimedFromBotId !== deps.clawteamBotId) {
-      log.warn(
-        { taskId, claimedFromBotId, localBotId: deps.clawteamBotId },
-        'Blocked delegate request due to fromBotId/local botId mismatch',
-      );
-      textReply(reply, formatErrorResponse(`fromBotId mismatch: expected ${deps.clawteamBotId}, got ${claimedFromBotId}`), 403);
+    // fromBotId, if provided by caller, must match local gateway bot identity.
+    if (localBotId && body.fromBotId && body.fromBotId !== localBotId) {
+      log.warn({ taskId, bodyFromBotId: body.fromBotId, localBotId }, 'Blocked delegate with mismatched fromBotId');
+      textReply(reply, formatErrorResponse(`fromBotId mismatch: expected ${localBotId}, got ${body.fromBotId}`), 403);
       return;
+    }
+    // Normalize sender identity for downstream API/audit logic.
+    if (localBotId) {
+      body.fromBotId = localBotId;
     }
 
     // Block self-delegation
-    if (deps.clawteamBotId && body.toBotId === deps.clawteamBotId) {
+    if (localBotId && body.toBotId === localBotId) {
       log.warn({ taskId, toBotId: body.toBotId }, 'Blocked self-delegation attempt');
       textReply(reply, formatErrorResponse('Self-delegation is not allowed. You cannot delegate a task to yourself. Pick a DIFFERENT bot.'), 400);
       return;
@@ -300,25 +288,8 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
       });
       if (!res.ok) { textReply(reply, formatErrorResponse(`Delegate failed (HTTP ${res.status}): ${typeof res.data === 'string' ? res.data : JSON.stringify(res.data)}`), res.status); return; }
 
-      const payload = unwrap(res.data);
-      const delegatedTaskId = payload?.taskId || taskId;
-      const delegationMode = payload?.delegationMode || (delegatedTaskId === taskId ? 'direct' : 'sub-task');
-
-      // Track sender session against the REAL delegated task ID.
-      // For executor sub-delegation this must bind to subTaskId (not parent taskId).
-      if (sessionKey) {
-        autoTrack({ sessionKey, sessionKeyRole: 'sender' }, delegatedTaskId, 'sender');
-      }
-
-      log.info(
-        { taskId, delegatedTaskId, parentTaskId: payload?.parentTaskId, toBotId: body.toBotId, delegationMode },
-        'Task delegated via /gateway/tasks/:taskId/delegate',
-      );
-      if (delegationMode === 'sub-task') {
-        textReply(reply, `Sub-task ${delegatedTaskId} (parent: ${taskId}) delegated to ${body.toBotId} (enqueued and notification sent).`);
-      } else {
-        textReply(reply, `Task ${delegatedTaskId} delegated to ${body.toBotId} (enqueued and notification sent).`);
-      }
+      log.info({ taskId, toBotId: body.toBotId }, 'Task delegated via /gateway/tasks/:taskId/delegate');
+      textReply(reply, `Task ${taskId} delegated to ${body.toBotId} (enqueued and notification sent).`);
     } catch (err) {
       textReply(reply, formatErrorResponse((err as Error).message), 502);
     }
@@ -451,6 +422,23 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
   server.post<{ Params: { taskId: string } }>('/gateway/tasks/:taskId/submit-result', async (req, reply) => {
     const { taskId } = req.params;
     const body = autoTrack((req.body || {}) as Record<string, any>, taskId);
+    const submitted = body.result;
+    const emptyObject = typeof submitted === 'object'
+      && submitted !== null
+      && !Array.isArray(submitted)
+      && Object.keys(submitted as Record<string, unknown>).length === 0;
+    const emptyString = typeof submitted === 'string' && submitted.trim().length === 0;
+    if (submitted === undefined || submitted === null || emptyObject || emptyString) {
+      textReply(
+        reply,
+        formatErrorResponse(
+          `submit-result requires a final deliverable in body.result. ` +
+          `Use DM or /need-human-input for intermediate progress/questions.`
+        ),
+        400,
+      );
+      return;
+    }
     try {
       const res = await proxyFetch(`${apiBase}/api/v1/tasks/${taskId}/submit-result`, {
         method: 'POST',
@@ -522,7 +510,128 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
         headers: authHeaders(key, deps.clawteamBotId),
         body: JSON.stringify(body),
       });
-      if (!res.ok) { textReply(reply, formatErrorResponse(`Wait failed (HTTP ${res.status})`), res.status); return; }
+      if (!res.ok) {
+        const apiError = (typeof res.data === 'object' && res.data?.error) ? res.data.error : null;
+        const currentStatus = apiError?.details?.currentStatus as string | undefined;
+        const errorMsg = typeof apiError?.message === 'string' ? apiError.message : '';
+
+        // Idempotent behavior: if the task is already waiting_for_input, treat as success.
+        if (res.status === 409 && currentStatus === 'waiting_for_input') {
+          textReply(reply, `Task ${taskId} is already waiting_for_input. Human input request is still pending.`);
+          return;
+        }
+
+        // Auto-correction for common conflict:
+        // executor submitted too early (pending_review), then delegator asks for human input.
+        // If caller is delegator, auto-reject back to processing and retry need-human-input.
+        if (res.status === 409 && currentStatus === 'pending_review') {
+          try {
+            const taskRes = await proxyFetch(`${apiBase}/api/v1/tasks/${taskId}`, {
+              headers: authHeaders(key, deps.clawteamBotId),
+            });
+            const task = taskRes.ok ? unwrap(taskRes.data) : null;
+            const fromBotId = (task?.fromBotId || task?.from_bot_id) as string | undefined;
+            const isDelegatorCaller = !!deps.clawteamBotId && !!fromBotId && deps.clawteamBotId === fromBotId;
+
+            if (!isDelegatorCaller) {
+              textReply(
+                reply,
+                formatErrorResponse(
+                  `Wait failed (HTTP 409): task is currently "pending_review". ` +
+                  `After submit-result, use DM for follow-up; only the delegator can reject and reopen execution.`
+                ),
+                409,
+              );
+              return;
+            }
+
+            const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+            const autoRejectReason = reason
+              ? `Auto-correction: delegator requested more info before final review (${reason})`
+              : 'Auto-correction: delegator requested more info before final review';
+            const rejectRes = await proxyFetch(`${apiBase}/api/v1/tasks/${taskId}/reject`, {
+              method: 'POST',
+              headers: authHeaders(key, deps.clawteamBotId),
+              body: JSON.stringify({ reason: autoRejectReason }),
+            });
+
+            if (!rejectRes.ok) {
+              const rejectError = (typeof rejectRes.data === 'object' && rejectRes.data?.error) ? rejectRes.data.error : null;
+              const rejectStatus = rejectError?.details?.currentStatus as string | undefined;
+              const rejectRecoverable = rejectRes.status === 409
+                && (rejectStatus === 'processing' || rejectStatus === 'waiting_for_input');
+              if (rejectRecoverable) {
+                log.info({ taskId, rejectStatus }, 'Auto-correction reject already applied by concurrent actor');
+              } else {
+              textReply(
+                reply,
+                formatErrorResponse(
+                  `Wait failed (HTTP 409): task is "pending_review", and auto-reject recovery failed (HTTP ${rejectRes.status}).`
+                ),
+                rejectRes.status,
+              );
+              return;
+              }
+            }
+
+            const retryRes = await proxyFetch(`${apiBase}/api/v1/tasks/${taskId}/need-human-input`, {
+              method: 'POST',
+              headers: authHeaders(key, deps.clawteamBotId),
+              body: JSON.stringify(body),
+            });
+
+            if (retryRes.ok) {
+              textReply(
+                reply,
+                `Task ${taskId} auto-corrected (pending_review -> processing -> waiting_for_input).`,
+              );
+              return;
+            }
+
+            const retryError = (typeof retryRes.data === 'object' && retryRes.data?.error) ? retryRes.data.error : null;
+            const retryStatus = retryError?.details?.currentStatus as string | undefined;
+            if (retryRes.status === 409 && retryStatus === 'waiting_for_input') {
+              textReply(reply, `Task ${taskId} is already waiting_for_input. Human input request is still pending.`);
+              return;
+            }
+
+            textReply(
+              reply,
+              formatErrorResponse(`Wait failed after auto-correction (HTTP ${retryRes.status})`),
+              retryRes.status,
+            );
+            return;
+          } catch (err) {
+            textReply(reply, formatErrorResponse((err as Error).message), 502);
+            return;
+          }
+        }
+
+        if (res.status === 409 && currentStatus === 'pending') {
+          textReply(
+            reply,
+            formatErrorResponse(
+              `Wait failed (HTTP 409): task is currently "pending". ` +
+              `The executor must accept the task first (POST /gateway/tasks/${taskId}/accept) before /need-human-input can transition it to waiting_for_input.`
+            ),
+            409,
+          );
+          return;
+        }
+
+        if (res.status === 409 && currentStatus) {
+          textReply(
+            reply,
+            formatErrorResponse(`Wait failed (HTTP 409): task is currently "${currentStatus}"`),
+            409,
+          );
+          return;
+        }
+
+        const suffix = errorMsg ? `: ${errorMsg}` : '';
+        textReply(reply, formatErrorResponse(`Wait failed (HTTP ${res.status})${suffix}`), res.status);
+        return;
+      }
       textReply(reply, `Task ${taskId} marked as waiting_for_input.`);
     } catch (err) {
       textReply(reply, formatErrorResponse((err as Error).message), 502);

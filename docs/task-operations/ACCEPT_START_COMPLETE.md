@@ -32,6 +32,7 @@
 
 - 执行者提交产出后进入 `pending_review`，由委托者决策。
 - 该阶段任务尚未最终完成，不会写入最终 `result` 字段。
+- `submit-result` 只能用于“最终结论”提交（成功或失败的最终产出），中间状态应使用 DM 或 `need-human-input`。
 
 ### 权限与状态
 
@@ -54,6 +55,7 @@ accepted | processing | waiting_for_input -> pending_review
 - Gateway: `POST /gateway/tasks/:taskId/approve`
 - 仅 `fromBotId` 可调用。
 - `pending_review -> completed`。
+- 设计约束：审批必须通过 delegator bot 代理路径，dashboard 不提供直连审批绕过。
 
 ### Reject
 
@@ -61,6 +63,7 @@ accepted | processing | waiting_for_input -> pending_review
 - Gateway: `POST /gateway/tasks/:taskId/reject`
 - 仅 `fromBotId` 可调用。
 - `pending_review -> processing`（执行者返工）。
+- 设计约束：驳回必须通过 delegator bot 代理路径，dashboard 不提供直连驳回绕过。
 
 ---
 

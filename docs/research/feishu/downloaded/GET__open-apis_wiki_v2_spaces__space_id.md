@@ -1,0 +1,79 @@
+# 获取知识空间信息
+
+此接口用于根据知识空间 ID 查询知识空间的信息，包括空间的类型、可见性、分享状态等。
+
+## 前提条件
+
+调用此接口前，请确保应用或用户为知识空间的成员或管理员。
+
+## 请求
+
+基本 | &nbsp;
+---|---
+HTTP URL | https://open.feishu.cn/open-apis/wiki/v2/spaces/:space_id
+HTTP Method | GET
+接口频率限制 | [100 次/分钟](https://open.feishu.cn/document/ukTMukTMukTM/uUzN04SN3QjL1cDN)
+支持的应用类型 | Custom App、Store App
+权限要求<br>**调用该 API 所需的权限。开启其中任意一项权限即可调用**<br>开启任一权限即可 | 查看知识空间信息(wiki:space:read)<br>查看、编辑和管理知识库(wiki:wiki)<br>查看知识库(wiki:wiki:readonly)
+
+### 请求头
+
+名称 | 类型 | 必填 | 描述
+---|---|---|---
+Authorization | string | 是 | `tenant_access_token`<br>或<br>`user_access_token`<br>**值格式**："Bearer `access_token`"<br>**示例值**："Bearer u-7f1bcd13fc57d46bac21793a18e560"<br>[了解更多：如何选择与获取 access token](https://open.feishu.cn/document/uAjLw4CM/ugTN1YjL4UTN24CO1UjN/trouble-shooting/how-to-choose-which-type-of-token-to-use)
+
+### 路径参数
+
+名称 | 类型 | 描述
+---|---|---
+space_id | string | 知识空间 ID。可通过以下两种方式获取。了解更多，参考[知识库概述](https://open.feishu.cn/document/ukTMukTMukTM/uUDN04SN0QjL1QDN/wiki-overview)。<br>- 调用 [获取知识空间列表](https://open.feishu.cn/document/ukTMukTMukTM/uUDN04SN0QjL1QDN/wiki-v2/space/list)获取<br>- 如果你是知识库管理员，可以进入知识库设置页面，复制地址栏的数字部分：https://sample.feishu.cn/wiki/settings/==6870403571079249922==<br>**示例值**："6870403571079249922"
+
+### 查询参数
+
+名称 | 类型 | 必填 | 描述
+---|---|---|---
+lang | string | 否 | 当查询**我的文档库**时，指定返回的文档库名称展示语言。<br>**示例值**：zh<br>**可选值有**：<br>- zh：简体中文<br>- id：印尼语<br>- de：德语<br>- en：英语<br>- es：西班牙语<br>- fr：法语<br>- it：意大利语<br>- pt：葡萄牙语<br>- vi：越南语<br>- ru：俄语<br>- hi：印地语<br>- th：泰语<br>- ko：韩语<br>- ja：日语<br>- zh-HK：繁体中文（中国香港）<br>- zh-TW：繁体中文（中国台湾）<br>**默认值**：`en`
+
+## 响应
+
+### 响应体
+
+名称 | 类型 | 描述
+---|---|---
+code | int | 错误码，非 0 表示失败
+msg | string | 错误描述
+data | \- | \-
+space | space | 知识空间
+name | string | 知识空间名称
+description | string | 知识空间描述
+space_id | string | 知识空间 ID
+space_type | string | 表示知识空间类型<br>**可选值有**：<br>- team：团队空间，归团队（多人）管理，可添加多个管理员<br>- person：个人空间（旧版，已下线），归个人管理。一人仅可拥有一个，无法添加其他管理员<br>- my_library：我的文档库，归个人管理。一人仅可拥有一个，无法添加其他管理员
+visibility | string | 表示知识空间可见性<br>**可选值有**：<br>- public：公开空间。租户所有用户可见，默认为成员权限。无法额外添加成员，但可以添加管理员<br>- private：私有空间。仅对知识空间管理员、成员可见，需要手动添加管理员、成员
+open_sharing | string | 表示知识空间的分享状态<br>**可选值有**：<br>- open：打开，即知识空间发布到互联网<br>- closed：关闭，即知识空间未发布到互联网
+
+### 响应体示例
+```json
+{
+    "code": 0,
+    "msg": "success",
+    "data": {
+        "space": {
+            "name": "知识空间",
+            "description": "知识空间描述",
+            "space_id": "1565676577122621"
+        }
+    }
+}
+```
+
+### 错误码
+
+HTTP状态码 | 错误码 | 描述 | 排查建议
+---|---|---|---
+400 | 131001 | rpc fail | 服务报错（下游 RPC 调用失败），请稍后重试，或者拿响应体的header头里的x-tt-logid咨询[oncall](https://applink.feishu.cn/client/helpdesk/open?id=6626260912531570952)定位。
+400 | 131002 | param err | 通常为传参有误，例如数据类型不匹配。请查看响应体 msg 字段中的具体接口报错信息，报错不明确时请咨询[oncall](https://applink.feishu.cn/client/helpdesk/open?id=6626260912531570952)。
+400 | 131004 | invalid user | 非法用户（如未登陆或用户 ID 校验失败）。请咨询[oncall](https://applink.feishu.cn/client/helpdesk/open?id=6626260912531570952)。
+400 | 131005 | not found | 未找到相关数据，例如id不存在。相关报错信息参考：<br>- member not found：用户不是知识空间成员（管理员），无法删除。<br>- identity not found: userid不存在，无法添加/删除成员。<br>- space not found：知识空间不存在<br>- node not found：节点不存在<br>- document not found：文档不存在<br>报错不明确时请咨询[oncall](https://applink.feishu.cn/client/helpdesk/open?id=6626260912531570952)。
+400 | 131006 | permission denied | 权限拒绝，相关报错信息参考：<br>- wiki space permission denied：知识库权限鉴权不通过，需要成为知识空间管理员（成员）。<br>- node permission denied：文档节点权限鉴权不通过，读操作需要具备节点阅读权限，写操作（创建、移动等）则需要具备节点容器编辑权限。<br>- no source parent node permission：需要具备原父节点的容器编辑权限。<br>- no destination parent node permission：需要具备目标父节点的容器编辑权限，若移动到知识空间下，则需要成为知识空间管理员（成员）。<br>**注意**：应用访问或操作文档时，除了申请 API 权限，还需授权具体文档资源的阅读、编辑或管理权限。<br>请参考以下步骤操作： <br>1. **当遇到资源权限不足的情况**：参阅[如何给应用授权访问知识库文档资源](https://open.feishu.cn/document/ukTMukTMukTM/uUDN04SN0QjL1QDN/wiki-v2/wiki-qa#a40ad4ca)。<br>2. **也可直接将应用添加为知识库管理员（成员）**：参阅[如何将应用添加为知识库管理员（成员）](https://open.feishu.cn/document/ukTMukTMukTM/uUDN04SN0QjL1QDN/wiki-v2/wiki-qa#b5da330b)。<br>3. **若无法解决或报错信息不明确时**：请咨询[技术支持](https://applink.feishu.cn/client/helpdesk/open?id=6626260912531570952)。
+400 | 131007 | internal err | 服务内部错误，请勿重试，拿返回值的header头里的x-tt-logid咨询[oncall](https://applink.feishu.cn/client/helpdesk/open?id=6626260912531570952)定位。
+

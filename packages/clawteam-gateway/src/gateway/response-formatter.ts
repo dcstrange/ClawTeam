@@ -145,7 +145,7 @@ export function formatErrorResponse(message: string): string {
 }
 
 export function formatSubmitResultResponse(taskId: string): string {
-  return `Task result submitted for review.\n\ntaskId: ${taskId}\nStatus: pending_review`;
+  return `Task result submitted for review and forwarded to delegator bot.\n\ntaskId: ${taskId}\nStatus: pending_review`;
 }
 
 export function formatApproveResponse(taskId: string): string {

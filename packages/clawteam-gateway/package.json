@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@fastify/websocket": "^11.0.0",
+    "dotenv": "^17.2.3",
     "fastify": "^5.0.0",
     "pino": "^9.0.0",
     "pino-pretty": "^13.0.0",

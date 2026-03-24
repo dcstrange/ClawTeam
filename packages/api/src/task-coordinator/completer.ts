@@ -216,7 +216,10 @@ export class TaskCompleter {
     if (task.toBotId !== botId && task.fromBotId !== botId) {
       throw new UnauthorizedTaskError(taskId, botId);
     }
-    const validStates = ['accepted', 'processing', 'waiting_for_input'];
+    // Also allow pending:
+    // - Delegator may need to request human input before executor explicitly accepts.
+    // - Executor may call need-human-input immediately after receiving assignment.
+    const validStates = ['pending', 'accepted', 'processing', 'waiting_for_input'];
     if (!validStates.includes(task.status)) {
       throw new InvalidTaskStateError(taskId, task.status, validStates);
     }
@@ -243,14 +246,28 @@ export class TaskCompleter {
       waitingReason: reason,
       waitingRequestedBy: requestedBy,
     };
+    const wasPending = task.status === 'pending';
     const updateResult = await this.db.query(
-      `UPDATE tasks SET status = 'waiting_for_input', result = $1, updated_at = NOW()
-       WHERE id = $2 AND status IN ('accepted', 'processing', 'waiting_for_input')`,
+      `UPDATE tasks
+       SET status = 'waiting_for_input',
+           result = $1,
+           accepted_at = CASE WHEN status = 'pending' THEN COALESCE(accepted_at, NOW()) ELSE accepted_at END,
+           started_at = CASE WHEN status = 'pending' THEN COALESCE(started_at, NOW()) ELSE started_at END,
+           updated_at = NOW()
+       WHERE id = $2 AND status IN ('pending', 'accepted', 'processing', 'waiting_for_input')`,
       [JSON.stringify(result), taskId],
     );
 
     if (updateResult.rowCount === 0) {
       throw new InvalidTaskStateError(taskId, task.status, validStates);
+    }
+
+    // pending -> waiting_for_input is a task-start transition:
+    // remove from pending queue and add to processing set for timeout tracking.
+    if (wasPending) {
+      await this.removeFromQueue(taskId, task.toBotId);
+      const timeoutAt = Date.now() + task.timeoutSeconds * 1000;
+      await this.redis.zadd(REDIS_KEYS.PROCESSING_SET, timeoutAt.toString(), taskId);
     }
 
     await this.updateCacheStatus(taskId, 'waiting_for_input');
@@ -336,7 +353,7 @@ export class TaskCompleter {
 
       if (input) {
         try {
-          await this.writeResumeInputToInbox(task, input, botId);
+          await this.writeResumeInputToInbox(task, input, botId, botId);
         } catch (err) {
           this.logger.error('Failed to write humanInput to inbox', { taskId, err });
         }
@@ -373,10 +390,10 @@ export class TaskCompleter {
 
       const messageTarget = targetBotId || botId;
       try {
-        await this.writeContinueToInbox(task, input || task.prompt || '', messageTarget);
-      } catch (err) {
-        this.logger.error('Failed to write continue message to inbox', { taskId, messageTarget, err });
-      }
+          await this.writeContinueToInbox(task, input || task.prompt || '', messageTarget, botId);
+        } catch (err) {
+          this.logger.error('Failed to write continue message to inbox', { taskId, messageTarget, err });
+        }
 
       // Write task_continuation message for Activity Tree
       try {
@@ -404,7 +421,12 @@ export class TaskCompleter {
   /**
    * Write a direct_message with humanInput to the requesting bot's inbox.
    */
-  private async writeResumeInputToInbox(task: Task, humanInput: string, targetBotId: string): Promise<void> {
+  private async writeResumeInputToInbox(
+    task: Task,
+    humanInput: string,
+    targetBotId: string,
+    senderBotId: string,
+  ): Promise<void> {
     const messageId = randomUUID();
     const traceId = randomUUID();
     const now = new Date();
@@ -415,7 +437,7 @@ export class TaskCompleter {
 
     const inboxMessage = JSON.stringify({
       messageId,
-      fromBotId: task.fromBotId,
+      fromBotId: senderBotId,
       toBotId: targetBotId,
       type: 'direct_message',
       contentType: 'text',
@@ -431,16 +453,21 @@ export class TaskCompleter {
     await this.db.query(
       `INSERT INTO messages (id, from_bot_id, to_bot_id, type, content_type, content, priority, status, task_id, trace_id, created_at)
        VALUES ($1, $2, $3, 'direct_message', 'text', $4, 'high', 'delivered', $5, $6, $7)`,
-      [messageId, task.fromBotId, targetBotId, JSON.stringify(content), task.id, traceId, now],
+      [messageId, senderBotId, targetBotId, JSON.stringify(content), task.id, traceId, now],
     );
 
-    this.logger.info('Wrote humanInput to requesting bot inbox', { taskId: task.id, targetBotId });
+    this.logger.info('Wrote humanInput to requesting bot inbox', { taskId: task.id, senderBotId, targetBotId });
   }
 
   /**
    * Write a direct_message with continuation instructions to the target bot's inbox.
    */
-  private async writeContinueToInbox(task: Task, prompt: string, targetBotId: string): Promise<void> {
+  private async writeContinueToInbox(
+    task: Task,
+    prompt: string,
+    targetBotId: string,
+    senderBotId: string,
+  ): Promise<void> {
     const messageId = randomUUID();
     const traceId = randomUUID();
     const now = new Date();
@@ -451,7 +478,7 @@ export class TaskCompleter {
 
     const inboxMessage = JSON.stringify({
       messageId,
-      fromBotId: task.fromBotId,
+      fromBotId: senderBotId,
       toBotId: targetBotId,
       type: 'direct_message',
       contentType: 'text',
@@ -467,10 +494,117 @@ export class TaskCompleter {
     await this.db.query(
       `INSERT INTO messages (id, from_bot_id, to_bot_id, type, content_type, content, priority, status, task_id, trace_id, created_at)
        VALUES ($1, $2, $3, 'direct_message', 'text', $4, 'high', 'delivered', $5, $6, $7)`,
-      [messageId, task.fromBotId, targetBotId, JSON.stringify(content), task.id, traceId, now],
+      [messageId, senderBotId, targetBotId, JSON.stringify(content), task.id, traceId, now],
     );
 
-    this.logger.info('Wrote continuation message to target bot inbox', { taskId: task.id, targetBotId });
+    this.logger.info('Wrote continuation message to target bot inbox', { taskId: task.id, senderBotId, targetBotId });
+  }
+
+  /**
+   * Write a direct_message to delegator inbox when executor submits final result.
+   * This is consumed by gateway poller and routed to delegator session for review.
+   */
+  private async writePendingReviewToInbox(task: Task, submittedResult: any, submittedAt: Date): Promise<void> {
+    const messageId = randomUUID();
+    const traceId = randomUUID();
+
+    const content = {
+      text:
+        `[Task Pending Review]\n\n` +
+        `Task ${task.id} has entered pending_review.\n` +
+        `The executor submitted a final result. Review must be done via your delegator bot session (approve/reject).`,
+      submittedResult,
+      submittedAt: submittedAt.toISOString(),
+    };
+
+    const inboxMessage = JSON.stringify({
+      messageId,
+      fromBotId: task.toBotId,
+      toBotId: task.fromBotId,
+      type: 'direct_message',
+      contentType: 'text',
+      content,
+      priority: 'high',
+      taskId: task.id,
+      traceId,
+      timestamp: submittedAt.toISOString(),
+    });
+
+    await this.redis.lpush(`clawteam:inbox:${task.fromBotId}:high`, inboxMessage);
+
+    await this.db.query(
+      `INSERT INTO messages (id, from_bot_id, to_bot_id, type, content_type, content, priority, status, task_id, trace_id, created_at)
+       VALUES ($1, $2, $3, 'direct_message', 'text', $4, 'high', 'delivered', $5, $6, $7)`,
+      [messageId, task.toBotId, task.fromBotId, JSON.stringify(content), task.id, traceId, submittedAt],
+    );
+
+    this.logger.info('Wrote pending_review notification to delegator inbox', {
+      taskId: task.id,
+      fromBotId: task.toBotId,
+      toBotId: task.fromBotId,
+    });
+  }
+
+  /**
+   * Write review decision event to executor inbox for full activity history:
+   * - approved: delegator accepted submitted result
+   * - rejected: delegator requested rework with reason
+   */
+  private async writeReviewDecisionToInbox(
+    task: Task,
+    decision: { action: 'approved' | 'rejected'; reason?: string; result?: any },
+    reviewedAt: Date,
+  ): Promise<void> {
+    const messageId = randomUUID();
+    const traceId = randomUUID();
+
+    const content =
+      decision.action === 'approved'
+        ? {
+          text:
+            `[Task Review Approved]\n\n` +
+            `Task ${task.id} was approved by delegator ${task.fromBotId}.`,
+          reviewAction: 'approved',
+          approvedResult: decision.result ?? null,
+          reviewedAt: reviewedAt.toISOString(),
+        }
+        : {
+          text:
+            `[Task Review Rejected]\n\n` +
+            `Task ${task.id} was rejected by delegator ${task.fromBotId}.\n` +
+            `Reason: ${decision.reason || 'Rejected'}`,
+          reviewAction: 'rejected',
+          rejectionReason: decision.reason || 'Rejected',
+          reviewedAt: reviewedAt.toISOString(),
+        };
+
+    const inboxMessage = JSON.stringify({
+      messageId,
+      fromBotId: task.fromBotId,
+      toBotId: task.toBotId,
+      type: 'direct_message',
+      contentType: 'text',
+      content,
+      priority: 'high',
+      taskId: task.id,
+      traceId,
+      timestamp: reviewedAt.toISOString(),
+    });
+
+    await this.redis.lpush(`clawteam:inbox:${task.toBotId}:high`, inboxMessage);
+
+    await this.db.query(
+      `INSERT INTO messages (id, from_bot_id, to_bot_id, type, content_type, content, priority, status, task_id, trace_id, created_at)
+       VALUES ($1, $2, $3, 'direct_message', 'text', $4, 'high', 'delivered', $5, $6, $7)`,
+      [messageId, task.fromBotId, task.toBotId, JSON.stringify(content), task.id, traceId, reviewedAt],
+    );
+
+    this.logger.info('Wrote review decision notification to executor inbox', {
+      taskId: task.id,
+      action: decision.action,
+      fromBotId: task.fromBotId,
+      toBotId: task.toBotId,
+    });
   }
 
   async submitResult(taskId: string, result: any, botId: string): Promise<void> {
@@ -504,6 +638,13 @@ export class TaskCompleter {
 
     // Keep in processing ZSET (timeout still applies until approved)
     await this.updateCacheStatus(taskId, 'pending_review');
+
+    // Ensure delegator receives this in inbox so gateway can route into delegator session.
+    try {
+      await this.writePendingReviewToInbox(task, result, now);
+    } catch (err) {
+      this.logger.error('Failed to write pending_review message to delegator inbox', { taskId, err });
+    }
 
     // Notify delegator
     await this.safePublish('task_pending_review', {
@@ -550,6 +691,13 @@ export class TaskCompleter {
     await this.redis.zrem(REDIS_KEYS.PROCESSING_SET, taskId);
     await this.redis.del(`${REDIS_KEYS.TASK_CACHE}:${taskId}`);
 
+    // Persist review decision event in message history for Activity Tree.
+    try {
+      await this.writeReviewDecisionToInbox(task, { action: 'approved', result: finalResult }, now);
+    } catch (err) {
+      this.logger.error('Failed to write approve decision message', { taskId, err });
+    }
+
     // Notify executor
     await this.safePublish('task_completed', {
       taskId,
@@ -583,6 +731,13 @@ export class TaskCompleter {
     }
 
     await this.updateCacheStatus(taskId, 'processing');
+
+    // Persist review decision event in message history for Activity Tree.
+    try {
+      await this.writeReviewDecisionToInbox(task, { action: 'rejected', reason }, new Date());
+    } catch (err) {
+      this.logger.error('Failed to write reject decision message', { taskId, err });
+    }
 
     // Notify executor with rejection details
     await this.safePublish('task_rejected', {

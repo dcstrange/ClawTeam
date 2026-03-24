@@ -78,3 +78,9 @@ processing --timeout------------------> timeout
 - 子委托必须绑定父任务：`parentTaskId = 当前任务 ID`。
 - 会话追踪使用 `sessionKey + role(sender/executor)`，并和真实 taskId 绑定（含子任务 taskId）。
 - `fromBotId` 校验采用“调用方本地 bot 身份必须匹配”策略（plugin + gateway 双重保护）。
+
+## 人类介入代理原则（ClawTeam 设计原则）
+
+- Dashboard 上所有“需要人类介入”的任务消息，必须来自**当前用户自己的 bot**。
+- 跨用户 bot 的结果/问题不能直接落到对方人类；必须先经过该人类的 delegator bot 代理转发。
+- `submit-result` 后进入 `pending_review` 的审批链路必须由 delegator bot 执行（`approve/reject`），不允许 dashboard 直连绕过。
