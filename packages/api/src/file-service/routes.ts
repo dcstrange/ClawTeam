@@ -231,6 +231,29 @@ function mapNode(row: FileNodeRow): Record<string, unknown> {
 async function resolveActorContext(db: DatabasePool, request: FastifyRequest): Promise<ActorContext> {
   const authUser = (request as FastifyRequest & { authenticatedUser?: { id: string } }).authenticatedUser;
   if (authUser?.id) {
+    // Prefer explicit bot context from dashboard when present:
+    // user API key + X-Bot-Id should resolve team via the selected owned bot.
+    const preferredBotId = getFallbackBotId(request);
+    if (preferredBotId) {
+      const preferredBotRes = await db.query<{ id: string; team_id: string }>(
+        `SELECT id, team_id
+           FROM bots
+          WHERE id = $1
+            AND user_id = $2
+          LIMIT 1`,
+        [preferredBotId, authUser.id],
+      );
+      if ((preferredBotRes.rowCount ?? 0) > 0) {
+        return {
+          actorType: 'user',
+          actorId: authUser.id,
+          userId: authUser.id,
+          teamId: preferredBotRes.rows[0].team_id,
+        };
+      }
+      throw new AuthorizationError('Selected bot is not owned by authenticated user');
+    }
+
     const teamRes = await db.query<{ team_id: string }>(
       `SELECT team_id
        FROM team_members
@@ -239,14 +262,32 @@ async function resolveActorContext(db: DatabasePool, request: FastifyRequest): P
        LIMIT 1`,
       [authUser.id],
     );
-    if ((teamRes.rowCount ?? 0) === 0) {
+    if ((teamRes.rowCount ?? 0) > 0) {
+      return {
+        actorType: 'user',
+        actorId: authUser.id,
+        userId: authUser.id,
+        teamId: teamRes.rows[0].team_id,
+      };
+    }
+
+    // Backward compatibility: legacy users may own bots without team_members rows.
+    const ownedBotRes = await db.query<{ team_id: string }>(
+      `SELECT team_id
+         FROM bots
+        WHERE user_id = $1
+        ORDER BY last_seen DESC NULLS LAST, created_at DESC
+        LIMIT 1`,
+      [authUser.id],
+    );
+    if ((ownedBotRes.rowCount ?? 0) === 0) {
       throw new AuthorizationError('User is not a member of any team');
     }
     return {
       actorType: 'user',
       actorId: authUser.id,
       userId: authUser.id,
-      teamId: teamRes.rows[0].team_id,
+      teamId: ownedBotRes.rows[0].team_id,
     };
   }
 
