@@ -2,8 +2,10 @@ import { useState, useEffect } from 'react';
 import { TeamWorkspace } from '@/components/workspace/TeamWorkspace';
 import { BotSidebar } from '@/components/workspace/BotSidebar';
 import { useBots } from '@/hooks/useBots';
+import { useI18n } from '@/lib/i18n';
 
 export function TeamPage() {
+  const { tr, term } = useI18n();
   const { data: bots = [] } = useBots();
   const [selectedBotId, setSelectedBotId] = useState<string | null>(null);
 
@@ -17,9 +19,9 @@ export function TeamPage() {
   return (
     <div className="max-w-[1900px] mx-auto px-3 sm:px-4 lg:px-6 py-6">
       <div className="mb-6">
-        <h2 className="text-2xl font-bold text-gray-900">Team Workspace</h2>
+        <h2 className="text-2xl font-bold text-gray-900">{tr('团队工作区', 'Team Workspace')}</h2>
         <p className="text-gray-600 mt-1">
-          Overview of bot collaboration and active task connections
+          {tr(`${term('bot')}协作与活跃${term('task')}连接概览`, `Overview of ${term('bot')} collaboration and active ${term('task')} links`)}
         </p>
       </div>
 

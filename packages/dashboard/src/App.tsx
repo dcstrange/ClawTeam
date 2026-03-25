@@ -16,6 +16,7 @@ import { TeamPage } from './pages/TeamPage';
 import { CloudFilesPage } from './pages/CloudFiles';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useRouterWebSocket } from './hooks/useRouterWebSocket';
+import { I18nProvider } from './lib/i18n';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -56,11 +57,13 @@ function AppContent() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <IdentityProvider>
-          <AppContent />
-        </IdentityProvider>
-      </BrowserRouter>
+      <I18nProvider>
+        <BrowserRouter>
+          <IdentityProvider>
+            <AppContent />
+          </IdentityProvider>
+        </BrowserRouter>
+      </I18nProvider>
     </QueryClientProvider>
   );
 }

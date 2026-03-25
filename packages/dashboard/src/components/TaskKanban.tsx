@@ -2,23 +2,24 @@ import { useNavigate } from 'react-router-dom';
 import { StatusBadge } from '@/components/StatusBadge';
 import { TaskActions } from '@/components/TaskActions';
 import { TaskFlow } from '@/components/BotAvatar';
-import type { Task, TaskStatus } from '@/lib/types';
+import type { Task } from '@/lib/types';
+import { useI18n } from '@/lib/i18n';
 
 interface TaskKanbanProps {
   tasks: Task[];
 }
 
-const columns: { label: string; statuses: TaskStatus[]; dotColor: string; bgTint: string }[] = [
-  { label: 'Pending', statuses: ['pending', 'accepted'], dotColor: 'bg-blue-400', bgTint: 'kanban-tint-blue' },
-  { label: 'Processing', statuses: ['processing'], dotColor: 'bg-purple-500', bgTint: 'kanban-tint-purple' },
-  { label: 'Waiting for Input', statuses: ['waiting_for_input'], dotColor: 'bg-amber-500', bgTint: 'kanban-tint-amber' },
-  { label: 'Pending Review', statuses: ['pending_review'], dotColor: 'bg-indigo-500', bgTint: 'kanban-tint-indigo' },
-  { label: 'Completed', statuses: ['completed'], dotColor: 'bg-green-500', bgTint: 'kanban-tint-green' },
-  { label: 'Failed', statuses: ['failed', 'timeout', 'cancelled'], dotColor: 'bg-red-500', bgTint: 'kanban-tint-red' },
-];
-
 export function TaskKanban({ tasks }: TaskKanbanProps) {
+  const { tr } = useI18n();
   const navigate = useNavigate();
+  const columns: Array<{ label: string; statuses: Task['status'][]; dotColor: string; bgTint: string }> = [
+    { label: tr('待处理', 'Pending'), statuses: ['pending', 'accepted'], dotColor: 'bg-blue-400', bgTint: 'kanban-tint-blue' },
+    { label: tr('处理中', 'Processing'), statuses: ['processing'], dotColor: 'bg-purple-500', bgTint: 'kanban-tint-purple' },
+    { label: tr('等待输入', 'Waiting'), statuses: ['waiting_for_input'], dotColor: 'bg-amber-500', bgTint: 'kanban-tint-amber' },
+    { label: tr('待审核', 'Pending Review'), statuses: ['pending_review'], dotColor: 'bg-indigo-500', bgTint: 'kanban-tint-indigo' },
+    { label: tr('已完成', 'Completed'), statuses: ['completed'], dotColor: 'bg-green-500', bgTint: 'kanban-tint-green' },
+    { label: tr('失败', 'Failed'), statuses: ['failed', 'timeout', 'cancelled'], dotColor: 'bg-red-500', bgTint: 'kanban-tint-red' },
+  ];
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
@@ -35,7 +36,7 @@ export function TaskKanban({ tasks }: TaskKanbanProps) {
             </div>
             <div className="space-y-2 max-h-[calc(100vh-280px)] overflow-y-auto">
               {colTasks.length === 0 ? (
-                <p className="text-xs text-gray-400 text-center py-4">No tasks</p>
+                <p className="text-xs text-gray-400 text-center py-4">{tr('暂无任务', 'No tasks')}</p>
               ) : (
                 colTasks.map(task => (
                   <div

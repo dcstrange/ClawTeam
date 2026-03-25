@@ -14,6 +14,7 @@ import { TaskFilesPanel } from '@/components/TaskFilesPanel';
 import { formatDate, formatDuration } from '@/lib/utils';
 import { routerApi } from '@/lib/router-api';
 import { useIdentity } from '@/lib/identity';
+import { useI18n, trGlobal as trG, termGlobal as termG } from '@/lib/i18n';
 
 type ActivityExportNode =
   | { kind: 'task'; createdAt: string; task: TaskLike; children: ActivityExportNode[] }
@@ -182,8 +183,8 @@ function buildTaskStatusTimeline(task: any, messages: any[]): TaskStatusStep[] {
   const steps: TaskStatusStep[] = [
     {
       key: 'pending',
-      label: 'Pending',
-      description: 'Task created and waiting to be handled.',
+      label: trG('待处理', 'Pending'),
+      description: trG('任务已创建，等待处理。', 'Task created and waiting to be processed.'),
       reached: true,
       current: status === 'pending',
       tone: status === 'pending' ? 'active' : 'neutral',
@@ -191,8 +192,8 @@ function buildTaskStatusTimeline(task: any, messages: any[]): TaskStatusStep[] {
     },
     {
       key: 'accepted',
-      label: 'Accepted',
-      description: 'Executor accepted ownership of the task.',
+      label: trG('已接收', 'Accepted'),
+      description: trG('执行方已接收该任务。', 'Executor has accepted this task.'),
       reached: Boolean(task.acceptedAt) || status !== 'pending',
       current: status === 'accepted',
       tone: 'active',
@@ -200,8 +201,8 @@ function buildTaskStatusTimeline(task: any, messages: any[]): TaskStatusStep[] {
     },
     {
       key: 'processing',
-      label: 'Processing',
-      description: 'Bots are actively working on task execution.',
+      label: trG('处理中', 'Processing'),
+      description: trG('机器人正在执行任务。', 'Bot is processing the task.'),
       reached: Boolean(task.startedAt) || processingStatuses.has(status),
       current: status === 'processing',
       tone: 'active',
@@ -212,8 +213,8 @@ function buildTaskStatusTimeline(task: any, messages: any[]): TaskStatusStep[] {
   if (hasWaiting) {
     steps.push({
       key: 'waiting_for_input',
-      label: 'Waiting for Input',
-      description: 'Task is blocked until human clarification is provided.',
+      label: trG('等待输入', 'Waiting for Input'),
+      description: trG('任务被阻塞，等待人工补充信息。', 'Task is blocked and waiting for human input.'),
       reached: hasWaiting,
       current: status === 'waiting_for_input',
       tone: 'waiting',
@@ -224,8 +225,8 @@ function buildTaskStatusTimeline(task: any, messages: any[]): TaskStatusStep[] {
   if (hasPendingReview) {
     steps.push({
       key: 'pending_review',
-      label: 'Pending Review',
-      description: 'Executor submitted a result and delegator review is required.',
+      label: trG('待审核', 'Pending Review'),
+      description: trG('执行方已提交结果，等待委托方审核。', 'Executor submitted results and is waiting for review from delegator.'),
       reached: hasPendingReview,
       current: status === 'pending_review',
       tone: 'review',
@@ -236,23 +237,23 @@ function buildTaskStatusTimeline(task: any, messages: any[]): TaskStatusStep[] {
   if (terminalStatuses.has(status)) {
     const terminalMeta: Record<string, { label: string; description: string; tone: TaskStatusStep['tone'] }> = {
       completed: {
-        label: 'Completed',
-        description: 'Task finished and approved by delegator.',
+        label: trG('已完成', 'Completed'),
+        description: trG('任务已完成并通过委托方审批。', 'Task completed and approved by delegator.'),
         tone: 'success',
       },
       failed: {
-        label: 'Failed',
-        description: 'Task ended with an execution failure.',
+        label: trG('失败', 'Failed'),
+        description: trG('任务执行失败。', 'Task execution failed.'),
         tone: 'error',
       },
       timeout: {
-        label: 'Timed Out',
-        description: 'Task exceeded timeout and was terminated.',
+        label: trG('超时', 'Timeout'),
+        description: trG('任务超过时限并被终止。', 'Task exceeded time limit and was terminated.'),
         tone: 'error',
       },
       cancelled: {
-        label: 'Cancelled',
-        description: 'Task was cancelled before completion.',
+        label: trG('已取消', 'Cancelled'),
+        description: trG('任务在完成前被取消。', 'Task was cancelled before completion.'),
         tone: 'error',
       },
     };
@@ -273,6 +274,7 @@ function buildTaskStatusTimeline(task: any, messages: any[]): TaskStatusStep[] {
 }
 
 export function TaskDetail() {
+  const { tr, term } = useI18n();
   const { taskId } = useParams<{ taskId: string }>();
   const navigate = useNavigate();
   const { data: tasks = [], isLoading } = useTasks();
@@ -315,17 +317,17 @@ export function TaskDetail() {
       const callerBotId = me?.currentBot?.id || rawTask.fromBotId;
       const result = await routerApi.continueTask(taskId, continuePrompt, callerBotId);
       if (!result.success) {
-        setContinueError(`Continue failed: ${result.reason || 'unknown error'}`);
+        setContinueError(`${tr('继续失败', 'Continue failed')}: ${result.reason || tr('未知错误', 'Unknown error')}`);
         return;
       }
       setContinuePrompt('');
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
     } catch (err) {
-      setContinueError(`Continue failed: ${(err as Error).message}`);
+      setContinueError(`${tr('继续失败', 'Continue failed')}: ${(err as Error).message}`);
     } finally {
       setContinueLoading(false);
     }
-  }, [taskId, rawTask, continuePrompt, queryClient, me?.currentBot?.id]);
+  }, [taskId, rawTask, continuePrompt, queryClient, me?.currentBot?.id, tr]);
 
   // Build bot lookup map for avatar enrichment
   const botMap = useMemo(() => {
@@ -437,9 +439,9 @@ export function TaskDetail() {
     return (
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="bg-yellow-50 rounded-xl p-6 text-center">
-          <p className="text-yellow-800">Task not found: {taskId}</p>
+          <p className="text-yellow-800">{tr(`未找到${term('task')}: ${taskId}`, `${term('task')} not found: ${taskId}`)}</p>
           <button onClick={() => navigate('/tasks')} className="mt-3 text-sm text-primary-600 hover:underline">
-            Back to tasks
+            {tr(`返回${term('task')}列表`, `Back to ${term('task')} list`)}
           </button>
         </div>
       </div>
@@ -454,13 +456,13 @@ export function TaskDetail() {
     <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8 glass-intensity-mid">
       {/* Back + Header */}
       <button onClick={() => navigate('/tasks')} className="text-sm text-gray-500 hover:text-gray-700 mb-4 inline-block">
-        &larr; Back to tasks
+        &larr; {tr(`返回${term('task')}列表`, `Back to ${term('task')} list`)}
       </button>
 
       <div className="flex items-start justify-between mb-6">
         <div>
           <div className="flex items-center gap-3 mb-2">
-            <h2 className="text-2xl font-bold text-gray-900">{task.title || task.prompt || task.capability || 'Task'}</h2>
+            <h2 className="text-2xl font-bold text-gray-900">{task.title || task.prompt || task.capability || term('task')}</h2>
             <StatusBadge status={task.status} />
             <StatusBadge status={task.priority} />
           </div>
@@ -474,8 +476,8 @@ export function TaskDetail() {
         <aside className="xl:sticky xl:top-24 self-start">
           <div className="space-y-6">
             <div className="bg-white rounded-xl p-6 card-gradient">
-              <h3 className="text-sm font-semibold text-gray-700 mb-1">Task Status Timeline</h3>
-              <p className="text-[11px] text-gray-500 mb-4">Latest status is shown first.</p>
+              <h3 className="text-sm font-semibold text-gray-700 mb-1">{tr(`${term('task')}状态时间线`, `${term('task')} Status Timeline`)}</h3>
+              <p className="text-[11px] text-gray-500 mb-4">{tr('最新状态优先显示。', 'Latest status appears first.')}</p>
               <div className="space-y-3">
                 {reversedTaskStatusTimeline.map((step, index) => {
                   const dotTone = !step.reached
@@ -503,7 +505,7 @@ export function TaskDetail() {
                           <p className="text-sm font-semibold text-gray-900">{step.label}</p>
                           {step.current && (
                             <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border border-primary-300 bg-primary-100 text-primary-700">
-                              CURRENT
+                              {tr('当前', 'Current')}
                             </span>
                           )}
                         </div>
@@ -515,7 +517,7 @@ export function TaskDetail() {
                 })}
               </div>
               {duration !== null && (
-                <p className="text-xs text-gray-500 mt-3">Duration: {formatDuration(duration)}</p>
+                <p className="text-xs text-gray-500 mt-3">{tr('耗时', 'Duration')}: {formatDuration(duration)}</p>
               )}
             </div>
 
@@ -524,10 +526,10 @@ export function TaskDetail() {
             <TaskParticipants task={task} allTasks={tasks} bots={bots} />
 
             <div className="bg-white rounded-xl p-4 card-gradient">
-              <h3 className="text-sm font-semibold text-gray-700 mb-3">From / To</h3>
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">{tr('来源 / 目标', 'Source / Target')}</h3>
               <div className="space-y-4">
                 <div>
-                  <h4 className="text-xs font-medium text-gray-500 uppercase mb-2">From</h4>
+                  <h4 className="text-xs font-medium text-gray-500 uppercase mb-2">{tr('来源', 'Source')}</h4>
                   <div className="flex items-center gap-3">
                     <BotAvatar name={task.fromBotName || task.fromBotId} id={task.fromBotId} avatarColor={task.fromAvatarColor} avatarUrl={task.fromAvatarUrl} size="lg" />
                     <div className="min-w-0">
@@ -535,14 +537,14 @@ export function TaskDetail() {
                       <p className="text-xs text-gray-500 font-mono mt-0.5 break-all">{task.fromBotId}</p>
                       {task.senderSessionKey && (
                         <p className="text-xs text-gray-500 mt-0.5">
-                          Session: <code className="font-mono text-gray-900 bg-gray-50 px-1 rounded break-all">{task.senderSessionKey}</code>
+                          {term('session')}: <code className="font-mono text-gray-900 bg-gray-50 px-1 rounded break-all">{task.senderSessionKey}</code>
                         </p>
                       )}
                     </div>
                   </div>
                 </div>
                 <div className="border-t border-gray-100 pt-4">
-                  <h4 className="text-xs font-medium text-gray-500 uppercase mb-2">To</h4>
+                  <h4 className="text-xs font-medium text-gray-500 uppercase mb-2">{tr('目标', 'Target')}</h4>
                   <div className="flex items-center gap-3">
                     <BotAvatar name={task.toBotName || task.toBotId} id={task.toBotId} avatarColor={task.toAvatarColor} avatarUrl={task.toAvatarUrl} size="lg" />
                     <div className="min-w-0">
@@ -550,7 +552,7 @@ export function TaskDetail() {
                       <p className="text-xs text-gray-500 font-mono mt-0.5 break-all">{task.toBotId}</p>
                       {task.executorSessionKey && (
                         <p className="text-xs text-gray-500 mt-0.5">
-                          Session: <code className="font-mono text-gray-900 bg-gray-50 px-1 rounded break-all">{task.executorSessionKey}</code>
+                          {term('session')}: <code className="font-mono text-gray-900 bg-gray-50 px-1 rounded break-all">{task.executorSessionKey}</code>
                         </p>
                       )}
                     </div>
@@ -561,7 +563,7 @@ export function TaskDetail() {
 
             {Object.keys(task.parameters || {}).length > 0 && (
               <div className="bg-white rounded-xl p-6 card-gradient">
-                <h3 className="text-sm font-semibold text-gray-700 mb-3">Parameters</h3>
+                <h3 className="text-sm font-semibold text-gray-700 mb-3">{tr('参数', 'Parameters')}</h3>
                 <pre className="bg-gray-50 rounded p-3 text-xs text-gray-900 overflow-x-auto max-h-48">
                   {JSON.stringify(task.parameters, null, 2)}
                 </pre>
@@ -573,14 +575,14 @@ export function TaskDetail() {
         <div className="space-y-6">
           <div className="bg-white rounded-xl p-6 card-gradient">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-gray-700">Message History</h3>
+              <h3 className="text-sm font-semibold text-gray-700">{tr('消息历史', 'Message History')}</h3>
               <button
                 type="button"
                 onClick={handleDownloadActivity}
                 disabled={!activityExport}
                 className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Download Task History
+                {tr(`下载${term('task')}历史`, `Download ${term('task')} history`)}
               </button>
             </div>
             <TaskTimeline
@@ -605,14 +607,14 @@ export function TaskDetail() {
             <div className="flex items-start gap-3">
               <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse mt-2" />
               <div className="flex-1">
-                <h3 className="text-sm font-semibold text-amber-800 mb-1">Waiting for Human Input</h3>
+                <h3 className="text-sm font-semibold text-amber-800 mb-1">{tr('等待人工输入', 'Waiting for Human Input')}</h3>
                 <p className="text-sm text-amber-900 mb-3">{myRequest.reason}</p>
                 <form onSubmit={handleResume} className="flex gap-2">
                   <input
                     type="text"
                     value={resumeInput}
                     onChange={(e) => setResumeInput(e.target.value)}
-                    placeholder="Type your reply..."
+                    placeholder={tr('输入你的回复...', 'Enter your reply...')}
                     className="flex-1 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-500 bg-amber-50 border border-amber-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400"
                     disabled={resumeLoading}
                   />
@@ -621,7 +623,7 @@ export function TaskDetail() {
                     disabled={resumeLoading}
                     className="px-4 py-2 text-sm font-medium text-white bg-amber-600 rounded-lg hover:bg-amber-700 disabled:opacity-50"
                   >
-                    {resumeLoading ? 'Sending...' : 'Send & Resume'}
+                    {resumeLoading ? tr('发送中...', 'Sending...') : tr('发送并恢复', 'Send & Resume')}
                   </button>
                 </form>
               </div>
@@ -636,26 +638,26 @@ export function TaskDetail() {
             <div className="flex items-start gap-3">
               <div className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse mt-2" />
               <div className="flex-1">
-                <h3 className="text-sm font-semibold text-indigo-800 mb-1">Pending Review</h3>
+                <h3 className="text-sm font-semibold text-indigo-800 mb-1">{tr('待审核', 'Pending Review')}</h3>
                 <p className="text-sm text-indigo-700 mb-3">
-                  The executor submitted a result. Review decisions must go through your delegator bot session (proxy-only), not direct dashboard approve/reject.
+                  {tr(`执行方已提交结果。审核决策必须通过你的委托${term('bot')}${term('session')}进行（仅代理），不能直接在仪表盘批准或拒绝。`, `Executor submitted results. Review decisions must go through your delegating ${term('bot')} ${term('session')} (proxy only), not directly approved/rejected in dashboard.`)}
                 </p>
                 {task.submittedResult !== undefined && task.submittedResult !== null && (
                   <div className="mb-3">
-                    <p className="text-xs font-medium text-indigo-600 mb-1">Submitted Result:</p>
+                    <p className="text-xs font-medium text-indigo-600 mb-1">{tr('提交结果', 'Submitted result')}:</p>
                     <pre className="bg-indigo-100 rounded p-3 text-xs text-gray-900 overflow-x-auto max-h-48 whitespace-pre-wrap break-words">
                       {typeof task.submittedResult === 'object' ? JSON.stringify(task.submittedResult, null, 2) : String(task.submittedResult)}
                     </pre>
                   </div>
                 )}
                 {task.submittedAt && (
-                  <p className="text-xs text-indigo-500 mb-3">Submitted at: {formatDate(task.submittedAt)}</p>
+                  <p className="text-xs text-indigo-500 mb-3">{tr('提交时间', 'Submitted at')}: {formatDate(task.submittedAt)}</p>
                 )}
                 {task.rejectionReason && (
-                  <p className="text-xs text-red-600 mb-3">Previous rejection: {task.rejectionReason}</p>
+                  <p className="text-xs text-red-600 mb-3">{tr('上次拒绝原因', 'Last rejection reason')}: {task.rejectionReason}</p>
                 )}
                 <p className="text-xs text-indigo-600">
-                  If rework is needed, tell your own bot to reject with reason. If accepted, tell your own bot to approve.
+                  {tr(`如果需要返工，请让你的${term('bot')}带理由拒绝；如果通过，请让你的${term('bot')}批准。`, `If rework is needed, ask your ${term('bot')} to reject with reason; if acceptable, ask your ${term('bot')} to approve.`)}
                 </p>
               </div>
             </div>
@@ -665,24 +667,24 @@ export function TaskDetail() {
         {/* Session State (from Router) */}
         {session && (
           <div className="bg-white rounded-xl p-6 card-gradient">
-            <h3 className="text-sm font-semibold text-gray-700 mb-3">Session State</h3>
+            <h3 className="text-sm font-semibold text-gray-700 mb-3">{tr(`${term('session')}状态`, `${term('session')} Status`)}</h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
               <div>
-                <span className="text-gray-500">State: </span>
+                <span className="text-gray-500">{tr('状态', 'Status')}: </span>
                 <StatusBadge status={session.sessionState} />
               </div>
               <div>
-                <span className="text-gray-500">Alive: </span>
+                <span className="text-gray-500">{tr('在线', 'Alive')}: </span>
                 <span className={session.details.alive ? 'text-green-600' : 'text-red-600'}>
-                  {session.details.alive ? 'Yes' : 'No'}
+                  {session.details.alive ? tr('是', 'Yes') : tr('否', 'No')}
                 </span>
               </div>
               <div>
-                <span className="text-gray-500">Age: </span>
+                <span className="text-gray-500">{tr('存活时长', 'Uptime')}: </span>
                 <span>{session.details.ageMs ? formatDuration(session.details.ageMs) : '—'}</span>
               </div>
               <div>
-                <span className="text-gray-500">Model: </span>
+                <span className="text-gray-500">{tr('模型', 'Model')}: </span>
                 <span>{session.details.jsonlAnalysis?.model || '—'}</span>
               </div>
             </div>
@@ -693,7 +695,7 @@ export function TaskDetail() {
         {task.result !== undefined && task.result !== null && (
           <div className="bg-white rounded-xl p-6 card-gradient">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-gray-700">Result</h3>
+              <h3 className="text-sm font-semibold text-gray-700">{tr('结果', 'Result')}</h3>
               <label className="inline-flex items-center gap-2 text-xs text-gray-600 select-none">
                 <input
                   type="checkbox"
@@ -701,7 +703,7 @@ export function TaskDetail() {
                   onChange={(e) => setWrapResult(e.target.checked)}
                   className="h-3.5 w-3.5 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
                 />
-                <span>Auto Wrap</span>
+                <span>{tr('自动换行', 'Wrap text')}</span>
               </label>
             </div>
             <pre
@@ -717,7 +719,7 @@ export function TaskDetail() {
         {/* Error */}
         {task.error && (
           <div className="bg-white rounded-xl p-6 card-gradient">
-            <h3 className="text-sm font-semibold text-red-700 mb-3">Error</h3>
+            <h3 className="text-sm font-semibold text-red-700 mb-3">{tr('错误', 'Error')}</h3>
             <pre className="bg-red-50 rounded p-3 text-xs text-red-800 overflow-x-auto max-h-48">
               {typeof task.error === 'object' ? JSON.stringify(task.error, null, 2) : String(task.error)}
             </pre>
@@ -730,13 +732,13 @@ export function TaskDetail() {
             <div className="flex items-start gap-3">
               <div className="w-2 h-2 rounded-full bg-green-400 mt-2" />
               <div className="flex-1">
-                <h3 className="text-sm font-semibold text-green-800 mb-1">Continue this task</h3>
-                <p className="text-sm text-green-700 mb-3">Provide new instructions to reopen and continue this task.</p>
+                <h3 className="text-sm font-semibold text-green-800 mb-1">{tr(`继续该${term('task')}`, `Continue this ${term('task')}`)}</h3>
+                <p className="text-sm text-green-700 mb-3">{tr(`提供新指令以重新打开并继续该${term('task')}。`, `Provide new instructions to reopen and continue this ${term('task')}.`)}</p>
                 <form onSubmit={handleContinue} className="space-y-2">
                   <textarea
                     value={continuePrompt}
                     onChange={(e) => setContinuePrompt(e.target.value)}
-                    placeholder="Enter additional instructions..."
+                    placeholder={tr('输入额外说明...', 'Add extra instructions...')}
                     className="w-full px-3 py-2 text-sm text-gray-900 placeholder:text-gray-500 bg-green-50 border border-green-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-400"
                     rows={3}
                   />
@@ -748,7 +750,7 @@ export function TaskDetail() {
                     disabled={continueLoading || !continuePrompt.trim()}
                     className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-50"
                   >
-                    {continueLoading ? 'Continuing...' : 'Continue Task'}
+                    {continueLoading ? tr('继续中...', 'Continuing...') : tr(`继续${term('task')}`, `Continue ${term('task')}`)}
                   </button>
                 </form>
               </div>

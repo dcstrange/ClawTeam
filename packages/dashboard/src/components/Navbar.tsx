@@ -2,18 +2,9 @@ import { Link, useLocation } from 'react-router-dom';
 import { useIdentity } from '@/lib/identity';
 import { useTheme } from '@/hooks/useTheme';
 import { useTasks } from '@/hooks/useTasks';
+import { useI18n } from '@/lib/i18n';
 import { BotAvatar } from './BotAvatar';
 import { cn } from '@/lib/utils';
-
-const navigation = [
-  { name: 'Dashboard', href: '/' },
-  { name: 'Bots', href: '/bots' },
-  { name: 'Tasks', href: '/tasks' },
-  { name: 'Files', href: '/files' },
-  { name: 'Team', href: '/team' },
-  { name: 'Sessions', href: '/sessions' },
-  { name: 'Routes', href: '/routes' },
-];
 
 interface NavbarProps {
   connectionStatus?: { api: boolean; router: boolean };
@@ -23,7 +14,18 @@ export function Navbar({ connectionStatus }: NavbarProps) {
   const location = useLocation();
   const { me, isLoggedIn } = useIdentity();
   const { dark, toggle } = useTheme();
+  const { locale, toggleLocale, tr, term } = useI18n();
   const { data: tasks = [] } = useTasks();
+
+  const navigation = [
+    { name: tr('仪表盘', 'Dashboard'), href: '/' },
+    { name: tr('机器人', 'Bots'), href: '/bots' },
+    { name: tr('任务', 'Tasks'), href: '/tasks' },
+    { name: tr('文件', 'Files'), href: '/files' },
+    { name: tr('团队', 'Team'), href: '/team' },
+    { name: tr('会话', 'Sessions'), href: '/sessions' },
+    { name: tr('路由', 'Routes'), href: '/routes' },
+  ];
 
   const inboxCount = tasks.filter((t) => {
     if (t.status !== 'waiting_for_input' || !me?.currentBot?.id) return false;
@@ -82,10 +84,10 @@ export function Navbar({ connectionStatus }: NavbarProps) {
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-yellow-500" />
                 </span>
                 {!connectionStatus.api && !connectionStatus.router
-                  ? 'API & Router'
+                  ? tr(`API 与${term('route')}`, `API & ${term('route')}`)
                   : !connectionStatus.api
                     ? 'API'
-                    : 'Router'}
+                    : term('route')}
               </span>
             )}
             <Link
@@ -97,7 +99,7 @@ export function Navbar({ connectionStatus }: NavbarProps) {
                   : 'text-gray-600 hover:text-gray-900'
               )}
             >
-              Inbox
+              {term('inbox')}
               {location.pathname === '/inbox' && (
                 <span className="absolute bottom-0 left-3 right-3 h-0.5 rounded-full bg-primary-600" />
               )}
@@ -110,13 +112,20 @@ export function Navbar({ connectionStatus }: NavbarProps) {
             <button
               onClick={toggle}
               className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors"
-              title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+              title={dark ? tr('切换到浅色模式', 'Switch to light mode') : tr('切换到深色模式', 'Switch to dark mode')}
             >
               {dark ? (
                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
               ) : (
                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
               )}
+            </button>
+            <button
+              onClick={toggleLocale}
+              className="px-2.5 py-1.5 text-xs font-semibold rounded-lg text-gray-600 hover:bg-gray-100 transition-colors border border-gray-200"
+              title={tr('切换语言', 'Switch language')}
+            >
+              {locale === 'zh' ? 'EN' : '中'}
             </button>
             <Link
             to="/me"
@@ -141,7 +150,7 @@ export function Navbar({ connectionStatus }: NavbarProps) {
                 </span>
               </>
             ) : (
-              <span className="text-sm text-gray-500">Sign in</span>
+              <span className="text-sm text-gray-500">{tr('登录', 'Sign in')}</span>
             )}
           </Link>
           </div>

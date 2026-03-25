@@ -8,24 +8,34 @@ import { routerApi } from '@/lib/router-api';
 import { Link } from 'react-router-dom';
 import { useState } from 'react';
 import { TeamWorkspace } from '@/components/workspace/TeamWorkspace';
+import { useI18n } from '@/lib/i18n';
 
 export function Dashboard() {
+  const { tr, term } = useI18n();
   const { data: bots = [] } = useBots();
   const { data: tasks = [] } = useTasks();
   const { data: routerStatus } = useRouterStatus();
   const { data: sessions = [] } = useSessions();
   const [resetting, setResetting] = useState(false);
   const [resetMsg, setResetMsg] = useState<string | null>(null);
+  const [resetMsgOk, setResetMsgOk] = useState<boolean | null>(null);
 
   const handleResetMainSession = async () => {
-    if (!confirm('Reset main session? This will archive the current transcript and start fresh.')) return;
+    if (!confirm(tr('重置主会话？这会归档当前记录并重新开始。', 'Reset main session? This will archive current transcript and start fresh.'))) return;
     setResetting(true);
     setResetMsg(null);
+    setResetMsgOk(null);
     try {
       const res = await routerApi.resetMainSession();
-      setResetMsg(res.success ? `Reset OK — new session: ${res.newSessionId}` : `Failed: ${res.message}`);
+      setResetMsgOk(!!res.success);
+      setResetMsg(
+        res.success
+          ? tr(`重置成功，新会话：${res.newSessionId}`, `Reset succeeded, new session: ${res.newSessionId}`)
+          : tr(`失败：${res.message}`, `Failed: ${res.message}`),
+      );
     } catch (e) {
-      setResetMsg(`Error: ${(e as Error).message}`);
+      setResetMsgOk(false);
+      setResetMsg(tr(`错误：${(e as Error).message}`, `Error: ${(e as Error).message}`));
     } finally {
       setResetting(false);
     }
@@ -37,11 +47,11 @@ export function Dashboard() {
   const tasksProcessing = tasks.filter((task) => task.status === 'processing').length;
 
   const stats = [
-    { label: 'Total Bots', value: bots.length, subtext: `${botsOnline} online` },
-    { label: 'Total Tasks', value: tasks.length, subtext: 'all time' },
-    { label: 'Completed', value: tasksCompleted, subtext: 'tasks' },
-    { label: 'Processing', value: tasksProcessing, subtext: 'tasks' },
-    { label: 'Pending', value: tasksPending, subtext: 'tasks' },
+    { label: tr(`${term('bot')}总数`, 'Total Bots'), value: bots.length, subtext: tr(`${botsOnline} 在线`, `${botsOnline} online`) },
+    { label: tr(`${term('task')}总数`, 'Total Tasks'), value: tasks.length, subtext: tr('累计', 'all time') },
+    { label: tr('已完成', 'Completed'), value: tasksCompleted, subtext: tr('任务', 'tasks') },
+    { label: tr('处理中', 'Processing'), value: tasksProcessing, subtext: tr('任务', 'tasks') },
+    { label: tr('待处理', 'Pending'), value: tasksPending, subtext: tr('任务', 'tasks') },
   ];
 
   const recentTasks = tasks.slice(-5).reverse();
@@ -56,12 +66,12 @@ export function Dashboard() {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 glass-intensity-soft">
       <div className="mb-8 flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">Dashboard</h2>
-          <p className="text-gray-600 mt-1">Overview of your ClawTeam platform</p>
+          <h2 className="text-2xl font-bold text-gray-900">{tr('仪表盘', 'Dashboard')}</h2>
+          <p className="text-gray-600 mt-1">{tr('ClawTeam 平台总览', 'Overview of your ClawTeam platform')}</p>
         </div>
         <div className="flex items-center gap-3">
           {resetMsg && (
-            <span className={`text-xs ${resetMsg.startsWith('Reset OK') ? 'text-green-600' : 'text-red-600'}`}>
+            <span className={`text-xs ${resetMsgOk ? 'text-green-600' : 'text-red-600'}`}>
               {resetMsg}
             </span>
           )}
@@ -70,7 +80,7 @@ export function Dashboard() {
             disabled={resetting}
             className="px-3 py-1.5 text-sm font-medium rounded text-red-700 bg-red-50 hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            {resetting ? 'Resetting...' : 'Reset Main Session'}
+            {resetting ? tr('重置中...', 'Resetting...') : tr('重置主会话', 'Reset Main Session')}
           </button>
         </div>
       </div>
@@ -93,8 +103,8 @@ export function Dashboard() {
       {/* Team Workspace */}
       <div className="mb-8">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-gray-900">Team Workspace</h3>
-          <Link to="/team" className="text-sm text-primary-600 hover:text-primary-700 font-medium group inline-flex items-center gap-1">View full <span className="transition-transform group-hover:translate-x-0.5">&rarr;</span></Link>
+          <h3 className="text-lg font-semibold text-gray-900">{tr('团队工作区', 'Team Workspace')}</h3>
+          <Link to="/team" className="text-sm text-primary-600 hover:text-primary-700 font-medium group inline-flex items-center gap-1">{tr('查看完整视图', 'View full')} <span className="transition-transform group-hover:translate-x-0.5">&rarr;</span></Link>
         </div>
         <div className="bg-white rounded-xl p-4 card-gradient">
           <TeamWorkspace compact />
@@ -106,42 +116,42 @@ export function Dashboard() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
           <div className="bg-white rounded-xl p-6 animate-fade-in card-gradient">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Router Status</h3>
+              <h3 className="text-lg font-semibold text-gray-900">{tr(`${term('route')}状态`, 'Router Status')}</h3>
               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                running
+                {tr('运行中', 'running')}
               </span>
             </div>
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
-                <p className="text-gray-500">Uptime</p>
+                <p className="text-gray-500">{tr('运行时长', 'Uptime')}</p>
                 <p className="font-medium text-gray-900">{formatDuration(routerStatus.uptime)}</p>
               </div>
               <div>
-                <p className="text-gray-500">Tracked Tasks</p>
+                <p className="text-gray-500">{tr('追踪任务数', 'Tracked Tasks')}</p>
                 <p className="font-medium text-gray-900">{routerStatus.trackedTasks}</p>
               </div>
               <div>
-                <p className="text-gray-500">Active Sessions</p>
+                <p className="text-gray-500">{tr(`活跃${term('session')}`, 'Active Sessions')}</p>
                 <p className="font-medium text-gray-900">{routerStatus.activeSessions}</p>
               </div>
               <div>
-                <p className="text-gray-500">Poll Interval</p>
+                <p className="text-gray-500">{tr('轮询间隔', 'Poll Interval')}</p>
                 <p className="font-medium text-gray-900">{formatDuration(routerStatus.pollIntervalMs)}</p>
               </div>
               <div>
-                <p className="text-gray-500">Heartbeat</p>
-                <p className="font-medium text-gray-900">{routerStatus.heartbeatRunning ? 'Active' : 'Disabled'}</p>
+                <p className="text-gray-500">{tr('心跳', 'Heartbeat')}</p>
+                <p className="font-medium text-gray-900">{routerStatus.heartbeatRunning ? tr('已启用', 'Active') : tr('已禁用', 'Disabled')}</p>
               </div>
             </div>
           </div>
 
           <div className="bg-white rounded-xl p-6">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Session Overview</h3>
-              <Link to="/sessions" className="text-sm text-primary-600 hover:text-primary-700 font-medium group inline-flex items-center gap-1">View all <span className="transition-transform group-hover:translate-x-0.5">&rarr;</span></Link>
+              <h3 className="text-lg font-semibold text-gray-900">{tr(`${term('session')}概览`, 'Session Overview')}</h3>
+              <Link to="/sessions" className="text-sm text-primary-600 hover:text-primary-700 font-medium group inline-flex items-center gap-1">{tr('查看全部', 'View all')} <span className="transition-transform group-hover:translate-x-0.5">&rarr;</span></Link>
             </div>
             {sessions.length === 0 ? (
-              <p className="text-gray-400 text-sm italic">No sessions tracked</p>
+              <p className="text-gray-400 text-sm italic">{tr('暂无追踪会话', 'No sessions tracked')}</p>
             ) : (
               <div className="space-y-3">
                 {Object.entries(sessionStateGroups).map(([state, count]) => (
@@ -160,17 +170,17 @@ export function Dashboard() {
         {/* Bots Section */}
         <div className="bg-white rounded-xl p-6 card-gradient">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900">Active Bots</h3>
+            <h3 className="text-lg font-semibold text-gray-900">{tr(`活跃${term('bot')}`, 'Active Bots')}</h3>
             <Link
               to="/bots"
               className="text-sm text-primary-600 hover:text-primary-700 font-medium group inline-flex items-center gap-1"
             >
-              View all <span className="transition-transform group-hover:translate-x-0.5">&rarr;</span>
+              {tr('查看全部', 'View all')} <span className="transition-transform group-hover:translate-x-0.5">&rarr;</span>
             </Link>
           </div>
           <div className="space-y-3">
             {bots.length === 0 ? (
-              <p className="text-gray-400 text-sm italic">No bots registered</p>
+              <p className="text-gray-400 text-sm italic">{tr('暂无已注册机器人', 'No bots registered')}</p>
             ) : (
               bots.slice(0, 5).map((bot, i) => (
                 <div
@@ -190,7 +200,7 @@ export function Dashboard() {
                     <div>
                       <p className="font-medium text-gray-900">{bot.name}</p>
                       <p className="text-xs text-gray-500">
-                        {bot.capabilities.length} capabilities
+                        {tr(`${bot.capabilities.length} 个能力`, `${bot.capabilities.length} capabilities`)}
                       </p>
                     </div>
                   </div>
@@ -204,17 +214,17 @@ export function Dashboard() {
         {/* Recent Tasks Section */}
         <div className="bg-white rounded-xl p-6 card-gradient">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900">Recent Tasks</h3>
+            <h3 className="text-lg font-semibold text-gray-900">{tr('最近任务', 'Recent Tasks')}</h3>
             <Link
               to="/tasks"
               className="text-sm text-primary-600 hover:text-primary-700 font-medium group inline-flex items-center gap-1"
             >
-              View all <span className="transition-transform group-hover:translate-x-0.5">&rarr;</span>
+              {tr('查看全部', 'View all')} <span className="transition-transform group-hover:translate-x-0.5">&rarr;</span>
             </Link>
           </div>
           <div className="space-y-3">
             {recentTasks.length === 0 ? (
-              <p className="text-gray-400 text-sm italic">No tasks yet</p>
+              <p className="text-gray-400 text-sm italic">{tr('暂无任务', 'No tasks yet')}</p>
             ) : (
               recentTasks.map((task, i) => (
                 <Link

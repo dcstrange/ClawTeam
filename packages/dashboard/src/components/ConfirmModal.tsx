@@ -1,3 +1,5 @@
+import { useI18n } from '@/lib/i18n';
+
 interface ConfirmModalProps {
   isOpen: boolean;
   title: string;
@@ -13,12 +15,14 @@ export function ConfirmModal({
   isOpen,
   title,
   description,
-  confirmLabel = 'Confirm',
+  confirmLabel,
   confirmClassName = 'bg-primary-600 hover:bg-primary-700',
   onConfirm,
   onCancel,
   children,
 }: ConfirmModalProps) {
+  const { tr } = useI18n();
+  const resolvedConfirmLabel = confirmLabel || tr('确认', 'Confirm');
   if (!isOpen) return null;
 
   return (
@@ -41,13 +45,13 @@ export function ConfirmModal({
               onClick={onCancel}
               className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
             >
-              Cancel
+              {tr('取消', 'Cancel')}
             </button>
             <button
               onClick={onConfirm}
               className={`px-4 py-2 text-sm font-medium text-white rounded-lg ${confirmClassName}`}
             >
-              {confirmLabel}
+              {resolvedConfirmLabel}
             </button>
           </div>
         </div>

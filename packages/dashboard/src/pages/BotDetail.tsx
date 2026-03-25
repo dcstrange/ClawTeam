@@ -8,8 +8,10 @@ import { StatusBadge } from '@/components/StatusBadge';
 import { TaskFlow } from '@/components/BotAvatar';
 import { TaskActions } from '@/components/TaskActions';
 import { formatDate, formatDuration } from '@/lib/utils';
+import { useI18n, trGlobal as trG, termGlobal as termG } from '@/lib/i18n';
 
 export function BotDetail() {
+  const { tr, term } = useI18n();
   const { botId } = useParams<{ botId: string }>();
   const navigate = useNavigate();
   const { data: bots = [], isLoading: botsLoading } = useBots();
@@ -78,9 +80,9 @@ export function BotDetail() {
     return (
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="bg-yellow-50 rounded-xl p-6 text-center">
-          <p className="text-yellow-800">Bot not found: {botId}</p>
+          <p className="text-yellow-800">{tr(`未找到${term('bot')}: ${botId}`, `${term('bot')} not found: ${botId}`)}</p>
           <button onClick={() => navigate('/bots')} className="mt-3 text-sm text-primary-600 hover:underline">
-            Back to bots
+            {tr(`返回${term('bot')}列表`, `Back to ${term('bot')} list`)}
           </button>
         </div>
       </div>
@@ -92,7 +94,7 @@ export function BotDetail() {
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <button onClick={() => navigate('/bots')} className="text-sm text-gray-500 hover:text-gray-700 mb-4 inline-block">
-        &larr; Back to bots
+        &larr; {tr(`返回${term('bot')}列表`, `Back to ${term('bot')} list`)}
       </button>
 
       {/* Bot info card */}
@@ -110,8 +112,8 @@ export function BotDetail() {
             </div>
           </div>
           <div className="text-right text-xs text-gray-500 space-y-1">
-            <p>Registered: {formatDate(bot.createdAt)}</p>
-            {bot.lastSeen && <p>Last seen: {formatDate(bot.lastSeen)}</p>}
+            <p>{tr('注册时间', 'Registered')}: {formatDate(bot.createdAt)}</p>
+            {bot.lastSeen && <p>{tr('最后在线', 'Last seen')}: {formatDate(bot.lastSeen)}</p>}
           </div>
         </div>
 
@@ -128,10 +130,10 @@ export function BotDetail() {
       {/* Capabilities */}
       <div className="bg-white rounded-xl p-6 mb-6 card-gradient">
         <h3 className="text-sm font-semibold text-gray-700 mb-3">
-          Capabilities ({bot.capabilities.length})
+          {tr(`能力（${bot.capabilities.length}）`, `Capabilities (${bot.capabilities.length})`)}
         </h3>
         {bot.capabilities.length === 0 ? (
-          <p className="text-sm text-gray-400 italic">No capabilities registered</p>
+          <p className="text-sm text-gray-400 italic">{tr('未注册能力', 'No capabilities registered')}</p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {bot.capabilities.map((cap, idx) => (
@@ -140,7 +142,7 @@ export function BotDetail() {
                   <span className="text-sm font-medium text-gray-900">{cap.name}</span>
                   <div className="flex gap-1">
                     {cap.async && (
-                      <span className="text-xs text-gray-500 bg-gray-200 px-2 py-0.5 rounded">async</span>
+                      <span className="text-xs text-gray-500 bg-gray-200 px-2 py-0.5 rounded">{tr('异步', 'Async')}</span>
                     )}
                     {cap.estimatedTime && (
                       <span className="text-xs text-gray-500 bg-gray-200 px-2 py-0.5 rounded">{cap.estimatedTime}</span>
@@ -157,18 +159,18 @@ export function BotDetail() {
       {/* Related tasks (tree view) */}
       <div className="bg-white rounded-xl p-6 card-gradient">
         <h3 className="text-sm font-semibold text-gray-700 mb-4">
-          Related Tasks ({totalTasks})
+          {tr(`相关任务（${totalTasks}）`, `Related ${term('task')}s (${totalTasks})`)}
         </h3>
 
         {totalTasks === 0 ? (
-          <p className="text-sm text-gray-400 italic">No tasks involving this bot</p>
+          <p className="text-sm text-gray-400 italic">{tr(`暂无涉及该${term('bot')}的${term('task')}`, `No ${term('task')}s related to this ${term('bot')}`)}</p>
         ) : (
           <div className="space-y-6">
             {/* Received tasks */}
             {relatedTasks.received.length > 0 && (
               <div>
                 <h4 className="text-xs font-medium text-gray-500 uppercase mb-2">
-                  Received ({relatedTasks.received.length})
+                  {tr(`接收（${relatedTasks.received.length}）`, `Received (${relatedTasks.received.length})`)}
                 </h4>
                 <TaskTree tasks={relatedTasks.received} allTasks={tasks} botMap={botMap} navigate={navigate} />
               </div>
@@ -178,7 +180,7 @@ export function BotDetail() {
             {relatedTasks.sent.length > 0 && (
               <div>
                 <h4 className="text-xs font-medium text-gray-500 uppercase mb-2">
-                  Sent ({relatedTasks.sent.length})
+                  {tr(`发送（${relatedTasks.sent.length}）`, `Sent (${relatedTasks.sent.length})`)}
                 </h4>
                 <TaskTree tasks={relatedTasks.sent} allTasks={tasks} botMap={botMap} navigate={navigate} />
               </div>
@@ -341,14 +343,14 @@ function TaskTreeNode({
             toAvatarUrl={task.toAvatarUrl}
             size="sm"
           />
-          <span className="text-sm text-gray-900 truncate min-w-0 flex-1">{task.title || task.prompt || task.capability || 'Task'}</span>
+          <span className="text-sm text-gray-900 truncate min-w-0 flex-1">{task.title || task.prompt || task.capability || termG('task')}</span>
           {hasChildren && (
             <span className="text-[10px] text-gray-400 shrink-0">({children.length})</span>
           )}
           <StatusBadge status={task.status} />
           <StatusBadge status={task.priority} />
           {task.type === 'sub-task' && (
-            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-100 text-purple-800 shrink-0">sub-task</span>
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-100 text-purple-800 shrink-0">{trG('子任务', 'Sub-task')}</span>
           )}
           <span className="text-xs text-gray-400 w-28 text-right shrink-0">{formatDate(task.createdAt)}</span>
           {duration !== null && (

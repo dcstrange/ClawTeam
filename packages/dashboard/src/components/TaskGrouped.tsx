@@ -5,6 +5,7 @@ import { TaskActions } from './TaskActions';
 import { TaskFlow } from './BotAvatar';
 import { formatDate, formatDuration } from '@/lib/utils';
 import type { Task, TaskStatus } from '@/lib/types';
+import { useI18n, trGlobal as trG, termGlobal as termG } from '@/lib/i18n';
 
 interface TaskGroupedProps {
   tasks: Task[];
@@ -21,6 +22,7 @@ const statusOrder: Record<string, number> = {
 };
 
 export function TaskGrouped({ tasks }: TaskGroupedProps) {
+  const { tr } = useI18n();
   const navigate = useNavigate();
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
@@ -96,7 +98,7 @@ export function TaskGrouped({ tasks }: TaskGroupedProps) {
       {groups.map(group => {
         const isExpanded = expandedGroups.has(group.parentId);
         const summary = statusSummary(group.children);
-        const parentCap = group.parentTask?.title || group.parentTask?.prompt || group.parentTask?.capability || 'Unknown';
+        const parentCap = group.parentTask?.title || group.parentTask?.prompt || group.parentTask?.capability || tr('未知', 'Unknown');
         const hasActive = group.children.some(c => ['pending', 'accepted', 'processing'].includes(c.status));
 
         return (
@@ -125,13 +127,13 @@ export function TaskGrouped({ tasks }: TaskGroupedProps) {
                 </>
               ) : (
                 <>
-                  <span className="font-medium text-gray-500 italic">External parent</span>
+                  <span className="font-medium text-gray-500 italic">{tr('外部父任务', 'External Parent Task')}</span>
                   <code className="text-xs font-mono text-gray-400">{group.parentId.slice(0, 8)}</code>
                 </>
               )}
 
               <span className="text-sm text-gray-500 ml-auto mr-2">
-                {group.children.length} {group.children.length === 1 ? 'subtask' : 'subtasks'}
+                {tr(`${group.children.length} 个子任务`, `${group.children.length} sub-tasks`)}
               </span>
 
               {/* Status summary pills */}
@@ -160,7 +162,7 @@ export function TaskGrouped({ tasks }: TaskGroupedProps) {
       {/* Standalone tasks */}
       {standalone.length > 0 && (
         <div className="mt-6">
-          <h3 className="text-sm font-medium text-gray-500 mb-2">Standalone Tasks ({standalone.length})</h3>
+          <h3 className="text-sm font-medium text-gray-500 mb-2">{tr(`独立任务（${standalone.length}）`, `Standalone Tasks (${standalone.length})`)}</h3>
           <div className="space-y-2">
             {standalone.map(task => (
               <ChildRow key={task.id} task={task} onClick={() => navigate(`/tasks/${task.id}`)} showCapability />
@@ -172,7 +174,7 @@ export function TaskGrouped({ tasks }: TaskGroupedProps) {
       {groups.length === 0 && standalone.length === 0 && (
         <div className="empty-state">
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
-          <p className="text-gray-500 font-medium">No tasks found</p>
+          <p className="text-gray-500 font-medium">{tr('未找到任务', 'No tasks found')}</p>
         </div>
       )}
     </div>
@@ -211,7 +213,9 @@ function ChildRow({ task, onClick, showCapability }: { task: Task; onClick: () =
         size="sm"
       />
       <span className="text-sm text-gray-900 truncate min-w-0 flex-1">
-        {showCapability ? (task.title || task.prompt || task.capability || 'Task') : (task.type || 'new')}
+        {showCapability
+          ? (task.title || task.prompt || task.capability || termG('task'))
+          : (task.type === 'sub-task' ? trG('子任务', 'Sub-task') : trG('新任务', 'New Task'))}
       </span>
       <StatusBadge status={task.status} />
       <StatusBadge status={task.priority} />

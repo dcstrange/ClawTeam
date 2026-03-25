@@ -3,6 +3,7 @@ import { API_BASE_URL, API_ENDPOINTS } from '@/lib/config';
 import { useIdentity } from '@/lib/identity';
 import type { FileNode } from '@/lib/types';
 import { formatDate } from '@/lib/utils';
+import { useI18n, trGlobal as trG, termGlobal as termG } from '@/lib/i18n';
 
 interface TaskFilesPanelProps {
   taskId: string;
@@ -29,7 +30,7 @@ function toErrorMessage(payload: unknown, fallback: string): string {
     const p = payload as ApiError;
     if (p.error?.message) {
       if (p.error.message === 'Actor is not task participant') {
-        return 'You are not a direct participant of this sub-task file scope. Approved child artifacts will be mirrored to the parent task files.';
+        return trG('你不是该子任务文件域的直接参与者。已批准的子任务产物会镜像到父任务文件中。', 'You are not a direct participant in this sub-task file scope. Approved sub-task outputs are mirrored to parent task files.');
       }
       return p.error.message;
     }
@@ -62,6 +63,7 @@ function readFileAsBase64(file: File): Promise<string> {
 }
 
 export function TaskFilesPanel({ taskId, fallbackBotId }: TaskFilesPanelProps) {
+  const { tr, term } = useI18n();
   const { apiKey, me } = useIdentity();
   const [items, setItems] = useState<FileNode[]>([]);
   const [loading, setLoading] = useState(false);
@@ -151,9 +153,9 @@ export function TaskFilesPanel({ taskId, fallbackBotId }: TaskFilesPanelProps) {
       });
       const payload = await res.json();
       if (!res.ok) {
-        throw new Error(toErrorMessage(payload, `Upload failed (${res.status})`));
+        throw new Error(toErrorMessage(payload, tr(`上传失败 (${res.status})`, `Upload failed (${res.status})`)));
       }
-      setStatusText(`Uploaded: ${file.name}`);
+      setStatusText(tr(`已上传: ${file.name}`, `Uploaded: ${file.name}`));
       await fetchTaskFiles();
     } catch (error) {
       setErrorText((error as Error).message);
@@ -173,7 +175,7 @@ export function TaskFilesPanel({ taskId, fallbackBotId }: TaskFilesPanelProps) {
         });
         const payload = await res.json();
         if (!res.ok) {
-          throw new Error(toErrorMessage(payload, `Doc download failed (${res.status})`));
+          throw new Error(toErrorMessage(payload, tr(`文档下载失败 (${res.status})`, `Document download failed (${res.status})`)));
         }
         const content = (payload as ApiSuccess<{ content: string }>).data?.content || '';
         const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
@@ -190,7 +192,7 @@ export function TaskFilesPanel({ taskId, fallbackBotId }: TaskFilesPanelProps) {
           headers: authHeaders,
         });
         if (!res.ok) {
-          let fallback = `File download failed (${res.status})`;
+          let fallback = tr(`文件下载失败 (${res.status})`, `File download failed (${res.status})`);
           try {
             const payload = await res.json();
             fallback = toErrorMessage(payload, fallback);
@@ -209,7 +211,7 @@ export function TaskFilesPanel({ taskId, fallbackBotId }: TaskFilesPanelProps) {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
       }
-      setStatusText(`Downloaded: ${node.name}`);
+      setStatusText(tr(`已下载: ${node.name}`, `Downloaded: ${node.name}`));
     } catch (error) {
       setErrorText((error as Error).message);
     }
@@ -233,9 +235,9 @@ export function TaskFilesPanel({ taskId, fallbackBotId }: TaskFilesPanelProps) {
       });
       const payload = await res.json();
       if (!res.ok) {
-        throw new Error(toErrorMessage(payload, `Publish failed (${res.status})`));
+        throw new Error(toErrorMessage(payload, tr(`发布失败 (${res.status})`, `Publish failed (${res.status})`)));
       }
-      setStatusText(`Published to team_shared: ${node.name}`);
+      setStatusText(tr(`已发布到 team_shared: ${node.name}`, `Published to team_shared: ${node.name}`));
     } catch (error) {
       setErrorText((error as Error).message);
     }
@@ -244,11 +246,11 @@ export function TaskFilesPanel({ taskId, fallbackBotId }: TaskFilesPanelProps) {
   const handleMove = useCallback(async (node: FileNode) => {
     if (!apiKey) return;
     const targetParentInput = window.prompt(
-      'Target folder node ID (leave empty to move to task root)',
+      tr('目标文件夹节点 ID（留空移动到任务根目录）', `Target folder node ID (leave empty to move to ${term('task')} root)`),
       node.parentId || '',
     );
     if (targetParentInput === null) return;
-    const newNameInput = window.prompt('New name (leave empty to keep current)', node.name);
+    const newNameInput = window.prompt(tr('新名称（留空保持当前名称）', 'New name (leave empty to keep current name)'), node.name);
     if (newNameInput === null) return;
 
     const body: Record<string, string> = {
@@ -260,7 +262,7 @@ export function TaskFilesPanel({ taskId, fallbackBotId }: TaskFilesPanelProps) {
     if (normalizedTarget) body.targetParentId = normalizedTarget;
     if (normalizedName && normalizedName !== node.name) body.newName = normalizedName;
     if (!normalizedTarget && !body.newName && node.parentId === null) {
-      setStatusText('No move changes submitted.');
+      setStatusText(tr('未提交任何移动变更。', 'No move change submitted.'));
       return;
     }
 
@@ -278,26 +280,26 @@ export function TaskFilesPanel({ taskId, fallbackBotId }: TaskFilesPanelProps) {
       });
       const payload = await res.json();
       if (!res.ok) {
-        throw new Error(toErrorMessage(payload, `Move failed (${res.status})`));
+        throw new Error(toErrorMessage(payload, tr(`移动失败 (${res.status})`, `Move failed (${res.status})`)));
       }
-      setStatusText(`Moved: ${node.name}`);
+      setStatusText(tr(`已移动: ${node.name}`, `Moved: ${node.name}`));
       await fetchTaskFiles();
     } catch (error) {
       setErrorText((error as Error).message);
     } finally {
       setBusyAction(null);
     }
-  }, [apiKey, authHeaders, fetchTaskFiles, taskId]);
+  }, [apiKey, authHeaders, fetchTaskFiles, taskId, tr, term]);
 
   const handleCopy = useCallback(async (node: FileNode) => {
     if (!apiKey) return;
     const targetParentInput = window.prompt(
-      'Target folder node ID for copy (leave empty to copy into task root)',
+      tr('复制目标文件夹节点 ID（留空复制到任务根目录）', `Target folder node ID for copy (leave empty to copy to ${term('task')} root)`),
       node.parentId || '',
     );
     if (targetParentInput === null) return;
     const suggestedName = `${node.name}-copy`;
-    const newNameInput = window.prompt('Name for copied node (leave empty to auto-name)', suggestedName);
+    const newNameInput = window.prompt(tr('复制后名称（留空自动命名）', 'Name after copy (leave empty for auto name)'), suggestedName);
     if (newNameInput === null) return;
 
     const body: Record<string, string> = {
@@ -323,20 +325,20 @@ export function TaskFilesPanel({ taskId, fallbackBotId }: TaskFilesPanelProps) {
       });
       const payload = await res.json();
       if (!res.ok) {
-        throw new Error(toErrorMessage(payload, `Copy failed (${res.status})`));
+        throw new Error(toErrorMessage(payload, tr(`复制失败 (${res.status})`, `Copy failed (${res.status})`)));
       }
-      setStatusText(`Copied: ${node.name}`);
+      setStatusText(tr(`已复制: ${node.name}`, `Copied: ${node.name}`));
       await fetchTaskFiles();
     } catch (error) {
       setErrorText((error as Error).message);
     } finally {
       setBusyAction(null);
     }
-  }, [apiKey, authHeaders, fetchTaskFiles, taskId]);
+  }, [apiKey, authHeaders, fetchTaskFiles, taskId, tr, term]);
 
   const handleDelete = useCallback(async (node: FileNode) => {
     if (!apiKey) return;
-    const confirmed = window.confirm(`Delete "${node.name}"? This operation recursively soft-deletes children.`);
+    const confirmed = window.confirm(tr(`确认删除“${node.name}”？该操作会递归软删除子节点。`, `Delete "${node.name}"? This recursively soft-deletes child nodes.`));
     if (!confirmed) return;
 
     setBusyAction({ nodeId: node.id, action: 'delete' });
@@ -349,21 +351,21 @@ export function TaskFilesPanel({ taskId, fallbackBotId }: TaskFilesPanelProps) {
       });
       const payload = await res.json();
       if (!res.ok) {
-        throw new Error(toErrorMessage(payload, `Delete failed (${res.status})`));
+        throw new Error(toErrorMessage(payload, tr(`删除失败 (${res.status})`, `Delete failed (${res.status})`)));
       }
-      setStatusText(`Deleted: ${node.name}`);
+      setStatusText(tr(`已删除: ${node.name}`, `Deleted: ${node.name}`));
       await fetchTaskFiles();
     } catch (error) {
       setErrorText((error as Error).message);
     } finally {
       setBusyAction(null);
     }
-  }, [apiKey, authHeaders, fetchTaskFiles]);
+  }, [apiKey, authHeaders, fetchTaskFiles, tr]);
 
   return (
     <div className="bg-white rounded-xl p-6 card-gradient h-[36rem] flex flex-col">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-gray-700">Task Files</h3>
+        <h3 className="text-sm font-semibold text-gray-700">{tr(`${term('task')}文件`, `${term('task')} Files`)}</h3>
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -371,10 +373,10 @@ export function TaskFilesPanel({ taskId, fallbackBotId }: TaskFilesPanelProps) {
             disabled={loading || !apiKey}
             className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
           >
-            Refresh
+            {tr('刷新', 'Refresh')}
           </button>
           <label className={`px-3 py-1.5 text-xs font-medium rounded-lg border border-primary-200 text-primary-700 ${uploading || !apiKey ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-primary-50'}`}>
-            {uploading ? 'Uploading...' : 'Upload File'}
+            {uploading ? tr('上传中...', 'Uploading...') : tr('上传文件', 'Upload file')}
             <input
               type="file"
               className="hidden"
@@ -387,7 +389,7 @@ export function TaskFilesPanel({ taskId, fallbackBotId }: TaskFilesPanelProps) {
 
       {!apiKey && (
         <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-2 mb-3">
-          Login with API key to manage task files.
+          {tr(`请先使用 API Key 登录后管理${term('task')}文件。`, `Please sign in with API key before managing ${term('task')} files.`)}
         </p>
       )}
       {errorText && (
@@ -399,19 +401,19 @@ export function TaskFilesPanel({ taskId, fallbackBotId }: TaskFilesPanelProps) {
 
       <div className="flex-1 min-h-0">
         {loading ? (
-          <div className="text-xs text-gray-500">Loading files...</div>
+          <div className="text-xs text-gray-500">{tr('文件加载中...', 'Loading files...')}</div>
         ) : items.length === 0 ? (
-          <div className="text-xs text-gray-500">No task files yet.</div>
+          <div className="text-xs text-gray-500">{tr(`暂无${term('task')}文件。`, `No ${term('task')} files yet.`)}</div>
         ) : (
           <div className="overflow-auto h-full">
             <table className="min-w-full text-xs">
               <thead>
                 <tr className="text-left text-gray-500 border-b">
-                  <th className="py-2 pr-2">Name</th>
-                  <th className="py-2 pr-2">Kind</th>
-                  <th className="py-2 pr-2">Size</th>
-                  <th className="py-2 pr-2">Updated</th>
-                  <th className="py-2 pr-2">Actions</th>
+                  <th className="py-2 pr-2">{tr('名称', 'Name')}</th>
+                  <th className="py-2 pr-2">{tr('类型', 'Type')}</th>
+                  <th className="py-2 pr-2">{tr('大小', 'Size')}</th>
+                  <th className="py-2 pr-2">{tr('更新时间', 'Updated')}</th>
+                  <th className="py-2 pr-2">{tr('操作', 'Actions')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -428,7 +430,7 @@ export function TaskFilesPanel({ taskId, fallbackBotId }: TaskFilesPanelProps) {
                           onClick={() => setOpenMenuNodeId((prev) => (prev === node.id ? null : node.id))}
                           disabled={!!busyAction}
                           className="h-7 w-7 rounded-md border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                          aria-label={`Open actions for ${node.name}`}
+                          aria-label={tr(`打开 ${node.name} 的操作菜单`, `Open action menu for ${node.name}`)}
                         >
                           ...
                         </button>
@@ -445,7 +447,7 @@ export function TaskFilesPanel({ taskId, fallbackBotId }: TaskFilesPanelProps) {
                                 disabled={!!busyAction}
                                 className="w-full text-left px-3 py-1.5 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                               >
-                                Download
+                                {tr('下载', 'Download')}
                               </button>
                             )}
                             {node.kind !== 'folder' && (
@@ -458,7 +460,7 @@ export function TaskFilesPanel({ taskId, fallbackBotId }: TaskFilesPanelProps) {
                                 disabled={!!busyAction}
                                 className="w-full text-left px-3 py-1.5 text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
                               >
-                                Publish
+                                {tr('发布', 'Publish')}
                               </button>
                             )}
                             <button
@@ -469,8 +471,8 @@ export function TaskFilesPanel({ taskId, fallbackBotId }: TaskFilesPanelProps) {
                               }}
                               disabled={!!busyAction}
                               className="w-full text-left px-3 py-1.5 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                            >
-                              {busyAction?.nodeId === node.id && busyAction.action === 'move' ? 'Moving...' : 'Move'}
+                              >
+                              {busyAction?.nodeId === node.id && busyAction.action === 'move' ? tr('移动中...', 'Moving...') : tr('移动', 'Move')}
                             </button>
                             <button
                               type="button"
@@ -480,8 +482,8 @@ export function TaskFilesPanel({ taskId, fallbackBotId }: TaskFilesPanelProps) {
                               }}
                               disabled={!!busyAction}
                               className="w-full text-left px-3 py-1.5 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                            >
-                              {busyAction?.nodeId === node.id && busyAction.action === 'copy' ? 'Copying...' : 'Copy'}
+                              >
+                              {busyAction?.nodeId === node.id && busyAction.action === 'copy' ? tr('复制中...', 'Copying...') : tr('复制', 'Copy')}
                             </button>
                             <div className="my-1 border-t border-gray-100" />
                             <button
@@ -493,7 +495,7 @@ export function TaskFilesPanel({ taskId, fallbackBotId }: TaskFilesPanelProps) {
                               disabled={!!busyAction}
                               className="w-full text-left px-3 py-1.5 text-red-700 hover:bg-red-50 disabled:opacity-50"
                             >
-                              {busyAction?.nodeId === node.id && busyAction.action === 'delete' ? 'Deleting...' : 'Delete'}
+                              {busyAction?.nodeId === node.id && busyAction.action === 'delete' ? tr('删除中...', 'Deleting...') : tr('删除', 'Delete')}
                             </button>
                           </div>
                         )}

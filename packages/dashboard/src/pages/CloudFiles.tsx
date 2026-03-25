@@ -4,6 +4,7 @@ import { useIdentity } from '@/lib/identity';
 import { useTasks } from '@/hooks/useTasks';
 import type { FileNode } from '@/lib/types';
 import { formatDate } from '@/lib/utils';
+import { useI18n } from '@/lib/i18n';
 
 type CloudFileView = 'private' | 'public' | 'team' | 'task';
 
@@ -28,12 +29,6 @@ interface FolderCrumb {
 }
 
 const viewOrder: CloudFileView[] = ['private', 'public', 'team', 'task'];
-const viewLabels: Record<CloudFileView, string> = {
-  private: 'My Private',
-  public: 'My Public',
-  team: 'Team Shared',
-  task: 'Task Files',
-};
 
 function toErrorMessage(payload: unknown, fallback: string): string {
   if (payload && typeof payload === 'object') {
@@ -74,6 +69,7 @@ function readFileAsBase64(file: File): Promise<string> {
 }
 
 export function CloudFilesPage() {
+  const { tr, term } = useI18n();
   const { apiKey, me } = useIdentity();
   const { data: tasks = [] } = useTasks();
 
@@ -87,6 +83,12 @@ export function CloudFilesPage() {
   const [busyAction, setBusyAction] = useState<{ nodeId: string; action: 'publish' | 'delete' } | null>(null);
   const [statusText, setStatusText] = useState<string | null>(null);
   const [errorText, setErrorText] = useState<string | null>(null);
+  const viewLabels: Record<CloudFileView, string> = {
+    private: tr('我的私有', 'My Private'),
+    public: tr('我的公开', 'My Public'),
+    team: tr('团队共享', 'Team Shared'),
+    task: tr(`${term('task')}文件`, `${term('task')} Files`),
+  };
 
   const ownedBots = useMemo(
     () => me?.ownedBots || (me?.currentBot ? [{ id: me.currentBot.id, name: me.currentBot.name, capabilities: [], status: 'online', createdAt: '' }] : []),
@@ -195,7 +197,7 @@ export function CloudFilesPage() {
       const res = await fetch(`${API_BASE_URL}${API_ENDPOINTS.files}?${qs.toString()}`, { headers: authHeaders });
       const payload = await res.json();
       if (!res.ok) {
-        throw new Error(toErrorMessage(payload, `Failed to load files (${res.status})`));
+        throw new Error(toErrorMessage(payload, tr(`加载文件失败 (${res.status})`, `Failed to load files (${res.status})`)));
       }
       const data = payload as ApiSuccess<{ items: FileNode[] }>;
       const rawItems = Array.isArray(data.data?.items) ? data.data.items : [];
@@ -206,7 +208,7 @@ export function CloudFilesPage() {
     } finally {
       setLoading(false);
     }
-  }, [apiKey, view, selectedBotId, selectedTaskId, currentParentId, authHeaders, isMinePublicNode]);
+  }, [apiKey, view, selectedBotId, selectedTaskId, currentParentId, authHeaders, isMinePublicNode, tr]);
 
   useEffect(() => {
     fetchFiles();
@@ -253,16 +255,16 @@ export function CloudFilesPage() {
       });
       const payload = await res.json();
       if (!res.ok) {
-        throw new Error(toErrorMessage(payload, `Upload failed (${res.status})`));
+        throw new Error(toErrorMessage(payload, tr(`上传失败 (${res.status})`, `Upload failed (${res.status})`)));
       }
-      setStatusText(`Uploaded: ${file.name}`);
+      setStatusText(tr(`已上传: ${file.name}`, `Uploaded: ${file.name}`));
       await fetchFiles();
     } catch (error) {
       setErrorText((error as Error).message);
     } finally {
       setUploading(false);
     }
-  }, [apiKey, view, selectedBotId, selectedTaskId, authHeaders, fetchFiles, me?.currentBot?.id]);
+  }, [apiKey, view, selectedBotId, selectedTaskId, authHeaders, fetchFiles, me?.currentBot?.id, tr]);
 
   const handleDownload = useCallback(async (node: FileNode) => {
     if (!apiKey) return;
@@ -275,7 +277,7 @@ export function CloudFilesPage() {
         });
         const payload = await res.json();
         if (!res.ok) {
-          throw new Error(toErrorMessage(payload, `Doc download failed (${res.status})`));
+          throw new Error(toErrorMessage(payload, tr(`文档下载失败 (${res.status})`, `Document download failed (${res.status})`)));
         }
         const content = (payload as ApiSuccess<{ content: string }>).data?.content || '';
         const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
@@ -292,7 +294,7 @@ export function CloudFilesPage() {
           headers: authHeaders,
         });
         if (!res.ok) {
-          let fallback = `File download failed (${res.status})`;
+          let fallback = tr(`文件下载失败 (${res.status})`, `File download failed (${res.status})`);
           try {
             const payload = await res.json();
             fallback = toErrorMessage(payload, fallback);
@@ -311,11 +313,11 @@ export function CloudFilesPage() {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
       }
-      setStatusText(`Downloaded: ${node.name}`);
+      setStatusText(tr(`已下载: ${node.name}`, `Downloaded: ${node.name}`));
     } catch (error) {
       setErrorText((error as Error).message);
     }
-  }, [apiKey, authHeaders]);
+  }, [apiKey, authHeaders, tr]);
 
   const handlePublish = useCallback(async (node: FileNode) => {
     if (!apiKey || !selectedTaskId) return;
@@ -336,19 +338,19 @@ export function CloudFilesPage() {
       });
       const payload = await res.json();
       if (!res.ok) {
-        throw new Error(toErrorMessage(payload, `Publish failed (${res.status})`));
+        throw new Error(toErrorMessage(payload, tr(`发布失败 (${res.status})`, `Publish failed (${res.status})`)));
       }
-      setStatusText(`Published to team shared: ${node.name}`);
+      setStatusText(tr(`已发布到团队共享: ${node.name}`, `Published to team shared: ${node.name}`));
     } catch (error) {
       setErrorText((error as Error).message);
     } finally {
       setBusyAction(null);
     }
-  }, [apiKey, selectedTaskId, authHeaders]);
+  }, [apiKey, selectedTaskId, authHeaders, tr]);
 
   const handleDelete = useCallback(async (node: FileNode) => {
     if (!apiKey) return;
-    const confirmed = window.confirm(`Delete "${node.name}"? This operation recursively soft-deletes children.`);
+    const confirmed = window.confirm(tr(`确认删除“${node.name}”？该操作会递归软删除子节点。`, `Delete "${node.name}"? This recursively soft-deletes child nodes.`));
     if (!confirmed) return;
 
     setBusyAction({ nodeId: node.id, action: 'delete' });
@@ -361,39 +363,39 @@ export function CloudFilesPage() {
       });
       const payload = await res.json();
       if (!res.ok) {
-        throw new Error(toErrorMessage(payload, `Delete failed (${res.status})`));
+        throw new Error(toErrorMessage(payload, tr(`删除失败 (${res.status})`, `Delete failed (${res.status})`)));
       }
-      setStatusText(`Deleted: ${node.name}`);
+      setStatusText(tr(`已删除: ${node.name}`, `Deleted: ${node.name}`));
       await fetchFiles();
     } catch (error) {
       setErrorText((error as Error).message);
     } finally {
       setBusyAction(null);
     }
-  }, [apiKey, authHeaders, fetchFiles]);
+  }, [apiKey, authHeaders, fetchFiles, tr]);
 
   const ownerLabel = useCallback((node: FileNode): string => {
     if (!node.createdByActorId) return node.createdByActorType;
     if (node.createdByActorType === 'bot') {
       const botName = ownedBotNameById.get(node.createdByActorId);
-      return botName ? `${botName} (${shortId(node.createdByActorId)})` : `bot:${shortId(node.createdByActorId)}`;
+      return botName ? `${botName} (${shortId(node.createdByActorId)})` : `${term('bot')}:${shortId(node.createdByActorId)}`;
     }
     return `${node.createdByActorType}:${shortId(node.createdByActorId)}`;
-  }, [ownedBotNameById]);
+  }, [ownedBotNameById, term]);
 
   const emptyText = useMemo(() => {
-    if (view === 'private') return 'No private files yet.';
-    if (view === 'public') return 'No public files found for your bots yet.';
-    if (view === 'team') return 'No team shared files yet.';
-    return selectedTaskId ? 'No files in this task yet.' : 'Choose a task to view files.';
-  }, [view, selectedTaskId]);
+    if (view === 'private') return tr('暂无私有文件。', 'No private files.');
+    if (view === 'public') return tr(`暂无与你${term('bot')}关联的公开文件。`, `No public files linked to your ${term('bot')}.`);
+    if (view === 'team') return tr('暂无团队共享文件。', 'No team shared files.');
+    return selectedTaskId ? tr(`该${term('task')}下暂无文件。`, `No files under this ${term('task')}.`) : tr(`请选择${term('task')}后查看文件。`, `Select a ${term('task')} to view files.`);
+  }, [view, selectedTaskId, tr, term]);
 
   return (
     <div className="max-w-[1900px] mx-auto px-3 sm:px-4 lg:px-6 py-6">
       <div className="mb-6">
-        <h2 className="text-2xl font-bold text-gray-900">Cloud Files</h2>
+        <h2 className="text-2xl font-bold text-gray-900">{tr('云端文件', 'Cloud Files')}</h2>
         <p className="text-gray-600 mt-1">
-          Unified file space for private bot files, public outputs, team shared assets, and task artifacts.
+          {tr(`统一管理${term('bot')}私有文件、公开产出、团队共享资产与任务产物。`, `Manage ${term('bot')} private files, public outputs, team shared assets, and ${term('task')} artifacts in one place.`)}
         </p>
       </div>
 
@@ -418,7 +420,7 @@ export function CloudFilesPage() {
         <div className="flex flex-wrap items-center gap-3">
           {view === 'private' && (
             <label className="text-sm text-gray-600 flex items-center gap-2">
-              Bot
+              {term('bot')}
               <select
                 value={selectedBotId}
                 onChange={(e) => setSelectedBotId(e.target.value)}
@@ -435,13 +437,13 @@ export function CloudFilesPage() {
 
           {view === 'task' && (
             <label className="text-sm text-gray-600 flex items-center gap-2">
-              Task
+              {term('task')}
               <select
                 value={selectedTaskId}
                 onChange={(e) => setSelectedTaskId(e.target.value)}
                 className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-white text-gray-900 max-w-[540px]"
               >
-                {myTaskOptions.length === 0 && <option value="">No task available</option>}
+                {myTaskOptions.length === 0 && <option value="">{tr(`暂无可用${term('task')}`, `No ${term('task')} available`)}</option>}
                 {myTaskOptions.map((task) => (
                   <option key={task.id} value={task.id}>
                     {task.title || task.prompt?.slice(0, 80) || task.id} ({shortId(task.id)})
@@ -458,10 +460,10 @@ export function CloudFilesPage() {
               disabled={loading || !apiKey}
               className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
             >
-              Refresh
+              {tr('刷新', 'Refresh')}
             </button>
             <label className={`px-3 py-1.5 text-xs font-medium rounded-lg border border-primary-200 text-primary-700 ${uploading || !apiKey ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-primary-50'}`}>
-              {uploading ? 'Uploading...' : 'Upload File'}
+              {uploading ? tr('上传中...', 'Uploading...') : tr('上传文件', 'Upload file')}
               <input
                 type="file"
                 className="hidden"
@@ -474,12 +476,12 @@ export function CloudFilesPage() {
 
         {!apiKey && (
           <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-2">
-            Login with API key to use Cloud Files.
+            {tr('使用云端文件前请先使用 API Key 登录。', 'Sign in with API key before using cloud files.')}
           </p>
         )}
         {view === 'public' && (
           <p className="text-xs text-gray-500">
-            Showing team shared files created by your bots or published from your delegator tasks (best-effort ownership mapping).
+            {tr(`仅显示由你名下${term('bot')}创建，或由你委托${term('task')}发布的团队共享文件（尽力做归属映射）。`, `Only shows team shared files created by your ${term('bot')}s or published from ${term('task')}s you delegated.`)}
           </p>
         )}
         {errorText && (
@@ -491,7 +493,7 @@ export function CloudFilesPage() {
 
         <div className="flex items-center justify-between text-xs text-gray-500">
           <div className="flex items-center gap-2">
-            <span>Path:</span>
+            <span>{tr('路径', 'Path')}:</span>
             <span className="font-medium text-gray-700">{viewLabels[view]}</span>
             {folderStack.map((crumb) => (
               <span key={crumb.id} className="text-gray-500">/ {crumb.name}</span>
@@ -503,26 +505,26 @@ export function CloudFilesPage() {
             onClick={() => setFolderStack((prev) => prev.slice(0, -1))}
             className="px-2 py-1 rounded border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-40"
           >
-            Up
+            {tr('返回上级', 'Up one level')}
           </button>
         </div>
 
         <div className="flex-1 min-h-0 overflow-auto border border-gray-100 rounded-lg">
           {loading ? (
-            <div className="h-full flex items-center justify-center text-sm text-gray-500">Loading files...</div>
+            <div className="h-full flex items-center justify-center text-sm text-gray-500">{tr('文件加载中...', 'Loading files...')}</div>
           ) : items.length === 0 ? (
             <div className="h-full flex items-center justify-center text-sm text-gray-500">{emptyText}</div>
           ) : (
             <table className="min-w-full text-xs">
               <thead>
                 <tr className="text-left text-gray-500 border-b">
-                  <th className="py-2 px-3">Name</th>
-                  <th className="py-2 px-3">Kind</th>
-                  <th className="py-2 px-3">Scope</th>
-                  <th className="py-2 px-3">Size</th>
-                  <th className="py-2 px-3">Owner</th>
-                  <th className="py-2 px-3">Updated</th>
-                  <th className="py-2 px-3">Actions</th>
+                  <th className="py-2 px-3">{tr('名称', 'Name')}</th>
+                  <th className="py-2 px-3">{tr('类型', 'Type')}</th>
+                  <th className="py-2 px-3">{tr('范围', 'Scope')}</th>
+                  <th className="py-2 px-3">{tr('大小', 'Size')}</th>
+                  <th className="py-2 px-3">{tr('所有者', 'Owner')}</th>
+                  <th className="py-2 px-3">{tr('更新时间', 'Updated')}</th>
+                  <th className="py-2 px-3">{tr('操作', 'Actions')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -542,19 +544,19 @@ export function CloudFilesPage() {
                         {node.kind === 'folder' && (
                           <button
                             type="button"
-                            onClick={() => setFolderStack((prev) => [...prev, { id: node.id, name: node.name }])}
-                            className="px-2 py-1 rounded border border-gray-200 text-gray-700 hover:bg-gray-50"
-                          >
-                            Open
+                          onClick={() => setFolderStack((prev) => [...prev, { id: node.id, name: node.name }])}
+                          className="px-2 py-1 rounded border border-gray-200 text-gray-700 hover:bg-gray-50"
+                        >
+                            {tr('打开', 'Open')}
                           </button>
                         )}
                         {(node.kind === 'file' || node.kind === 'doc') && (
                           <button
                             type="button"
-                            onClick={() => void handleDownload(node)}
-                            className="px-2 py-1 rounded border border-gray-200 text-gray-700 hover:bg-gray-50"
-                          >
-                            Download
+                          onClick={() => void handleDownload(node)}
+                          className="px-2 py-1 rounded border border-gray-200 text-gray-700 hover:bg-gray-50"
+                        >
+                            {tr('下载', 'Download')}
                           </button>
                         )}
                         {view === 'task' && node.kind !== 'folder' && (
@@ -564,7 +566,7 @@ export function CloudFilesPage() {
                             onClick={() => void handlePublish(node)}
                             className="px-2 py-1 rounded border border-indigo-200 text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
                           >
-                            {busyAction?.nodeId === node.id && busyAction.action === 'publish' ? 'Publishing...' : 'Publish'}
+                            {busyAction?.nodeId === node.id && busyAction.action === 'publish' ? tr('发布中...', 'Publishing...') : tr('发布', 'Publish')}
                           </button>
                         )}
                         <button
@@ -573,7 +575,7 @@ export function CloudFilesPage() {
                           onClick={() => void handleDelete(node)}
                           className="px-2 py-1 rounded border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-50"
                         >
-                          {busyAction?.nodeId === node.id && busyAction.action === 'delete' ? 'Deleting...' : 'Delete'}
+                          {busyAction?.nodeId === node.id && busyAction.action === 'delete' ? tr('删除中...', 'Deleting...') : tr('删除', 'Delete')}
                         </button>
                       </div>
                     </td>

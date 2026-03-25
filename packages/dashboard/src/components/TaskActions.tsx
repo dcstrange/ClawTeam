@@ -4,12 +4,14 @@ import { ConfirmModal } from './ConfirmModal';
 import { routerApi } from '@/lib/router-api';
 import { API_BASE_URL, API_ENDPOINTS } from '@/lib/config';
 import type { Task } from '@/lib/types';
+import { useI18n } from '@/lib/i18n';
 
 interface TaskActionsProps {
   task: Task;
 }
 
 export function TaskActions({ task }: TaskActionsProps) {
+  const { tr, term } = useI18n();
   const [confirmAction, setConfirmAction] = useState<'cancel' | 'retry' | 'nudge' | 'continue' | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,11 +33,11 @@ export function TaskActions({ task }: TaskActionsProps) {
           const res = await fetch(`${API_BASE_URL}${API_ENDPOINTS.cancelTask(task.id)}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ reason: 'Cancelled from dashboard' }),
+            body: JSON.stringify({ reason: '从仪表盘取消' }),
           });
           const result = await res.json();
           if (!result.success) {
-            setError(`Cancel failed: ${result.error?.message || 'unknown error'}`);
+            setError(`${tr('取消失败', 'Cancel failed')}: ${result.error?.message || tr('未知错误', 'Unknown error')}`);
             return;
           }
           break;
@@ -66,8 +68,8 @@ export function TaskActions({ task }: TaskActionsProps) {
           const result = await routerApi.continueTask(task.id, continuePrompt, task.fromBotId);
           if (!result.success) {
             const msg = result.reason === 'session_lost'
-              ? 'Session lost: the bot session for this task is no longer active. Please restart the bot and try again.'
-              : `Continue failed: ${result.reason || 'unknown error'}`;
+              ? tr('会话已丢失：该任务对应的机器人会话已不再活跃。请重启机器人后重试。', 'Session is lost: the related bot session is no longer active. Restart the bot and try again.')
+              : `${tr('继续失败', 'Continue failed')}: ${result.reason || tr('未知错误', 'Unknown error')}`;
             setError(msg);
             return;
           }
@@ -78,7 +80,7 @@ export function TaskActions({ task }: TaskActionsProps) {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       queryClient.invalidateQueries({ queryKey: ['router-tracked-tasks'] });
     } catch (err) {
-      setError(`${confirmAction} failed: ${(err as Error).message}`);
+      setError(`${tr('操作失败', 'Action failed')}: ${(err as Error).message}`);
       return;
     } finally {
       setLoading(false);
@@ -88,27 +90,27 @@ export function TaskActions({ task }: TaskActionsProps) {
 
   const modalConfig = {
     cancel: {
-      title: 'Cancel Task',
-      description: `Cancel task ${task.id.slice(0, 8)}... (${task.capability})?`,
-      confirmLabel: 'Cancel Task',
+      title: tr('取消任务', 'Cancel Task'),
+      description: tr(`确认取消任务 ${task.id.slice(0, 8)}...（${task.capability}）吗？`, `Cancel task ${task.id.slice(0, 8)}... (${task.capability})?`),
+      confirmLabel: tr('确认取消', 'Confirm Cancel'),
       confirmClassName: 'bg-red-600 hover:bg-red-700',
     },
     retry: {
-      title: 'Retry Task',
-      description: `Create a new task with the same parameters as ${task.id.slice(0, 8)}... (${task.capability})?`,
-      confirmLabel: 'Retry',
+      title: tr('重试任务', 'Retry Task'),
+      description: tr(`确认基于 ${task.id.slice(0, 8)}...（${task.capability}）创建同参数新任务吗？`, `Create a new task from ${task.id.slice(0, 8)}... (${task.capability}) with the same parameters?`),
+      confirmLabel: tr('确认重试', 'Confirm Retry'),
       confirmClassName: 'bg-blue-600 hover:bg-blue-700',
     },
     nudge: {
-      title: 'Nudge Task',
-      description: `Send a nudge message to the session handling ${task.id.slice(0, 8)}... (${task.capability})?`,
-      confirmLabel: 'Send Nudge',
+      title: tr('催办任务', 'Nudge Task'),
+      description: tr(`确认向处理 ${task.id.slice(0, 8)}...（${task.capability}）的会话发送催办消息吗？`, `Send a nudge to the ${term('session')} processing ${task.id.slice(0, 8)}... (${task.capability})?`),
+      confirmLabel: tr('发送催办', 'Send Nudge'),
       confirmClassName: 'bg-yellow-600 hover:bg-yellow-700',
     },
     continue: {
-      title: 'Continue Task',
-      description: `Continue task ${task.id.slice(0, 8)}... with new instructions?`,
-      confirmLabel: 'Continue Task',
+      title: tr('继续任务', 'Continue Task'),
+      description: tr(`确认使用新指令继续任务 ${task.id.slice(0, 8)}... 吗？`, `Continue task ${task.id.slice(0, 8)}... with new instructions?`),
+      confirmLabel: tr('确认继续', 'Confirm Continue'),
       confirmClassName: 'bg-green-600 hover:bg-green-700',
     },
   };
@@ -121,7 +123,7 @@ export function TaskActions({ task }: TaskActionsProps) {
             onClick={(e) => { e.stopPropagation(); setConfirmAction('cancel'); }}
             className="px-3 py-1.5 text-xs font-medium text-red-700 bg-red-50 rounded-lg hover:bg-red-100"
           >
-            Cancel
+            {tr('取消', 'Cancel')}
           </button>
         )}
         {canRetry && (
@@ -129,7 +131,7 @@ export function TaskActions({ task }: TaskActionsProps) {
             onClick={(e) => { e.stopPropagation(); setConfirmAction('retry'); }}
             className="px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100"
           >
-            Retry
+            {tr('重试', 'Retry')}
           </button>
         )}
         {canNudge && (
@@ -137,7 +139,7 @@ export function TaskActions({ task }: TaskActionsProps) {
             onClick={(e) => { e.stopPropagation(); setConfirmAction('nudge'); }}
             className="px-3 py-1.5 text-xs font-medium text-yellow-700 bg-yellow-50 rounded-lg hover:bg-yellow-100"
           >
-            Nudge
+            {tr('催办', 'Nudge')}
           </button>
         )}
         {canContinue && (
@@ -145,7 +147,7 @@ export function TaskActions({ task }: TaskActionsProps) {
             onClick={(e) => { e.stopPropagation(); setConfirmAction('continue'); }}
             className="px-3 py-1.5 text-xs font-medium text-green-700 bg-green-50 rounded-lg hover:bg-green-100"
           >
-            Continue
+            {tr('继续', 'Continue')}
           </button>
         )}
       </div>
@@ -158,14 +160,14 @@ export function TaskActions({ task }: TaskActionsProps) {
           onCancel={() => { setConfirmAction(null); setError(null); }}
         >
           {loading && (
-            <p className="text-sm text-gray-500 animate-pulse">Processing...</p>
+            <p className="text-sm text-gray-500 animate-pulse">{tr('处理中...', 'Processing...')}</p>
           )}
           {error && (
             <p className="text-sm text-red-600">{error}</p>
           )}
           {confirmAction === 'nudge' && task.executorSessionKey && (
             <div className="mt-2 p-2 bg-gray-50 rounded text-xs">
-              <span className="text-gray-500">Target session: </span>
+              <span className="text-gray-500">{tr(`目标${term('session')}`, `Target ${term('session')}`)}: </span>
               <code className="font-mono">{task.executorSessionKey}</code>
             </div>
           )}
@@ -173,7 +175,7 @@ export function TaskActions({ task }: TaskActionsProps) {
             <textarea
               value={continuePrompt}
               onChange={(e) => setContinuePrompt(e.target.value)}
-              placeholder="Enter additional instructions..."
+              placeholder={tr('输入额外说明...', 'Add extra instructions...')}
               className="mt-2 w-full px-3 py-2 text-sm bg-gray-50 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-400"
               rows={3}
             />
