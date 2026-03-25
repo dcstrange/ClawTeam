@@ -1,8 +1,8 @@
 import { useNavigate } from 'react-router-dom';
 import { StatusBadge } from '@/components/StatusBadge';
-import { TaskActions } from '@/components/TaskActions';
 import { TaskFlow } from '@/components/BotAvatar';
 import type { Task } from '@/lib/types';
+import { formatDate } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n';
 
 interface TaskKanbanProps {
@@ -22,34 +22,37 @@ export function TaskKanban({ tasks }: TaskKanbanProps) {
   ];
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+    <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-3 sm:gap-4">
       {columns.map((col) => {
-        const colTasks = tasks.filter(t => col.statuses.includes(t.status));
+        const colTasks = tasks
+          .filter((t) => col.statuses.includes(t.status))
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         return (
-          <div key={col.label} className={`rounded-xl p-3 ${col.bgTint}`}>
-            <div className="flex items-center justify-between mb-3">
+          <div key={col.label} className={`rounded-2xl border border-gray-200 p-3 sm:p-3.5 ${col.bgTint}`}>
+            <div className="flex items-center justify-between mb-3 pb-2 border-b border-gray-200/80">
               <div className="flex items-center gap-2">
-                <span className={`w-2 h-2 rounded-full ${col.dotColor}`} />
+                <span className={`w-2 h-2 rounded-full ${col.dotColor} shadow-sm`} />
                 <h3 className="text-sm font-semibold text-gray-700">{col.label}</h3>
               </div>
-              <span className="text-xs text-gray-500 bg-gray-200 px-2 py-0.5 rounded-full">{colTasks.length}</span>
+              <span className="text-xs text-gray-500 bg-gray-200 px-2 py-0.5 rounded-full font-medium">{colTasks.length}</span>
             </div>
-            <div className="space-y-2 max-h-[calc(100vh-280px)] overflow-y-auto">
+            <div className="space-y-2.5 max-h-[calc(100vh-240px)] overflow-y-auto pr-1">
               {colTasks.length === 0 ? (
                 <p className="text-xs text-gray-400 text-center py-4">{tr('暂无任务', 'No tasks')}</p>
               ) : (
-                colTasks.map(task => (
+                colTasks.map((task) => (
                   <div
                     key={task.id}
                     onClick={() => navigate(`/tasks/${task.id}`)}
-                    className="bg-white rounded-xl p-3 hover:shadow-md transition-shadow cursor-pointer"
+                    className="bg-white rounded-xl border border-gray-200 p-3 card-hover cursor-pointer hover:border-primary-600/25 transition-colors"
                   >
-                    <div className="flex items-center gap-2 mb-1.5">
-                      <span className="text-sm font-medium text-gray-900 truncate">{task.capability}</span>
-                      <StatusBadge status={task.priority} />
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <span className="text-sm font-medium text-gray-900 leading-snug break-words text-clamp-2">
+                        {task.title || task.prompt || task.capability || tr('任务', 'Task')}
+                      </span>
+                      <StatusBadge status={task.priority} className="opacity-80" />
                     </div>
-                    <p className="text-xs text-gray-500 mb-1 font-mono">{task.id.slice(0, 8)}...</p>
-                    <div className="flex items-center gap-2">
+                    <div className="rounded-lg border border-gray-200/70 bg-gray-50 px-2.5 py-2 mb-2">
                       <TaskFlow
                         fromName={task.fromBotName || task.fromBotId}
                         fromId={task.fromBotId}
@@ -62,8 +65,9 @@ export function TaskKanban({ tasks }: TaskKanbanProps) {
                         size="sm"
                       />
                     </div>
-                    <div className="mt-2">
-                      <TaskActions task={task} />
+                    <div className="flex items-center justify-between text-[11px] text-gray-500">
+                      <span className="font-mono tracking-wide">{task.id.slice(0, 8)}...</span>
+                      <span className="text-right">{formatDate(task.completedAt || task.startedAt || task.createdAt)}</span>
                     </div>
                   </div>
                 ))

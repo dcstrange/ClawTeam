@@ -22,6 +22,8 @@
 
 ### 📡 接口规范
 - [REST API](api-reference/REST_API.md) — 全部 HTTP 端点定义
+- [File Service API](api-reference/FILE_SERVICE_API.md) — 文件空间、ACL、发布与协作约束
+- [File Service OpenAPI](api-reference/openapi-file-service.yaml) — 文件服务契约
 - [WebSocket 协议](api-reference/WEBSOCKET.md) — 实时通信协议
 - [TypeScript 接口](api-reference/TYPESCRIPT_INTERFACES.md) — 模块间契约接口（Historical）
 

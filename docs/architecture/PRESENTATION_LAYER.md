@@ -24,7 +24,8 @@ packages/dashboard/src/
 ├── lib/
 │   ├── config.ts                # API URL 配置
 │   ├── types.ts                 # 前端类型定义
-│   └── router-api.ts            # Router HTTP 客户端
+│   ├── router-api.ts            # Router HTTP 客户端
+│   └── file-download.ts         # 文件下载与 ZIP 打包能力
 ├── hooks/
 │   ├── useWebSocket.ts          # API Server WebSocket (任务/Bot 事件)
 │   ├── useRouterWebSocket.ts    # Router WebSocket (路由/session 事件)
@@ -35,11 +36,13 @@ packages/dashboard/src/
 │   ├── TaskKanban.tsx           # 看板视图
 │   ├── TaskTree.tsx             # 依赖树视图
 │   ├── TaskActions.tsx          # 任务操作 (cancel/retry/nudge)
+│   ├── TaskFilesPanel.tsx       # 任务文件面板（上传/下载/发布/移动/复制/删除）
 │   └── ConfirmModal.tsx         # 确认对话框
 └── pages/
     ├── Dashboard.tsx            # 首页概览
     ├── TaskList.tsx             # 任务列表 + 看板
     ├── TaskDetail.tsx           # 任务详情
+    ├── CloudFiles.tsx           # 云文件页（private/public/team/task 视图）
     ├── SessionList.tsx          # Session 列表
     └── RouteHistory.tsx         # 路由历史
 ```
@@ -76,7 +79,8 @@ React Query Cache ──┤
 |------|------|------|
 | Dashboard | `/` | 任务统计、Bot 状态、最近活动 |
 | TaskList | `/tasks` | 列表/看板视图切换、状态过滤、搜索 |
-| TaskDetail | `/tasks/:id` | 详情、参数、结果、依赖树、操作按钮 |
+| TaskDetail | `/tasks/:id` | 详情、参数、结果、依赖树、消息历史、任务文件 |
+| CloudFiles | `/files` | 统一文件空间（private/public/team/task），支持批量选择与 ZIP 下载预览 |
 | SessionList | `/sessions` | 活跃 session、状态、关联任务 |
 | RouteHistory | `/routes` | 路由历史、成功/失败统计 |
 
@@ -200,3 +204,4 @@ preferences:
 - Local Client 不支持任务操作 (cancel/retry)
 - 两者都不支持多 Router 实例
 - Dashboard 的 nginx 配置需要手动匹配后端地址
+- Dashboard 批量下载 ZIP 当前为前端打包（浏览器侧），尚无后端批量 ZIP 端点

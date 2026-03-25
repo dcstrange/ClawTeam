@@ -3,8 +3,10 @@ import { API_BASE_URL, API_ENDPOINTS } from '@/lib/config';
 import { useIdentity } from '@/lib/identity';
 import { useTasks } from '@/hooks/useTasks';
 import type { FileNode } from '@/lib/types';
+import { buildZipManifestEntries, downloadFileNode, downloadFileNodesAsZip } from '@/lib/file-download';
 import { formatDate } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n';
+import { ConfirmModal } from '@/components/ConfirmModal';
 
 type CloudFileView = 'private' | 'public' | 'team' | 'task';
 
@@ -78,8 +80,11 @@ export function CloudFilesPage() {
   const [selectedTaskId, setSelectedTaskId] = useState('');
   const [folderStack, setFolderStack] = useState<FolderCrumb[]>([]);
   const [items, setItems] = useState<FileNode[]>([]);
+  const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [batchDownloading, setBatchDownloading] = useState(false);
+  const [isZipPreviewOpen, setIsZipPreviewOpen] = useState(false);
   const [busyAction, setBusyAction] = useState<{ nodeId: string; action: 'publish' | 'delete' } | null>(null);
   const [statusText, setStatusText] = useState<string | null>(null);
   const [errorText, setErrorText] = useState<string | null>(null);
@@ -143,6 +148,14 @@ export function CloudFilesPage() {
   useEffect(() => {
     setFolderStack([]);
   }, [view, selectedBotId, selectedTaskId]);
+
+  useEffect(() => {
+    setSelectedNodeIds([]);
+  }, [view, selectedBotId, selectedTaskId, folderStack]);
+
+  useEffect(() => {
+    setSelectedNodeIds((prev) => prev.filter((id) => items.some((node) => node.id === id && (node.kind === 'file' || node.kind === 'doc'))));
+  }, [items]);
 
   const currentParentId = folderStack.length > 0 ? folderStack[folderStack.length - 1].id : null;
 
@@ -271,53 +284,78 @@ export function CloudFilesPage() {
     setStatusText(null);
     setErrorText(null);
     try {
-      if (node.kind === 'doc') {
-        const res = await fetch(`${API_BASE_URL}${API_ENDPOINTS.files}/docs/${node.id}/raw`, {
-          headers: authHeaders,
-        });
-        const payload = await res.json();
-        if (!res.ok) {
-          throw new Error(toErrorMessage(payload, tr(`文档下载失败 (${res.status})`, `Document download failed (${res.status})`)));
-        }
-        const content = (payload as ApiSuccess<{ content: string }>).data?.content || '';
-        const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${node.name}.txt`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      } else {
-        const res = await fetch(`${API_BASE_URL}${API_ENDPOINTS.files}/download/${node.id}`, {
-          headers: authHeaders,
-        });
-        if (!res.ok) {
-          let fallback = tr(`文件下载失败 (${res.status})`, `File download failed (${res.status})`);
-          try {
-            const payload = await res.json();
-            fallback = toErrorMessage(payload, fallback);
-          } catch {
-            // noop
-          }
-          throw new Error(fallback);
-        }
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = node.name;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      }
+      await downloadFileNode(node, authHeaders);
       setStatusText(tr(`已下载: ${node.name}`, `Downloaded: ${node.name}`));
     } catch (error) {
       setErrorText((error as Error).message);
     }
   }, [apiKey, authHeaders, tr]);
+
+  const downloadableItems = useMemo(
+    () => items.filter((node) => node.kind === 'file' || node.kind === 'doc'),
+    [items],
+  );
+  const selectedDownloadableItems = useMemo(() => {
+    const selected = new Set(selectedNodeIds);
+    return downloadableItems.filter((node) => selected.has(node.id));
+  }, [downloadableItems, selectedNodeIds]);
+  const zipPreviewEntries = useMemo(
+    () => buildZipManifestEntries(selectedDownloadableItems),
+    [selectedDownloadableItems],
+  );
+  const allDownloadableSelected = downloadableItems.length > 0 && selectedDownloadableItems.length === downloadableItems.length;
+
+  const toggleSelectedNode = useCallback((nodeId: string) => {
+    setSelectedNodeIds((prev) => (
+      prev.includes(nodeId) ? prev.filter((id) => id !== nodeId) : [...prev, nodeId]
+    ));
+  }, []);
+
+  const toggleSelectAllDownloadable = useCallback(() => {
+    setSelectedNodeIds((prev) => {
+      const prevSet = new Set(prev);
+      if (downloadableItems.length > 0 && downloadableItems.every((node) => prevSet.has(node.id))) {
+        return prev.filter((id) => !downloadableItems.some((node) => node.id === id));
+      }
+      const merged = new Set(prev);
+      for (const node of downloadableItems) merged.add(node.id);
+      return Array.from(merged);
+    });
+  }, [downloadableItems]);
+
+  const handleBatchDownload = useCallback(async () => {
+    if (!apiKey || selectedDownloadableItems.length === 0) return;
+    setBatchDownloading(true);
+    setStatusText(null);
+    setErrorText(null);
+    try {
+      const result = await downloadFileNodesAsZip(selectedDownloadableItems, authHeaders, {
+        zipName: `cloud-files-${new Date().toISOString().slice(0, 10)}.zip`,
+      });
+      if (result.failures.length === 0) {
+        setStatusText(tr(
+          `ZIP 下载完成，共 ${result.succeeded} 个文件。`,
+          `ZIP download complete: ${result.succeeded} files.`,
+        ));
+      } else {
+        const first = result.failures[0];
+        const firstReason = toErrorMessage({ error: { message: first.reason } }, first.reason);
+        setErrorText(tr(
+          `ZIP 下载部分失败：成功 ${result.succeeded}/${result.requested}，首个失败 ${first.name}: ${firstReason}`,
+          `ZIP download partially failed: ${result.succeeded}/${result.requested} succeeded. First failure ${first.name}: ${firstReason}`,
+        ));
+      }
+    } catch (error) {
+      setErrorText((error as Error).message);
+    } finally {
+      setBatchDownloading(false);
+    }
+  }, [apiKey, selectedDownloadableItems, authHeaders, tr]);
+
+  const openZipPreview = useCallback(() => {
+    if (selectedDownloadableItems.length === 0) return;
+    setIsZipPreviewOpen(true);
+  }, [selectedDownloadableItems.length]);
 
   const handlePublish = useCallback(async (node: FileNode) => {
     if (!apiKey || !selectedTaskId) return;
@@ -391,7 +429,8 @@ export function CloudFilesPage() {
   }, [view, selectedTaskId, tr, term]);
 
   return (
-    <div className="max-w-[1900px] mx-auto px-3 sm:px-4 lg:px-6 py-6">
+    <>
+      <div className="max-w-[1900px] mx-auto px-3 sm:px-4 lg:px-6 py-6">
       <div className="mb-6">
         <h2 className="text-2xl font-bold text-gray-900">{tr('云端文件', 'Cloud Files')}</h2>
         <p className="text-gray-600 mt-1">
@@ -456,6 +495,16 @@ export function CloudFilesPage() {
           <div className="ml-auto flex items-center gap-2">
             <button
               type="button"
+              onClick={openZipPreview}
+              disabled={batchDownloading || selectedDownloadableItems.length === 0 || !apiKey}
+              className="px-3 py-1.5 text-xs font-medium rounded-lg border border-blue-200 text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+            >
+              {batchDownloading
+                ? tr('ZIP 打包中...', 'Packaging ZIP...')
+                : tr(`下载 ZIP (${selectedDownloadableItems.length})`, `Download ZIP (${selectedDownloadableItems.length})`)}
+            </button>
+            <button
+              type="button"
               onClick={() => fetchFiles()}
               disabled={loading || !apiKey}
               className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
@@ -518,6 +567,16 @@ export function CloudFilesPage() {
             <table className="min-w-full text-xs">
               <thead>
                 <tr className="text-left text-gray-500 border-b">
+                  <th className="py-2 px-3">
+                    <input
+                      type="checkbox"
+                      checked={allDownloadableSelected}
+                      disabled={downloadableItems.length === 0}
+                      onChange={toggleSelectAllDownloadable}
+                      className="h-3.5 w-3.5 rounded border-gray-300"
+                      aria-label={tr('全选可下载文件', 'Select all downloadable files')}
+                    />
+                  </th>
                   <th className="py-2 px-3">{tr('名称', 'Name')}</th>
                   <th className="py-2 px-3">{tr('类型', 'Type')}</th>
                   <th className="py-2 px-3">{tr('范围', 'Scope')}</th>
@@ -530,6 +589,19 @@ export function CloudFilesPage() {
               <tbody>
                 {items.map((node) => (
                   <tr key={node.id} className="border-b border-gray-100 last:border-b-0">
+                    <td className="py-2 px-3">
+                      {(node.kind === 'file' || node.kind === 'doc') ? (
+                        <input
+                          type="checkbox"
+                          checked={selectedNodeIds.includes(node.id)}
+                          onChange={() => toggleSelectedNode(node.id)}
+                          className="h-3.5 w-3.5 rounded border-gray-300"
+                          aria-label={tr(`选择文件 ${node.name}`, `Select file ${node.name}`)}
+                        />
+                      ) : (
+                        <span className="text-gray-300">-</span>
+                      )}
+                    </td>
                     <td className="py-2 px-3 font-medium text-gray-900">{node.name}</td>
                     <td className="py-2 px-3 text-gray-600">{node.kind}</td>
                     <td className="py-2 px-3 text-gray-600">
@@ -586,6 +658,38 @@ export function CloudFilesPage() {
           )}
         </div>
       </div>
-    </div>
+      </div>
+
+      <ConfirmModal
+        isOpen={isZipPreviewOpen}
+        title={tr('下载 ZIP 预览', 'ZIP Download Preview')}
+        description={tr(`将打包 ${zipPreviewEntries.length} 个文件，按目录结构写入 ZIP。`, `Will package ${zipPreviewEntries.length} files into ZIP with folder structure.`)}
+        confirmLabel={batchDownloading ? tr('打包中...', 'Packaging...') : tr('确认下载 ZIP', 'Download ZIP')}
+        onConfirm={() => {
+          setIsZipPreviewOpen(false);
+          void handleBatchDownload();
+        }}
+        onCancel={() => setIsZipPreviewOpen(false)}
+      >
+        <div className="rounded-lg border border-gray-200 bg-gray-50 p-2 max-h-72 overflow-auto">
+          {zipPreviewEntries.length === 0 ? (
+            <p className="text-xs text-gray-500">{tr('暂无可下载文件。', 'No downloadable files selected.')}</p>
+          ) : (
+            <div className="space-y-1">
+              {zipPreviewEntries.map((entry) => (
+                <div key={entry.nodeId} className="flex items-start justify-between gap-2 px-1 py-1 text-xs">
+                  <code className="text-gray-700 break-all">{entry.zipPath}</code>
+                  {entry.renamed && (
+                    <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] text-amber-800">
+                      {tr('重名已改名', 'Renamed')}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </ConfirmModal>
+    </>
   );
 }
