@@ -8,6 +8,8 @@ import { formatDate } from '@/lib/utils';
 
 interface TaskTimelineProps {
   focusTaskId: string;
+  focusTaskStatus?: Task['status'];
+  focusTaskPriority?: Task['priority'];
   tasks: Task[];
   messages: Message[];
   /** Called when the right-side detail panel opens or closes */
@@ -125,6 +127,21 @@ function summarize(value: unknown, maxLen = 120): string {
   if (value === null || value === undefined) return '';
   const str = typeof value === 'string' ? value : JSON.stringify(value);
   return str.length > maxLen ? str.slice(0, maxLen) + '...' : str;
+}
+
+function formatElapsedClock(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}h ${String(minutes).padStart(2, '0')}m ${String(seconds).padStart(2, '0')}s`;
+  }
+  if (minutes > 0) {
+    return `${minutes}m ${String(seconds).padStart(2, '0')}s`;
+  }
+  return `${seconds}s`;
 }
 
 function normalizePreviewText(raw: string): string {
@@ -447,7 +464,7 @@ function MessageDetailPanel({ msg, onClose }: { msg: Message; onClose: () => voi
   const delegateIntentMeta = isDelegateIntentMessage(msg) ? getDelegateIntentMeta(payload) : null;
 
   return (
-    <div className="h-full w-full rounded-xl bg-white overflow-hidden flex flex-col card-gradient shadow-xl border border-gray-200">
+    <div className="h-full w-full rounded-xl glass-strong overflow-hidden flex flex-col border border-gray-200">
       {/* Header */}
       <div className={`flex items-center justify-between px-4 py-3 ${
         visualKind === 'submitted'
@@ -573,7 +590,7 @@ function MessageDetailPanel({ msg, onClose }: { msg: Message; onClose: () => voi
             />
             <div className="min-w-0">
               <p className="text-xs font-medium text-gray-900 truncate">{msg.fromBotName || msg.fromBotId}</p>
-              <p className="text-[10px] text-gray-400">From</p>
+              <p className="text-[10px] text-gray-500">From</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -586,7 +603,7 @@ function MessageDetailPanel({ msg, onClose }: { msg: Message; onClose: () => voi
             />
             <div className="min-w-0">
               <p className="text-xs font-medium text-gray-900 truncate">{msg.toBotName || msg.toBotId}</p>
-              <p className="text-[10px] text-gray-400">To</p>
+              <p className="text-[10px] text-gray-500">To</p>
             </div>
           </div>
         </div>
@@ -672,10 +689,11 @@ function MessageDetailPanel({ msg, onClose }: { msg: Message; onClose: () => voi
 
 /* ---------- main component ---------- */
 
-export function TaskTimeline({ focusTaskId, tasks, messages, onPanelChange }: TaskTimelineProps) {
+export function TaskTimeline({ focusTaskId, focusTaskStatus, focusTaskPriority, tasks, messages, onPanelChange }: TaskTimelineProps) {
   const navigate = useNavigate();
   const activityViewportRef = useRef<HTMLDivElement | null>(null);
   const timelineRootRef = useRef<HTMLDivElement | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const [panelLayout, setPanelLayout] = useState<{ mobile: boolean; top: number; left: number; height: number }>({
     mobile: true,
     top: 96,
@@ -907,7 +925,7 @@ export function TaskTimeline({ focusTaskId, tasks, messages, onPanelChange }: Ta
               <StatusBadge status={task.status} />
               <StatusBadge status={task.priority} />
               {hasChildren && (
-                <span className="text-[10px] text-gray-400">({children.length})</span>
+                <span className="text-[10px] text-gray-500">({children.length})</span>
               )}
             </div>
             <div className="flex items-center gap-3 mt-1">
@@ -935,7 +953,7 @@ export function TaskTimeline({ focusTaskId, tasks, messages, onPanelChange }: Ta
             {!task.error && task.result !== undefined && task.result !== null && (
               <p className="text-xs text-green-700 truncate mt-1">Result: {summarize(task.result)}</p>
             )}
-            <p className="text-[10px] text-gray-400 mt-1">{formatDate(task.createdAt)}</p>
+            <p className="text-[10px] text-gray-500 mt-1">{formatDate(task.createdAt)}</p>
           </div>
         </div>
 
@@ -971,18 +989,18 @@ export function TaskTimeline({ focusTaskId, tasks, messages, onPanelChange }: Ta
     const isHumanRequest = isHumanInputRequest(msg, payload);
     const isHumanResponse = msg.type === 'human_input_response';
     const rowTone = visualKind === 'submitted'
-      ? 'border-indigo-200 bg-indigo-50/70'
+      ? 'border-indigo-200 bg-indigo-50'
       : visualKind === 'approved'
-        ? 'border-emerald-200 bg-emerald-50/70'
+        ? 'border-emerald-200 bg-emerald-50'
         : visualKind === 'rejected'
-          ? 'border-rose-200 bg-rose-50/70'
+          ? 'border-rose-200 bg-rose-50'
           : isHumanRequest
-            ? 'border-amber-200 bg-amber-50/70'
+            ? 'border-amber-200 bg-amber-50'
             : isHumanResponse
-              ? 'border-emerald-200 bg-emerald-50/70'
+              ? 'border-emerald-200 bg-emerald-50'
               : humanIntervention
-                ? 'border-cyan-200 bg-cyan-50/70'
-              : 'border-gray-200 bg-white';
+                ? 'border-cyan-200 bg-cyan-50'
+              : 'border-gray-200 bg-gray-50';
     const selectedTone = visualKind === 'submitted'
       ? 'ring-2 ring-indigo-300 border-indigo-300'
       : visualKind === 'approved'
@@ -1038,10 +1056,10 @@ export function TaskTimeline({ focusTaskId, tasks, messages, onPanelChange }: Ta
                 </span>
               )}
               <span className="text-sm font-semibold text-gray-900 truncate">{fromName}</span>
-              <span className="text-xs text-gray-400 shrink-0">to</span>
+              <span className="text-xs text-gray-500 shrink-0">to</span>
               <span className="text-xs text-gray-600 truncate">{toName}</span>
             </div>
-            <span className="text-[10px] text-gray-400 shrink-0">{formatDate(msg.createdAt)}</span>
+            <span className="text-[10px] text-gray-500 shrink-0">{formatDate(msg.createdAt)}</span>
           </div>
           <p
             className="mt-1 text-sm text-gray-700 break-words"
@@ -1081,13 +1099,78 @@ export function TaskTimeline({ focusTaskId, tasks, messages, onPanelChange }: Ta
               </span>
             )}
             {msg.status === 'read' && (
-              <span className="text-[10px] text-gray-400">read</span>
+              <span className="text-[10px] text-gray-500">read</span>
             )}
           </div>
         </div>
       </div>
     );
   }
+
+  const showExecutionLoader =
+    focusTaskStatus === 'pending' ||
+    focusTaskStatus === 'accepted' ||
+    focusTaskStatus === 'processing';
+  const focusTask = tasks.find((t) => t.id === focusTaskId) || null;
+  let waitingSinceMs: number | null = null;
+  if (showExecutionLoader) {
+    let latestMessageMs = 0;
+    for (const message of messages) {
+      if (message.taskId !== focusTaskId) continue;
+      const parsed = Date.parse(message.createdAt);
+      if (!Number.isNaN(parsed) && parsed > latestMessageMs) latestMessageMs = parsed;
+    }
+    if (latestMessageMs > 0) {
+      waitingSinceMs = latestMessageMs;
+    } else if (focusTask?.startedAt) {
+      const started = Date.parse(focusTask.startedAt);
+      if (!Number.isNaN(started)) waitingSinceMs = started;
+    } else if (focusTask?.createdAt) {
+      const created = Date.parse(focusTask.createdAt);
+      if (!Number.isNaN(created)) waitingSinceMs = created;
+    }
+  }
+  const waitingElapsedText = waitingSinceMs ? formatElapsedClock(nowMs - waitingSinceMs) : '—';
+  const executionPriority = focusTaskPriority || 'normal';
+  const loaderToneClass =
+    executionPriority === 'urgent'
+      ? 'task-exec-loader--urgent'
+      : executionPriority === 'high'
+        ? 'task-exec-loader--high'
+        : executionPriority === 'low'
+          ? 'task-exec-loader--low'
+          : 'task-exec-loader--normal';
+  const runningLabel =
+    executionPriority === 'urgent'
+      ? 'URGENT RUNNING'
+      : executionPriority === 'high'
+        ? 'HIGH RUNNING'
+        : executionPriority === 'low'
+          ? 'LOW RUNNING'
+          : 'RUNNING';
+  const runningHint =
+    executionPriority === 'urgent'
+      ? 'Urgent task executing, update stream expected very soon...'
+      : executionPriority === 'high'
+        ? 'High-priority task executing, watching for rapid updates...'
+        : executionPriority === 'low'
+          ? 'Low-priority task executing in steady mode...'
+          : 'Live execution stream, waiting for new bot updates...';
+  const runningChipTone =
+    executionPriority === 'urgent'
+      ? 'border-rose-200 bg-rose-100 text-rose-700'
+      : executionPriority === 'high'
+        ? 'border-amber-200 bg-amber-100 text-amber-800'
+        : executionPriority === 'low'
+          ? 'border-cyan-200 bg-cyan-100 text-cyan-700'
+          : 'border-primary-200 bg-primary-100 text-primary-700';
+
+  useEffect(() => {
+    if (!showExecutionLoader || !waitingSinceMs) return;
+    setNowMs(Date.now());
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [showExecutionLoader, waitingSinceMs]);
 
   if (tree.kind !== 'task') return null;
 
@@ -1125,6 +1208,33 @@ export function TaskTimeline({ focusTaskId, tasks, messages, onPanelChange }: Ta
             )
           )}
         </div>
+        {showExecutionLoader && (
+          <div className="border-t border-gray-200 px-2 pb-2 pt-1.5">
+            <div className={`task-exec-loader ${loaderToneClass}`}>
+              <div className="relative z-[1] flex items-center justify-between gap-3 px-3 py-2.5">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className="task-exec-bars" aria-hidden="true">
+                    <span />
+                    <span />
+                    <span />
+                    <span />
+                  </span>
+                  <span className="text-xs font-semibold text-primary-700 truncate">
+                    {runningHint}
+                  </span>
+                </div>
+                <div className="flex flex-col items-end gap-1">
+                  <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border ${runningChipTone}`}>
+                    {runningLabel}
+                  </span>
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border border-gray-200 bg-gray-50 text-gray-600">
+                    WAIT {waitingElapsedText}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
       <p className="mt-2 text-[10px] text-gray-500">
         Showing the latest activity window (about 10 messages). Scroll up to view older history.

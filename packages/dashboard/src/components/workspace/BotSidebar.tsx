@@ -27,7 +27,7 @@ export function BotSidebar({ botId, onClose }: BotSidebarProps) {
   );
 
   return (
-    <div className="w-[360px] shrink-0 border-l border-gray-200 bg-white rounded-r-xl overflow-y-auto transition-all duration-200">
+    <div className="w-[360px] shrink-0 border-l border-gray-200 glass-surface rounded-r-xl overflow-y-auto transition-all duration-200">
       {/* Header */}
       <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-100">
         <BotAvatar name={bot.name} id={bot.id} avatarColor={bot.avatarColor} avatarUrl={bot.avatarUrl} size="lg" status={bot.status} />

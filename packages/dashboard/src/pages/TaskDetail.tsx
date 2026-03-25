@@ -393,13 +393,6 @@ export function TaskDetail() {
     [messages, botMap],
   );
 
-  // Check if this task has related content (parent, children, or messages)
-  const hasActivity = task && (
-    task.parentTaskId ||
-    tasks.some(t => t.parentTaskId === task.id) ||
-    messages.some(m => m.taskId === task.id)
-  );
-
   const activityExport = useMemo(() => {
     if (!task) return null;
     const { rootTaskId, tree } = buildActivityTreeExport(task.id, enrichedTasks, enrichedMessages);
@@ -458,7 +451,7 @@ export function TaskDetail() {
     : null;
 
   return (
-    <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
+    <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8 glass-intensity-mid">
       {/* Back + Header */}
       <button onClick={() => navigate('/tasks')} className="text-sm text-gray-500 hover:text-gray-700 mb-4 inline-block">
         &larr; Back to tasks
@@ -477,7 +470,7 @@ export function TaskDetail() {
         <TaskActions task={task} />
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-[21rem,minmax(0,1fr)] gap-6">
+      <div className="grid grid-cols-1 xl:grid-cols-[31.5rem,minmax(0,1fr)] gap-6">
         <aside className="xl:sticky xl:top-24 self-start">
           <div className="space-y-6">
             <div className="bg-white rounded-xl p-6 card-gradient">
@@ -578,26 +571,26 @@ export function TaskDetail() {
         </aside>
 
         <div className="space-y-6">
-          {hasActivity && (
-            <div className="bg-white rounded-xl p-6 card-gradient">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold text-gray-700">Message History</h3>
-                <button
-                  type="button"
-                  onClick={handleDownloadActivity}
-                  disabled={!activityExport}
-                  className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Download Task History
-                </button>
-              </div>
-              <TaskTimeline
-                focusTaskId={task.id}
-                tasks={enrichedTasks}
-                messages={enrichedMessages}
-              />
+          <div className="bg-white rounded-xl p-6 card-gradient">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold text-gray-700">Message History</h3>
+              <button
+                type="button"
+                onClick={handleDownloadActivity}
+                disabled={!activityExport}
+                className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Download Task History
+              </button>
             </div>
-          )}
+            <TaskTimeline
+              focusTaskId={task.id}
+              focusTaskStatus={task.status}
+              focusTaskPriority={task.priority}
+              tasks={enrichedTasks}
+              messages={enrichedMessages}
+            />
+          </div>
 
         {/* Waiting for Input Banner — only shown to the human whose bot requested input */}
         {(() => {

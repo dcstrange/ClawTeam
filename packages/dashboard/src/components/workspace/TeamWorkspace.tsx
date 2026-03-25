@@ -1035,7 +1035,7 @@ export function TeamWorkspace({ compact = false, filterTaskId, onBotSelect, sele
 
       {/* Zoom controls (non-compact only) */}
       {!compact && (
-        <div className="absolute bottom-3 right-3 z-10 flex items-center gap-1 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-lg shadow-sm px-1 py-0.5">
+        <div className="absolute bottom-3 right-3 z-10 flex items-center gap-1 glass-popover border border-gray-200 rounded-lg px-1 py-0.5">
           <button
             onClick={handleZoomOut}
             disabled={zoom <= MIN_ZOOM}

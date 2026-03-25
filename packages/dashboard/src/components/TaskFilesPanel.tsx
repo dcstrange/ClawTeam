@@ -27,7 +27,12 @@ interface ApiError {
 function toErrorMessage(payload: unknown, fallback: string): string {
   if (payload && typeof payload === 'object') {
     const p = payload as ApiError;
-    if (p.error?.message) return p.error.message;
+    if (p.error?.message) {
+      if (p.error.message === 'Actor is not task participant') {
+        return 'You are not a direct participant of this sub-task file scope. Approved child artifacts will be mirrored to the parent task files.';
+      }
+      return p.error.message;
+    }
   }
   return fallback;
 }
@@ -62,6 +67,7 @@ export function TaskFilesPanel({ taskId, fallbackBotId }: TaskFilesPanelProps) {
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [busyAction, setBusyAction] = useState<{ nodeId: string; action: 'move' | 'copy' | 'delete' } | null>(null);
+  const [openMenuNodeId, setOpenMenuNodeId] = useState<string | null>(null);
   const [statusText, setStatusText] = useState<string | null>(null);
   const [errorText, setErrorText] = useState<string | null>(null);
 
@@ -107,6 +113,17 @@ export function TaskFilesPanel({ taskId, fallbackBotId }: TaskFilesPanelProps) {
   useEffect(() => {
     fetchTaskFiles();
   }, [fetchTaskFiles]);
+
+  useEffect(() => {
+    if (!openMenuNodeId) return;
+    const onMouseDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('[data-file-action-menu-root="true"]')) return;
+      setOpenMenuNodeId(null);
+    };
+    document.addEventListener('mousedown', onMouseDown);
+    return () => document.removeEventListener('mousedown', onMouseDown);
+  }, [openMenuNodeId]);
 
   const handleUpload = useCallback(async (evt: React.ChangeEvent<HTMLInputElement>) => {
     const file = evt.target.files?.[0];
@@ -344,7 +361,7 @@ export function TaskFilesPanel({ taskId, fallbackBotId }: TaskFilesPanelProps) {
   }, [apiKey, authHeaders, fetchTaskFiles]);
 
   return (
-    <div className="bg-white rounded-xl p-6 card-gradient">
+    <div className="bg-white rounded-xl p-6 card-gradient h-[36rem] flex flex-col">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold text-gray-700">Task Files</h3>
         <div className="flex items-center gap-2">
@@ -380,83 +397,115 @@ export function TaskFilesPanel({ taskId, fallbackBotId }: TaskFilesPanelProps) {
         <p className="text-xs text-green-700 bg-green-50 border border-green-100 rounded-lg p-2 mb-3">{statusText}</p>
       )}
 
-      {loading ? (
-        <div className="text-xs text-gray-500">Loading files...</div>
-      ) : items.length === 0 ? (
-        <div className="text-xs text-gray-500">No task files yet.</div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-xs">
-            <thead>
-              <tr className="text-left text-gray-500 border-b">
-                <th className="py-2 pr-2">Name</th>
-                <th className="py-2 pr-2">Kind</th>
-                <th className="py-2 pr-2">Size</th>
-                <th className="py-2 pr-2">Updated</th>
-                <th className="py-2 pr-2">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((node) => (
-                <tr key={node.id} className="border-b border-gray-100 last:border-b-0">
-                  <td className="py-2 pr-2 font-medium text-gray-900">{node.name}</td>
-                  <td className="py-2 pr-2 text-gray-600">{node.kind}</td>
-                  <td className="py-2 pr-2 text-gray-600">{formatSize(node.sizeBytes)}</td>
-                  <td className="py-2 pr-2 text-gray-600">{formatDate(node.updatedAt)}</td>
-                  <td className="py-2 pr-2">
-                    <div className="flex items-center gap-2">
-                      {(node.kind === 'file' || node.kind === 'doc') && (
-                        <button
-                          type="button"
-                          onClick={() => handleDownload(node)}
-                          disabled={!!busyAction}
-                          className="text-primary-700 hover:underline"
-                        >
-                          Download
-                        </button>
-                      )}
-                      {node.kind !== 'folder' && (
-                        <button
-                          type="button"
-                          onClick={() => handlePublish(node)}
-                          disabled={!!busyAction}
-                          className="text-indigo-700 hover:underline"
-                        >
-                          Publish
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => handleMove(node)}
-                        disabled={!!busyAction}
-                        className="text-gray-700 hover:underline disabled:opacity-50"
-                      >
-                        {busyAction?.nodeId === node.id && busyAction.action === 'move' ? 'Moving...' : 'Move'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleCopy(node)}
-                        disabled={!!busyAction}
-                        className="text-gray-700 hover:underline disabled:opacity-50"
-                      >
-                        {busyAction?.nodeId === node.id && busyAction.action === 'copy' ? 'Copying...' : 'Copy'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(node)}
-                        disabled={!!busyAction}
-                        className="text-red-700 hover:underline disabled:opacity-50"
-                      >
-                        {busyAction?.nodeId === node.id && busyAction.action === 'delete' ? 'Deleting...' : 'Delete'}
-                      </button>
-                    </div>
-                  </td>
+      <div className="flex-1 min-h-0">
+        {loading ? (
+          <div className="text-xs text-gray-500">Loading files...</div>
+        ) : items.length === 0 ? (
+          <div className="text-xs text-gray-500">No task files yet.</div>
+        ) : (
+          <div className="overflow-auto h-full">
+            <table className="min-w-full text-xs">
+              <thead>
+                <tr className="text-left text-gray-500 border-b">
+                  <th className="py-2 pr-2">Name</th>
+                  <th className="py-2 pr-2">Kind</th>
+                  <th className="py-2 pr-2">Size</th>
+                  <th className="py-2 pr-2">Updated</th>
+                  <th className="py-2 pr-2">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              </thead>
+              <tbody>
+                {items.map((node) => (
+                  <tr key={node.id} className="border-b border-gray-100 last:border-b-0">
+                    <td className="py-2 pr-2 font-medium text-gray-900">{node.name}</td>
+                    <td className="py-2 pr-2 text-gray-600">{node.kind}</td>
+                    <td className="py-2 pr-2 text-gray-600">{formatSize(node.sizeBytes)}</td>
+                    <td className="py-2 pr-2 text-gray-600">{formatDate(node.updatedAt)}</td>
+                    <td className="py-2 pr-2">
+                      <div className="relative inline-block text-left" data-file-action-menu-root="true">
+                        <button
+                          type="button"
+                          onClick={() => setOpenMenuNodeId((prev) => (prev === node.id ? null : node.id))}
+                          disabled={!!busyAction}
+                          className="h-7 w-7 rounded-md border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                          aria-label={`Open actions for ${node.name}`}
+                        >
+                          ...
+                        </button>
+
+                        {openMenuNodeId === node.id && (
+                          <div className="absolute right-0 z-20 mt-1 w-40 rounded-lg border border-gray-200 glass-popover py-1">
+                            {(node.kind === 'file' || node.kind === 'doc') && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setOpenMenuNodeId(null);
+                                  void handleDownload(node);
+                                }}
+                                disabled={!!busyAction}
+                                className="w-full text-left px-3 py-1.5 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                              >
+                                Download
+                              </button>
+                            )}
+                            {node.kind !== 'folder' && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setOpenMenuNodeId(null);
+                                  void handlePublish(node);
+                                }}
+                                disabled={!!busyAction}
+                                className="w-full text-left px-3 py-1.5 text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
+                              >
+                                Publish
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setOpenMenuNodeId(null);
+                                void handleMove(node);
+                              }}
+                              disabled={!!busyAction}
+                              className="w-full text-left px-3 py-1.5 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                            >
+                              {busyAction?.nodeId === node.id && busyAction.action === 'move' ? 'Moving...' : 'Move'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setOpenMenuNodeId(null);
+                                void handleCopy(node);
+                              }}
+                              disabled={!!busyAction}
+                              className="w-full text-left px-3 py-1.5 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                            >
+                              {busyAction?.nodeId === node.id && busyAction.action === 'copy' ? 'Copying...' : 'Copy'}
+                            </button>
+                            <div className="my-1 border-t border-gray-100" />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setOpenMenuNodeId(null);
+                                void handleDelete(node);
+                              }}
+                              disabled={!!busyAction}
+                              className="w-full text-left px-3 py-1.5 text-red-700 hover:bg-red-50 disabled:opacity-50"
+                            >
+                              {busyAction?.nodeId === node.id && busyAction.action === 'delete' ? 'Deleting...' : 'Delete'}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

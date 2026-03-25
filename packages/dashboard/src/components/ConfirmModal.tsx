@@ -26,13 +26,15 @@ export function ConfirmModal({
       <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" />
       <div className="fixed inset-0 flex items-center justify-center p-4">
         <div
-          className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 relative animate-scale-in"
+          className="glass-strong rounded-xl max-w-md w-full p-6 relative animate-scale-in"
           onClick={(e) => e.stopPropagation()}
         >
-          <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
-          {description && (
-            <p className="mt-2 text-sm text-gray-600">{description}</p>
-          )}
+          <div className="glass-modal-header -mx-6 -mt-6 mb-4 px-6 py-4 rounded-t-xl">
+            <h3 className="glass-modal-title text-lg font-semibold text-gray-900">{title}</h3>
+            {description && (
+              <p className="mt-2 text-sm text-gray-600">{description}</p>
+            )}
+          </div>
           {children && <div className="mt-3">{children}</div>}
           <div className="mt-6 flex justify-end gap-3">
             <button
