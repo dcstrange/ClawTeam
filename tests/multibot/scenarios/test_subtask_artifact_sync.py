@@ -162,17 +162,35 @@ def test_subtask_artifact_is_mirrored_to_parent_scope(
     # Original parent artifact remains intact
     assert any(item["id"] != mirrored_item["id"] for item in parent_items if item["name"] == "decimal_to_binary.py")
 
-    # Non-participant root delegator still cannot directly list child task scope
+    # Root delegator can read child task scope through ancestor-chain visibility.
     child_files_as_root = requests.get(
         f"{api_url}/api/v1/files",
         params={"scope": "task", "scopeRef": sub_task_id, "limit": 200},
         headers=root_delegator._headers(json=False),
         timeout=10,
     )
-    assert child_files_as_root.status_code == 403
-    payload = child_files_as_root.json()
-    assert payload["success"] is False
-    assert payload["error"]["message"] == "Actor is not task participant"
+    assert child_files_as_root.status_code == 200, child_files_as_root.text
+    child_items = child_files_as_root.json()["data"]["items"]
+    child_names = {item["name"] for item in child_items}
+    assert "binary_to_decimal.py" in child_names
+
+    # But write still requires direct task participant: root delegator upload to child scope should fail.
+    forbidden_upload = requests.post(
+        f"{api_url}/api/v1/files/upload",
+        json={
+            "name": "root_should_not_write_child_scope.txt",
+            "mimeType": "text/plain",
+            "contentBase64": base64.b64encode(b"forbidden").decode("utf-8"),
+            "scope": "task",
+            "scopeRef": sub_task_id,
+        },
+        headers=root_delegator._headers(),
+        timeout=10,
+    )
+    assert forbidden_upload.status_code == 403
+    forbidden_payload = forbidden_upload.json()
+    assert forbidden_payload["success"] is False
+    assert forbidden_payload["error"]["message"] == "Actor is not task participant"
 
     # Sanity: original node IDs still exist in their respective scopes.
     # Parent node should still be present as uploaded by parent executor.

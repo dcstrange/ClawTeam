@@ -379,6 +379,55 @@ async function isTaskParticipant(db: DatabasePool, taskId: string, actor: ActorC
   return (res.rowCount ?? 0) > 0;
 }
 
+async function canViewTaskScope(db: DatabasePool, taskId: string, actor: ActorContext): Promise<boolean> {
+  // Direct participant always has view access.
+  if (await isTaskParticipant(db, taskId, actor)) {
+    return true;
+  }
+
+  // Ancestor-chain visibility: if actor participates in any ancestor task,
+  // allow read-only access to descendant task scope.
+  if (actor.actorType === 'bot') {
+    const res = await db.query<{ id: string }>(
+      `WITH RECURSIVE lineage AS (
+         SELECT id, parent_task_id, from_bot_id, to_bot_id
+           FROM tasks
+          WHERE id = $1
+         UNION ALL
+         SELECT t.id, t.parent_task_id, t.from_bot_id, t.to_bot_id
+           FROM tasks t
+           JOIN lineage l ON l.parent_task_id = t.id
+       )
+       SELECT id
+         FROM lineage
+        WHERE from_bot_id = $2 OR to_bot_id = $2
+        LIMIT 1`,
+      [taskId, actor.botId!],
+    );
+    return (res.rowCount ?? 0) > 0;
+  }
+
+  const res = await db.query<{ id: string }>(
+    `WITH RECURSIVE lineage AS (
+       SELECT id, parent_task_id, from_bot_id, to_bot_id
+         FROM tasks
+        WHERE id = $1
+       UNION ALL
+       SELECT t.id, t.parent_task_id, t.from_bot_id, t.to_bot_id
+         FROM tasks t
+         JOIN lineage l ON l.parent_task_id = t.id
+     )
+     SELECT l.id
+       FROM lineage l
+       LEFT JOIN bots bf ON bf.id = l.from_bot_id
+       LEFT JOIN bots bt ON bt.id = l.to_bot_id
+      WHERE bf.user_id = $2 OR bt.user_id = $2
+      LIMIT 1`,
+    [taskId, actor.userId!],
+  );
+  return (res.rowCount ?? 0) > 0;
+}
+
 async function canPublishForTask(db: DatabasePool, taskId: string, actor: ActorContext): Promise<boolean> {
   if (actor.actorType === 'bot') {
     const res = await db.query<{ id: string }>(
@@ -423,6 +472,9 @@ async function checkNamespaceDefaultAccess(
 
   if (node.scope === 'task') {
     if (!node.scope_ref) return false;
+    if (required === 'view') {
+      return canViewTaskScope(db, node.scope_ref, actor);
+    }
     return isTaskParticipant(db, node.scope_ref, actor);
   }
 
@@ -1333,8 +1385,8 @@ export function createFileRoutes(deps: FileRoutesDeps): FastifyPluginAsync {
             }
           }
           if (scope === 'task' && scopeRef) {
-            const participant = await isTaskParticipant(db, scopeRef, actor);
-            if (!participant) throw new AuthorizationError('Actor is not task participant');
+            const canView = await canViewTaskScope(db, scopeRef, actor);
+            if (!canView) throw new AuthorizationError('Actor is not task participant');
           }
 
           const rowsRes = await db.query<FileNodeRow>(
