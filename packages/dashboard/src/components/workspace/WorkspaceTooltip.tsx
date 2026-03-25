@@ -16,7 +16,7 @@ export function WorkspaceTooltip({ x, y, content, visible }: WorkspaceTooltipPro
         top: y - 8,
       }}
     >
-      <div className="bg-white rounded-lg px-3 py-2 text-xs text-gray-700 shadow-lg border border-gray-200 max-w-[220px]">
+      <div className="glass-popover rounded-lg px-3 py-2 text-xs text-gray-700 border border-gray-200 max-w-[220px]">
         {content}
       </div>
     </div>

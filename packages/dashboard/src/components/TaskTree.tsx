@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { StatusBadge } from '@/components/StatusBadge';
 import type { Task } from '@/lib/types';
+import { useI18n } from '@/lib/i18n';
 
 interface TaskTreeProps {
   tasks: Task[];
@@ -14,6 +15,7 @@ interface TreeNode {
 }
 
 export function TaskTree({ tasks, focusTaskId }: TaskTreeProps) {
+  const { tr } = useI18n();
   const navigate = useNavigate();
 
   const tree = useMemo(() => {
@@ -57,7 +59,7 @@ export function TaskTree({ tasks, focusTaskId }: TaskTreeProps) {
   }, [tasks, focusTaskId]);
 
   if (!tree) {
-    return <p className="text-sm text-gray-400">No dependency tree available</p>;
+    return <p className="text-sm text-gray-400">{tr('暂无可用依赖树', 'No dependency tree available')}</p>;
   }
 
   function renderNode(node: TreeNode, depth: number) {

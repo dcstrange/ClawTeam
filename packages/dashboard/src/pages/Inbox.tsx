@@ -7,6 +7,7 @@ import { StatusBadge } from '@/components/StatusBadge';
 import { BotAvatar } from '@/components/BotAvatar';
 import { Link } from 'react-router-dom';
 import type { Task } from '@/lib/types';
+import { useI18n } from '@/lib/i18n';
 
 interface InboxItemProps {
   task: Task;
@@ -14,9 +15,11 @@ interface InboxItemProps {
   waitingReason: string;
   currentBotId: string;
   onResume: () => void;
+  tr: (zh: string, en: string) => string;
+  term: (key: 'session' | 'route' | 'delegate' | 'bot' | 'task' | 'workspace' | 'inbox') => string;
 }
 
-function InboxItem({ task, onResume, isExecutor, waitingReason, currentBotId }: InboxItemProps) {
+function InboxItem({ task, onResume, isExecutor, waitingReason, currentBotId, tr, term }: InboxItemProps) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,12 +53,12 @@ function InboxItem({ task, onResume, isExecutor, waitingReason, currentBotId }: 
           <StatusBadge status={task.status} />
         </div>
         <span className="text-xs text-gray-400">
-          {task.capability || 'general'}
+          {task.capability || tr('通用', 'General')}
         </span>
       </div>
 
       <div className="flex items-center gap-2 text-sm text-gray-600 mb-3">
-        <span>{isExecutor ? 'From:' : 'Executor:'}</span>
+        <span>{isExecutor ? tr('来自', 'From') : tr('执行者', 'Executor')}:</span>
         <BotAvatar
           name={isExecutor ? (task.fromBotName || task.fromBotId) : (task.toBotName || task.toBotId)}
           id={isExecutor ? task.fromBotId : task.toBotId}
@@ -71,7 +74,7 @@ function InboxItem({ task, onResume, isExecutor, waitingReason, currentBotId }: 
       </div>
 
       <div className="bg-amber-50 rounded-xl p-3 mb-4">
-        <p className="text-sm font-medium text-amber-800 mb-1">Bot is asking:</p>
+        <p className="text-sm font-medium text-amber-800 mb-1">{tr(`${term('bot')}正在请求`, `${term('bot')} is requesting`)}:</p>
         <p className="text-sm text-amber-900">{waitingReason}</p>
       </div>
 
@@ -80,7 +83,7 @@ function InboxItem({ task, onResume, isExecutor, waitingReason, currentBotId }: 
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Type your reply..."
+          placeholder={tr('输入你的回复...', 'Enter your reply...')}
           className="flex-1 px-3 py-2 text-sm bg-gray-50 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 transition-shadow"
         />
         <button
@@ -88,7 +91,7 @@ function InboxItem({ task, onResume, isExecutor, waitingReason, currentBotId }: 
           disabled={loading}
           className="px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700 disabled:opacity-50"
         >
-          {loading ? 'Sending...' : input ? 'Send & Resume' : 'Resume'}
+          {loading ? tr('发送中...', 'Sending...') : input ? tr('发送并恢复', 'Send & Resume') : tr('恢复', 'Resume')}
         </button>
       </form>
 
@@ -100,6 +103,7 @@ function InboxItem({ task, onResume, isExecutor, waitingReason, currentBotId }: 
 }
 
 export function Inbox() {
+  const { tr, term } = useI18n();
   const { data: tasks = [] } = useTasks();
   const { me } = useIdentity();
   const queryClient = useQueryClient();
@@ -118,12 +122,12 @@ export function Inbox() {
     // Legacy fallback: single waitingRequestedBy field
     const requestedBy = result?.waitingRequestedBy;
     if (requestedBy === me.currentBot.id) {
-      return [{ task: t, reason: result?.waitingReason || 'No reason provided' }];
+      return [{ task: t, reason: result?.waitingReason || tr('未提供原因', 'No reason provided') }];
     }
     // Very old tasks: no requestedBy at all, show to both sides
     if (!requestedBy && !requests.length) {
       if (t.toBotId === me.currentBot.id || t.fromBotId === me.currentBot.id) {
-        return [{ task: t, reason: result?.waitingReason || 'No reason provided' }];
+        return [{ task: t, reason: result?.waitingReason || tr('未提供原因', 'No reason provided') }];
       }
     }
     return [];
@@ -132,18 +136,18 @@ export function Inbox() {
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-6">
-        <h2 className="text-2xl font-bold text-gray-900">Inbox</h2>
+        <h2 className="text-2xl font-bold text-gray-900">{term('inbox')}</h2>
         <p className="text-gray-600 mt-1">
-          Tasks waiting for your input ({waitingItems.length})
+          {tr(`等待你输入的任务（${waitingItems.length}）`, `${term('task')}s waiting for your input (${waitingItems.length})`)}
         </p>
       </div>
 
       {waitingItems.length === 0 ? (
         <div className="empty-state">
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" /></svg>
-          <p className="text-gray-500 text-lg font-medium">No pending requests</p>
+          <p className="text-gray-500 text-lg font-medium">{tr('暂无待处理请求', 'No pending requests')}</p>
           <p className="text-gray-400 text-sm mt-1">
-            When a bot needs your input, it will appear here.
+            {tr(`当${term('bot')}需要你输入时，会显示在这里。`, `When a ${term('bot')} needs your input, it will appear here.`)}
           </p>
         </div>
       ) : (
@@ -160,6 +164,8 @@ export function Inbox() {
                 waitingReason={reason}
                 currentBotId={me?.currentBot?.id || task.fromBotId}
                 onResume={() => queryClient.invalidateQueries({ queryKey: ['tasks'] })}
+                tr={tr}
+                term={term}
               />
             </div>
           ))}

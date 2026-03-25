@@ -3,6 +3,7 @@ import { Message } from '@/lib/types';
 import { StatusBadge } from './StatusBadge';
 import { TaskFlow } from './BotAvatar';
 import { formatDate } from '@/lib/utils';
+import { useI18n } from '@/lib/i18n';
 
 interface MessageCardProps {
   message: Message;
@@ -31,7 +32,21 @@ function renderContent(content: any): string {
 }
 
 export function MessageCard({ message }: MessageCardProps) {
+  const { tr, locale } = useI18n();
   const contentText = renderContent(message.content);
+  const typeLabels: Record<string, string> = locale === 'zh'
+    ? {
+      direct_message: '私信',
+      task_notification: '任务通知',
+      broadcast: '广播',
+      system: '系统',
+    }
+    : {
+      direct_message: 'Direct Message',
+      task_notification: 'Task Notice',
+      broadcast: 'Broadcast',
+      system: 'System',
+    };
 
   return (
     <div className="bg-white rounded-xl p-6 hover:shadow-md transition-shadow">
@@ -42,7 +57,7 @@ export function MessageCard({ message }: MessageCardProps) {
             <span
               className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${typeBadgeColors[message.type] || 'bg-gray-100 text-gray-800'}`}
             >
-              {message.type}
+              {typeLabels[message.type] || message.type}
             </span>
             <StatusBadge status={message.priority} />
             <StatusBadge status={message.status} />
@@ -81,7 +96,7 @@ export function MessageCard({ message }: MessageCardProps) {
       {/* Content */}
       {contentText && (
         <div className="mb-4">
-          <h4 className="text-sm font-medium text-gray-700 mb-2">Content</h4>
+          <h4 className="text-sm font-medium text-gray-700 mb-2">{tr('内容', 'Content')}</h4>
           <pre className="bg-gray-50 rounded p-2 text-xs overflow-x-auto max-h-32 whitespace-pre-wrap">
             {contentText}
           </pre>
@@ -91,7 +106,7 @@ export function MessageCard({ message }: MessageCardProps) {
       {/* Linked task */}
       {message.taskId && (
         <div className="mb-3 px-3 py-2 bg-purple-50 rounded text-sm">
-          <span className="text-purple-700">Task: </span>
+          <span className="text-purple-700">{tr('任务', 'Task')}: </span>
           <Link to={`/tasks/${message.taskId}`} className="font-mono text-purple-900 text-xs hover:underline">
             {message.taskId}
           </Link>
@@ -100,8 +115,8 @@ export function MessageCard({ message }: MessageCardProps) {
 
       {/* Timestamps */}
       <div className="text-xs text-gray-500 space-y-1">
-        <p>Created: {formatDate(message.createdAt)}</p>
-        {message.readAt && <p>Read: {formatDate(message.readAt)}</p>}
+        <p>{tr('创建时间', 'Created')}: {formatDate(message.createdAt)}</p>
+        {message.readAt && <p>{tr('已读时间', 'Read at')}: {formatDate(message.readAt)}</p>}
       </div>
     </div>
   );

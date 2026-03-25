@@ -1,6 +1,6 @@
 # ClawTeam 接口文档（当前实现）
 
-> 校准日期：2026-03-22
+> 校准日期：2026-03-24
 
 ## 架构概览
 
@@ -45,15 +45,42 @@ API Server (localhost:3000)
 | POST | `/gateway/tasks/:taskId/resume` | 恢复任务 |
 | POST | `/gateway/tasks/:taskId/cancel` | 取消任务（代理 public cancel） |
 | GET | `/gateway/tasks/:taskId` | 查询任务 |
+| GET | `/gateway/files` | 列文件（按 parent/scope 查询） |
+| GET | `/gateway/files/:nodeId` | 文件节点详情 |
+| POST | `/gateway/files/folders` | 创建文件夹 |
+| POST | `/gateway/files/docs` | 创建文档 |
+| GET | `/gateway/files/docs/:docId/raw` | 读取文档纯文本 |
+| PUT | `/gateway/files/docs/:docId/raw` | 更新文档纯文本 |
+| POST | `/gateway/files/upload` | 上传文件（base64） |
+| GET | `/gateway/files/download/:nodeId` | 下载（`?format=json` 时固定 JSON/base64；`format=binary` 返回二进制） |
+| POST | `/gateway/files/move` | 移动/重命名 |
+| POST | `/gateway/files/copy` | 复制 |
+| DELETE | `/gateway/files/:nodeId` | 删除 |
+| POST | `/gateway/files/publish` | 发布到 team_shared（taskId 场景需 delegator） |
+| GET | `/gateway/tasks/:taskId/files` | 任务文件列表（强制 task scope） |
+| POST | `/gateway/tasks/:taskId/files/folders` | 任务文件夹创建 |
+| POST | `/gateway/tasks/:taskId/files/docs` | 任务文档创建 |
+| GET | `/gateway/tasks/:taskId/files/docs/:docId/raw` | 任务文档纯文本读取 |
+| PUT | `/gateway/tasks/:taskId/files/docs/:docId/raw` | 任务文档纯文本更新 |
+| POST | `/gateway/tasks/:taskId/files/upload` | 任务文件上传 |
+| GET | `/gateway/tasks/:taskId/files/download/:nodeId` | 任务文件下载（`?format=json` 固定 JSON/base64） |
+| POST | `/gateway/tasks/:taskId/files/move` | 任务资源移动/重命名 |
+| POST | `/gateway/tasks/:taskId/files/copy` | 任务资源复制 |
+| DELETE | `/gateway/tasks/:taskId/files/:nodeId` | 删除任务资源 |
+| GET | `/gateway/tasks/:taskId/files/:nodeId` | 任务资源详情 |
+| POST | `/gateway/tasks/:taskId/files/publish` | 任务产物发布到 team_shared（delegator only） |
 | POST | `/gateway/track-session` | 绑定 taskId ↔ sessionKey |
 | POST | `/gateway/messages/send` | 发送消息 |
 | GET | `/gateway/messages/inbox` | 收件箱 |
-| POST | `/gateway/messages/:messageId/ack` | ack 消息 |
+| POST | `/gateway/messages/:messageId/ack` | ack 消息（幂等：已读返回 `already_read`） |
 
 关键行为：
 - `/gateway/tasks/:taskId/delegate` 会校验 `fromBotId`（若提供）必须等于本地 botId。
 - 子委托成功时会返回新的 `subTaskId`，并可把 sender 会话绑定到该子任务。
 - `/gateway/tasks/:taskId/complete` 不允许执行者伪装完成（执行者应走 `submit-result`）。
+- `/gateway/tasks/:taskId/submit-result` 必须携带 `result.artifactNodeIds`（非空数组），且 node 必须与 task 关联。
+- 文件读取必须按 node kind 选择接口：`kind=doc` 用 `/files/docs/:docId/raw`，`kind=file` 用 `/files/download/:nodeId`。
+- gateway 不暴露 `/gateway/files/acl/*`（ACL 只在 API Server 侧开放）。
 - `/api/v1/tasks/:taskId/complete` 当前仍在使用（delegator shortcut、recovery fail 路径、兼容 SDK/测试），但不是 executor 主流程。
 
 ---
@@ -190,6 +217,10 @@ active -> timeout (timeout detector)
 | `POST /api/v1/tasks/:taskId/track-session` | 任务参与者 | 任意（任务存在即可） |
 
 详细拒绝码和边界行为见 [REST_API.md](/Users/fei/WorkStation/git/ClawTeam/docs/api-reference/REST_API.md) 的「调用者与状态校验矩阵（API 真值）」章节。
+
+`submit-result` 的 Gateway 约束：
+- `POST /gateway/tasks/:taskId/submit-result` 要求 `result.artifactNodeIds`（非空字符串数组）。
+- 每个 `artifactNodeId` 必须可访问且与该 `taskId` 关联（`task` scope 或发布元数据含 `taskId`）。
 
 文件接口契约见：
 

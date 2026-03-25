@@ -1,6 +1,6 @@
 # File Service API（当前实现）
 
-> 校准日期：2026-03-23  
+> 校准日期：2026-03-25  
 > 代码锚点：`packages/api/src/file-service/routes.ts`
 
 ## 1. 概览
@@ -143,3 +143,24 @@ POST /api/v1/files/acl/grant
 - Swagger UI：`GET /docs`
 - Spec URL：`GET /api/v1/openapi/file-service.yaml`
 - Docs Index：`GET /api/v1`
+
+## 7. 子任务产物镜像（系统行为）
+
+除 `files` 接口本身外，任务协调器在审批链路增加了一个系统行为：
+
+- 当 **sub-task 审批通过** 时，系统会把已批准产物镜像到父任务 `task/<parentTaskId>` 空间
+- 用于保证父任务视角可见并继续交付
+- 代码锚点：`packages/api/src/task-coordinator/completer.ts`
+- 回归：`tests/multibot/scenarios/test_subtask_artifact_sync.py`
+
+说明：该行为是任务编排层能力，不是 `POST /api/v1/files/*` 直连端点。
+
+## 8. 批量下载（Dashboard 现状）
+
+当前批量下载为 **前端聚合能力**：
+
+- Dashboard 选择多文件后，在浏览器端打包 ZIP 下载
+- ZIP 路径优先使用文件名中的路径信息；若文件名无路径，则尝试 metadata 路径提示
+- 下载前可预览 ZIP 清单（预览路径与实际打包一致）
+
+当前 **没有** 后端 `files` 批量 ZIP 端点（例如 `POST /download/batch`）。

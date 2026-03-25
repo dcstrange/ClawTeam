@@ -1,5 +1,5 @@
 version: 1
-updated_at: "2026-03-23"
+updated_at: "2026-03-25"
 owner: "ClawTeam"
 description: >
   Machine-readable retrieval map for docs. Use with docs/spec/LLM_RETRIEVAL_SPEC.md.
@@ -45,10 +45,12 @@ collections:
       - path: docs/api-reference/FILE_SERVICE_API.md
         doc_type: api_reference
         status: active
-        tags: [file-service, api, acl, publish]
+        tags: [file-service, api, acl, publish, mirror, zip-download]
         code_sources:
           - packages/api/src/file-service/routes.ts
           - packages/api/src/file-service/storage.ts
+          - packages/api/src/task-coordinator/completer.ts
+          - packages/dashboard/src/lib/file-download.ts
       - path: docs/api-reference/openapi-file-service.yaml
         doc_type: openapi_contract
         status: active

@@ -5,9 +5,12 @@ import { Task, Message } from '@/lib/types';
 import { StatusBadge } from './StatusBadge';
 import { TaskFlow, BotAvatar } from './BotAvatar';
 import { formatDate } from '@/lib/utils';
+import { useI18n, trGlobal as trG, termGlobal as termG } from '@/lib/i18n';
 
 interface TaskTimelineProps {
   focusTaskId: string;
+  focusTaskStatus?: Task['status'];
+  focusTaskPriority?: Task['priority'];
   tasks: Task[];
   messages: Message[];
   /** Called when the right-side detail panel opens or closes */
@@ -36,21 +39,24 @@ const typeBadgeColors: Record<string, string> = {
 
 /** Map task.type to action label */
 function taskActionLabel(type?: string): { label: string; className: string } {
-  if (type === 'sub-task') return { label: 'SUB-TASK', className: 'bg-indigo-50 text-indigo-700' };
-  return { label: 'DELEGATE', className: 'bg-blue-50 text-blue-700' };
+  if (type === 'sub-task') return { label: trG('子任务', 'Sub-task'), className: 'bg-indigo-50 text-indigo-700' };
+  return { label: termG('delegate'), className: 'bg-blue-50 text-blue-700' };
 }
 
 /** Map message.type to action label */
-const msgActionLabels: Record<string, { label: string; className: string }> = {
-  direct_message:       { label: 'DM',            className: 'bg-blue-50 text-blue-700 border-blue-200' },
-  task_notification:    { label: 'NOTIFY',         className: 'bg-purple-50 text-purple-700 border-purple-200' },
-  delegate_intent:      { label: 'INTENT',         className: 'bg-sky-50 text-sky-700 border-sky-200' },
-  broadcast:            { label: 'BROADCAST',      className: 'bg-green-50 text-green-700 border-green-200' },
-  system:               { label: 'SYSTEM',         className: 'bg-gray-50 text-gray-700 border-gray-200' },
-  human_input_request:  { label: 'HUMAN REQUEST',  className: 'bg-amber-50 text-amber-700 border-amber-200' },
-  human_input_response: { label: 'HUMAN REPLY',    className: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-  task_continuation:    { label: 'CONTINUE',       className: 'bg-green-50 text-green-700 border-green-200' },
-};
+function messageActionLabel(type: string): { label: string; className: string } {
+  const map: Record<string, { label: string; className: string }> = {
+    direct_message:       { label: trG('私信', 'Direct Message'), className: 'bg-blue-50 text-blue-700 border-blue-200' },
+    task_notification:    { label: trG('通知', 'Notification'), className: 'bg-purple-50 text-purple-700 border-purple-200' },
+    delegate_intent:      { label: trG('意图', 'Intent'), className: 'bg-sky-50 text-sky-700 border-sky-200' },
+    broadcast:            { label: trG('广播', 'Broadcast'), className: 'bg-green-50 text-green-700 border-green-200' },
+    system:               { label: trG('系统', 'System'), className: 'bg-gray-50 text-gray-700 border-gray-200' },
+    human_input_request:  { label: trG('人工请求', 'Human Request'), className: 'bg-amber-50 text-amber-700 border-amber-200' },
+    human_input_response: { label: trG('人工回复', 'Human Response'), className: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+    task_continuation:    { label: trG('继续任务', 'Continue Task'), className: 'bg-green-50 text-green-700 border-green-200' },
+  };
+  return map[type] || { label: trG('消息', 'Message'), className: 'bg-green-50 text-green-700 border-green-200' };
+}
 
 function renderContent(content: any): string {
   if (content === null || content === undefined) return '';
@@ -127,6 +133,21 @@ function summarize(value: unknown, maxLen = 120): string {
   return str.length > maxLen ? str.slice(0, maxLen) + '...' : str;
 }
 
+function formatElapsedClock(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}h ${String(minutes).padStart(2, '0')}m ${String(seconds).padStart(2, '0')}s`;
+  }
+  if (minutes > 0) {
+    return `${minutes}m ${String(seconds).padStart(2, '0')}s`;
+  }
+  return `${seconds}s`;
+}
+
 function normalizePreviewText(raw: string): string {
   let text = raw.trim();
   text = text.replace(/^\[(Human Input for Task|Task Continuation for|Need Human Input|Human Reply|Task Continued|Task Pending Review|Task Review Approved|Task Review Rejected)[^\]]*\]\s*/i, '');
@@ -185,30 +206,30 @@ function getHumanInterventionMeta(msg: Message, payload: ParsedMessagePayload): 
   const text = payload.text.trim();
   if (msg.type === 'human_input_response' || /^\[Human Reply\]/i.test(text)) {
     return {
-      label: 'HUMAN REPLY',
-      description: 'Human input was provided from dashboard and delivered back to bot session.',
+      label: trG('人工回复', 'Human Reply'),
+      description: trG('人工输入已从仪表盘提交，并回传到机器人会话。', 'Human input was submitted from dashboard and sent back to the bot session.'),
     };
   }
   if (msg.type === 'task_continuation' || /^\[Task Continued\]/i.test(text) || /^\[Task Continuation for/i.test(text)) {
     return {
-      label: 'HUMAN UPDATE',
-      description: 'Human supplied new instructions from dashboard to continue this task.',
+      label: trG('人工更新', 'Human Update'),
+      description: trG('人工从仪表盘提供了新指令以继续该任务。', 'Human provided new instructions from dashboard to continue the task.'),
     };
   }
   if (isDelegateIntentMessage(msg)) {
     const delegateMeta = getDelegateIntentMeta(payload);
     const fromDashboard = /dashboard/i.test(delegateMeta.source);
     return {
-      label: fromDashboard ? 'HUMAN INTENT' : 'MANUAL INTENT',
+      label: fromDashboard ? trG('人工意图', 'Human Intent') : trG('手动意图', 'Manual Intent'),
       description: fromDashboard
-        ? 'Task intent was initiated by a human action in dashboard.'
-        : 'Task intent was manually created and routed through the delegator session.',
+        ? trG('该任务意图由人工在仪表盘发起。', 'This task intent was initiated by human from dashboard.')
+        : trG('该任务意图由人工创建并通过委托方会话路由。', 'This task intent was created by human and routed through delegator session.'),
     };
   }
   if (/^\[Human Input for Task/i.test(text)) {
     return {
-      label: 'HUMAN INPUT',
-      description: 'Human-provided context was forwarded to a bot as collaboration input.',
+      label: trG('人工输入', 'Human Input'),
+      description: trG('人工提供的上下文已转发给机器人作为协作输入。', 'Human-provided context was forwarded to the bot for collaboration.'),
     };
   }
   return null;
@@ -228,18 +249,18 @@ function messagePreview(msg: Message, payload?: ParsedMessagePayload): string {
     const delegateMeta = getDelegateIntentMeta(parsed);
     const target = delegateMeta.toBotName || delegateMeta.toBotId;
     if (target) {
-      const prefix = /dashboard/i.test(delegateMeta.source) ? 'Dashboard intent' : 'Delegate intent';
-      return `${prefix}: to ${target}`;
+      const prefix = /dashboard/i.test(delegateMeta.source) ? trG('仪表盘意图', 'Dashboard Intent') : trG('委托意图', 'Delegate Intent');
+      return trG(`${prefix}: 发给 ${target}`, `${prefix}: to ${target}`);
     }
     if (delegateMeta.prompt) {
-      return `Delegate intent: ${normalizePreviewText(delegateMeta.prompt)}`;
+      return trG(`委托意图: ${normalizePreviewText(delegateMeta.prompt)}`, `Delegate Intent: ${normalizePreviewText(delegateMeta.prompt)}`);
     }
-    return 'Delegation intent created';
+    return trG('已创建委托意图', 'Delegate intent created');
   }
 
   if (isHumanInputRequest(msg, parsed)) {
     const reason = normalizePreviewText(parsed.text);
-    return reason ? `Needs human input: ${reason}` : 'Needs human input';
+    return reason ? trG(`需要人工输入: ${reason}`, `Needs human input: ${reason}`) : trG('需要人工输入', 'Needs human input');
   }
 
   const humanIntervention = getHumanInterventionMeta(msg, parsed);
@@ -249,20 +270,20 @@ function messagePreview(msg: Message, payload?: ParsedMessagePayload): string {
   }
 
   if (parsed.reviewAction === 'rejected') {
-    const reason = (parsed.rejectionReason || normalizePreviewText(parsed.text) || 'Rejected').trim();
-    return `Rework requested: ${reason}`;
+    const reason = (parsed.rejectionReason || normalizePreviewText(parsed.text) || trG('已拒绝', 'Rejected')).trim();
+    return trG(`要求返工: ${reason}`, `Rework required: ${reason}`);
   }
   if (parsed.reviewAction === 'approved') {
     const approved = formatValueForPreview(parsed.approvedResult);
-    return approved ? `Approved result: ${approved}` : 'Task approved by delegator';
+    return approved ? trG(`已批准结果: ${approved}`, `Approved result: ${approved}`) : trG('任务已被委托方批准', 'Task approved by delegator');
   }
   if (parsed.submittedResult !== undefined) {
     const submitted = formatValueForPreview(parsed.submittedResult);
-    return submitted ? `Submitted result: ${submitted}` : 'Executor submitted result for review';
+    return submitted ? trG(`提交结果: ${submitted}`, `Submitted result: ${submitted}`) : trG('执行方已提交结果等待审核', 'Executor submitted result, waiting for review');
   }
 
   const normalized = normalizePreviewText(parsed.text);
-  if (!normalized) return '(No content)';
+  if (!normalized) return trG('（无内容）', '(empty)');
   return normalized.length > 180 ? `${normalized.slice(0, 180)}...` : normalized;
 }
 
@@ -291,7 +312,7 @@ function buildSyntheticApprovedMessage(task: Task): Message {
     content: {
       text:
         `[Task Review Approved]\n\n` +
-        `Task ${task.id} was approved by delegator ${task.fromBotId}.`,
+        trG(`任务 ${task.id} 已由委托方 ${task.fromBotId} 批准。`, `Task ${task.id} was approved by delegator ${task.fromBotId}.`),
       reviewAction: 'approved',
       approvedResult: task.result ?? task.submittedResult ?? null,
       source: 'synthetic_fallback',
@@ -322,9 +343,9 @@ function buildSyntheticRejectedMessage(task: Task): Message {
     content: {
       text:
         `[Task Review Rejected]\n\n` +
-        `Task ${task.id} was rejected by delegator ${task.fromBotId}.`,
+        trG(`任务 ${task.id} 已被委托方 ${task.fromBotId} 拒绝。`, `Task ${task.id} was rejected by delegator ${task.fromBotId}.`),
       reviewAction: 'rejected',
-      rejectionReason: task.rejectionReason || 'Rejected',
+      rejectionReason: task.rejectionReason || trG('已拒绝', 'Rejected'),
       source: 'synthetic_fallback',
     },
     priority: 'high',
@@ -438,6 +459,7 @@ function HumanIcon({ className = 'w-3 h-3' }: { className?: string }) {
 /* ---------- detail panel ---------- */
 
 function MessageDetailPanel({ msg, onClose }: { msg: Message; onClose: () => void }) {
+  const { tr, term } = useI18n();
   const payload = parseMessagePayload(msg.content);
   const contentText = payload.text;
   const visualKind = getMessageVisualKind(msg, payload);
@@ -447,7 +469,7 @@ function MessageDetailPanel({ msg, onClose }: { msg: Message; onClose: () => voi
   const delegateIntentMeta = isDelegateIntentMessage(msg) ? getDelegateIntentMeta(payload) : null;
 
   return (
-    <div className="h-full w-full rounded-xl bg-white overflow-hidden flex flex-col card-gradient shadow-xl border border-gray-200">
+    <div className="h-full w-full rounded-xl glass-strong overflow-hidden flex flex-col border border-gray-200">
       {/* Header */}
       <div className={`flex items-center justify-between px-4 py-3 ${
         visualKind === 'submitted'
@@ -510,7 +532,7 @@ function MessageDetailPanel({ msg, onClose }: { msg: Message; onClose: () => voi
           {humanInvolved && (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium border border-cyan-200 bg-cyan-50 text-cyan-700">
               <HumanIcon className="w-3 h-3" />
-              Human Involved
+              {tr('人工参与', 'Human Involved')}
             </span>
           )}
         </div>
@@ -519,10 +541,10 @@ function MessageDetailPanel({ msg, onClose }: { msg: Message; onClose: () => voi
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
             <p className="text-xs font-semibold text-amber-800 flex items-center gap-1.5">
               <HumanIcon className="w-3.5 h-3.5" />
-              Needs Human Attention
+              {tr('需要人工关注', 'Needs Human Attention')}
             </p>
             <p className="text-xs text-amber-700 mt-1">
-              This step is waiting for human clarification before the bot can continue.
+              {tr('该步骤正在等待人工澄清，机器人才能继续执行。', `This step is waiting for human clarification before the ${term('bot')} can continue.`)}
             </p>
           </div>
         )}
@@ -531,7 +553,7 @@ function MessageDetailPanel({ msg, onClose }: { msg: Message; onClose: () => voi
           <div className="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2">
             <p className="text-xs font-semibold text-cyan-800 flex items-center gap-1.5">
               <HumanIcon className="w-3.5 h-3.5" />
-              Human Intervention
+              {tr('人工介入', 'Human Intervention')}
             </p>
             <p className="text-xs text-cyan-700 mt-1">{humanIntervention.description}</p>
           </div>
@@ -539,15 +561,15 @@ function MessageDetailPanel({ msg, onClose }: { msg: Message; onClose: () => voi
 
         {delegateIntentMeta && (
           <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 space-y-1">
-            <p className="text-xs font-semibold text-sky-800">Delegate Intent Metadata</p>
+            <p className="text-xs font-semibold text-sky-800">{tr('委托意图元数据', 'Delegate Intent Metadata')}</p>
             {delegateIntentMeta.source && (
               <p className="text-xs text-sky-700">
-                Source: <span className="font-medium">{delegateIntentMeta.source}</span>
+                {tr('来源', 'Source')}: <span className="font-medium">{delegateIntentMeta.source}</span>
               </p>
             )}
             {(delegateIntentMeta.toBotId || delegateIntentMeta.toBotName) && (
               <p className="text-xs text-sky-700">
-                Target Executor: <span className="font-medium">{delegateIntentMeta.toBotName || delegateIntentMeta.toBotId}</span>
+                {tr('目标执行者', 'Target Executor')}: <span className="font-medium">{delegateIntentMeta.toBotName || delegateIntentMeta.toBotId}</span>
                 {delegateIntentMeta.toBotId && delegateIntentMeta.toBotName && (
                   <span className="text-sky-600"> ({delegateIntentMeta.toBotId})</span>
                 )}
@@ -555,7 +577,7 @@ function MessageDetailPanel({ msg, onClose }: { msg: Message; onClose: () => voi
             )}
             {delegateIntentMeta.toBotOwner && (
               <p className="text-xs text-sky-700">
-                Target Owner: <span className="font-medium">{delegateIntentMeta.toBotOwner}</span>
+                {tr('目标所有者', 'Target Owner')}: <span className="font-medium">{delegateIntentMeta.toBotOwner}</span>
               </p>
             )}
           </div>
@@ -573,7 +595,7 @@ function MessageDetailPanel({ msg, onClose }: { msg: Message; onClose: () => voi
             />
             <div className="min-w-0">
               <p className="text-xs font-medium text-gray-900 truncate">{msg.fromBotName || msg.fromBotId}</p>
-              <p className="text-[10px] text-gray-400">From</p>
+              <p className="text-[10px] text-gray-500">{tr('来源', 'Source')}</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -586,7 +608,7 @@ function MessageDetailPanel({ msg, onClose }: { msg: Message; onClose: () => voi
             />
             <div className="min-w-0">
               <p className="text-xs font-medium text-gray-900 truncate">{msg.toBotName || msg.toBotId}</p>
-              <p className="text-[10px] text-gray-400">To</p>
+              <p className="text-[10px] text-gray-500">{tr('目标', 'Target')}</p>
             </div>
           </div>
         </div>
@@ -594,15 +616,15 @@ function MessageDetailPanel({ msg, onClose }: { msg: Message; onClose: () => voi
         {/* IDs */}
         <div className="space-y-1.5 text-xs">
           <div>
-            <span className="text-gray-500">Message ID</span>
+            <span className="text-gray-500">{tr('消息 ID', 'Message ID')}</span>
             <p className="font-mono bg-gray-50 px-2 py-1 rounded text-gray-700 mt-0.5 break-all">{msg.messageId}</p>
           </div>
           <div>
-            <span className="text-gray-500">Trace ID</span>
+            <span className="text-gray-500">{tr('追踪 ID', 'Trace ID')}</span>
             <p className="font-mono bg-gray-50 px-2 py-1 rounded text-gray-700 mt-0.5 break-all">{msg.traceId}</p>
           </div>
           <div>
-            <span className="text-gray-500">Content Type</span>
+            <span className="text-gray-500">{tr('内容类型', 'Content Type')}</span>
             <p className="font-mono bg-gray-50 px-2 py-1 rounded text-gray-700 mt-0.5">{msg.contentType}</p>
           </div>
         </div>
@@ -610,7 +632,7 @@ function MessageDetailPanel({ msg, onClose }: { msg: Message; onClose: () => voi
         {/* Content */}
         {contentText && (
           <div>
-            <h4 className="text-xs font-medium text-gray-700 mb-1">Content</h4>
+            <h4 className="text-xs font-medium text-gray-700 mb-1">{tr('内容', 'Content')}</h4>
             <pre className="bg-gray-50 rounded p-2 text-xs text-gray-900 overflow-x-auto max-h-56 whitespace-pre-wrap break-words">
               {contentText}
             </pre>
@@ -619,7 +641,7 @@ function MessageDetailPanel({ msg, onClose }: { msg: Message; onClose: () => voi
 
         {payload.submittedResult !== undefined && (
           <div>
-            <h4 className="text-xs font-medium text-indigo-700 mb-1">Submitted Result Snapshot</h4>
+            <h4 className="text-xs font-medium text-indigo-700 mb-1">{tr('提交结果快照', 'Submitted Result Snapshot')}</h4>
             <pre className="bg-indigo-50 rounded p-2 text-xs text-gray-900 overflow-x-auto max-h-56 whitespace-pre-wrap break-words">
               {typeof payload.submittedResult === 'object'
                 ? JSON.stringify(payload.submittedResult, null, 2)
@@ -630,7 +652,7 @@ function MessageDetailPanel({ msg, onClose }: { msg: Message; onClose: () => voi
 
         {payload.approvedResult !== undefined && (
           <div>
-            <h4 className="text-xs font-medium text-emerald-700 mb-1">Approved Result Snapshot</h4>
+            <h4 className="text-xs font-medium text-emerald-700 mb-1">{tr('批准结果快照', 'Approved Result Snapshot')}</h4>
             <pre className="bg-emerald-50 rounded p-2 text-xs text-gray-900 overflow-x-auto max-h-56 whitespace-pre-wrap break-words">
               {typeof payload.approvedResult === 'object'
                 ? JSON.stringify(payload.approvedResult, null, 2)
@@ -641,7 +663,7 @@ function MessageDetailPanel({ msg, onClose }: { msg: Message; onClose: () => voi
 
         {payload.rejectionReason && (
           <div>
-            <h4 className="text-xs font-medium text-rose-700 mb-1">Rejection Reason</h4>
+            <h4 className="text-xs font-medium text-rose-700 mb-1">{tr('拒绝原因', 'Rejection Reason')}</h4>
             <p className="bg-rose-50 rounded p-2 text-xs text-rose-800 whitespace-pre-wrap break-words">
               {payload.rejectionReason}
             </p>
@@ -651,7 +673,7 @@ function MessageDetailPanel({ msg, onClose }: { msg: Message; onClose: () => voi
         {/* Linked task */}
         {msg.taskId && (
           <div>
-            <span className="text-xs text-gray-500">Linked Task</span>
+            <span className="text-xs text-gray-500">{tr(`关联${term('task')}`, `Related ${term('task')}`)}</span>
             <p className="mt-0.5">
               <Link to={`/tasks/${msg.taskId}`} className="font-mono text-xs text-purple-700 hover:underline bg-purple-50 px-2 py-1 rounded inline-block break-all">
                 {msg.taskId}
@@ -662,8 +684,8 @@ function MessageDetailPanel({ msg, onClose }: { msg: Message; onClose: () => voi
 
         {/* Timestamps */}
         <div className="text-xs text-gray-500 space-y-1 border-t border-gray-100 pt-3">
-          <p>Created: {formatDate(msg.createdAt)}</p>
-          {msg.readAt && <p>Read: {formatDate(msg.readAt)}</p>}
+          <p>{tr('创建时间', 'Created')}: {formatDate(msg.createdAt)}</p>
+          {msg.readAt && <p>{tr('已读时间', 'Read at')}: {formatDate(msg.readAt)}</p>}
         </div>
       </div>
     </div>
@@ -672,10 +694,12 @@ function MessageDetailPanel({ msg, onClose }: { msg: Message; onClose: () => voi
 
 /* ---------- main component ---------- */
 
-export function TaskTimeline({ focusTaskId, tasks, messages, onPanelChange }: TaskTimelineProps) {
+export function TaskTimeline({ focusTaskId, focusTaskStatus, focusTaskPriority, tasks, messages, onPanelChange }: TaskTimelineProps) {
+  const { tr, term } = useI18n();
   const navigate = useNavigate();
   const activityViewportRef = useRef<HTMLDivElement | null>(null);
   const timelineRootRef = useRef<HTMLDivElement | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const [panelLayout, setPanelLayout] = useState<{ mobile: boolean; top: number; left: number; height: number }>({
     mobile: true,
     top: 96,
@@ -845,7 +869,7 @@ export function TaskTimeline({ focusTaskId, tasks, messages, onPanelChange }: Ta
   }, []);
 
   if (!tree) {
-    return <p className="text-sm text-gray-400">No activity data</p>;
+    return <p className="text-sm text-gray-400">{tr('暂无活动数据', 'No activity data')}</p>;
   }
 
   /* ---------- render tree nodes ---------- */
@@ -903,11 +927,11 @@ export function TaskTimeline({ focusTaskId, tasks, messages, onPanelChange }: Ta
                 {action.label}
               </span>
               ); })()}
-              <span className="font-medium text-gray-900 text-sm truncate">{task.title || (task.prompt ? (task.prompt.length > 40 ? task.prompt.slice(0, 40) + '...' : task.prompt) : task.capability) || 'Task'}</span>
+              <span className="font-medium text-gray-900 text-sm truncate">{task.title || (task.prompt ? (task.prompt.length > 40 ? task.prompt.slice(0, 40) + '...' : task.prompt) : task.capability) || term('task')}</span>
               <StatusBadge status={task.status} />
               <StatusBadge status={task.priority} />
               {hasChildren && (
-                <span className="text-[10px] text-gray-400">({children.length})</span>
+                <span className="text-[10px] text-gray-500">({children.length})</span>
               )}
             </div>
             <div className="flex items-center gap-3 mt-1">
@@ -927,15 +951,15 @@ export function TaskTimeline({ focusTaskId, tasks, messages, onPanelChange }: Ta
               </span>
             </div>
             {Object.keys(task.parameters || {}).length > 0 && (
-              <p className="text-xs text-gray-500 truncate mt-1">Params: {summarize(task.parameters)}</p>
+              <p className="text-xs text-gray-500 truncate mt-1">{tr('参数', 'Parameters')}: {summarize(task.parameters)}</p>
             )}
             {task.error && (
-              <p className="text-xs text-red-600 truncate mt-1">Error: {summarize(task.error)}</p>
+              <p className="text-xs text-red-600 truncate mt-1">{tr('错误', 'Error')}: {summarize(task.error)}</p>
             )}
             {!task.error && task.result !== undefined && task.result !== null && (
-              <p className="text-xs text-green-700 truncate mt-1">Result: {summarize(task.result)}</p>
+              <p className="text-xs text-green-700 truncate mt-1">{tr('结果', 'Result')}: {summarize(task.result)}</p>
             )}
-            <p className="text-[10px] text-gray-400 mt-1">{formatDate(task.createdAt)}</p>
+            <p className="text-[10px] text-gray-500 mt-1">{formatDate(task.createdAt)}</p>
           </div>
         </div>
 
@@ -971,18 +995,18 @@ export function TaskTimeline({ focusTaskId, tasks, messages, onPanelChange }: Ta
     const isHumanRequest = isHumanInputRequest(msg, payload);
     const isHumanResponse = msg.type === 'human_input_response';
     const rowTone = visualKind === 'submitted'
-      ? 'border-indigo-200 bg-indigo-50/70'
+      ? 'border-indigo-200 bg-indigo-50'
       : visualKind === 'approved'
-        ? 'border-emerald-200 bg-emerald-50/70'
+        ? 'border-emerald-200 bg-emerald-50'
         : visualKind === 'rejected'
-          ? 'border-rose-200 bg-rose-50/70'
+          ? 'border-rose-200 bg-rose-50'
           : isHumanRequest
-            ? 'border-amber-200 bg-amber-50/70'
+            ? 'border-amber-200 bg-amber-50'
             : isHumanResponse
-              ? 'border-emerald-200 bg-emerald-50/70'
+              ? 'border-emerald-200 bg-emerald-50'
               : humanIntervention
-                ? 'border-cyan-200 bg-cyan-50/70'
-              : 'border-gray-200 bg-white';
+                ? 'border-cyan-200 bg-cyan-50'
+              : 'border-gray-200 bg-gray-50';
     const selectedTone = visualKind === 'submitted'
       ? 'ring-2 ring-indigo-300 border-indigo-300'
       : visualKind === 'approved'
@@ -997,20 +1021,20 @@ export function TaskTimeline({ focusTaskId, tasks, messages, onPanelChange }: Ta
                 ? 'ring-2 ring-cyan-300 border-cyan-300'
               : 'ring-2 ring-primary-300 border-primary-300';
 
-    const actionBadge = msgActionLabels[msg.type] || { label: 'MSG', className: 'bg-green-50 text-green-700 border-green-200' };
+    const actionBadge = messageActionLabel(msg.type);
     const showPriority = msg.priority !== 'normal';
     const eventBadge = visualKind === 'submitted'
-      ? { label: 'SUBMITTED', className: 'bg-indigo-100 text-indigo-700 border-indigo-200' }
+      ? { label: tr('已提交', 'Submitted'), className: 'bg-indigo-100 text-indigo-700 border-indigo-200' }
       : visualKind === 'approved'
-        ? { label: 'APPROVED', className: 'bg-emerald-100 text-emerald-700 border-emerald-200' }
+        ? { label: tr('已批准', 'Approved'), className: 'bg-emerald-100 text-emerald-700 border-emerald-200' }
         : visualKind === 'rejected'
-          ? { label: 'REJECTED', className: 'bg-rose-100 text-rose-700 border-rose-200' }
+          ? { label: tr('已拒绝', 'Rejected'), className: 'bg-rose-100 text-rose-700 border-rose-200' }
           : null;
     const humanBadge = humanIntervention
       ? { label: humanIntervention.label, className: 'bg-cyan-100 text-cyan-700 border-cyan-200' }
       : null;
     const needsHumanBadge = isHumanRequest
-      ? { label: 'NEEDS HUMAN', className: 'bg-amber-100 text-amber-700 border-amber-200' }
+      ? { label: tr('需要人工', 'Needs Human'), className: 'bg-amber-100 text-amber-700 border-amber-200' }
       : null;
 
     return (
@@ -1038,10 +1062,10 @@ export function TaskTimeline({ focusTaskId, tasks, messages, onPanelChange }: Ta
                 </span>
               )}
               <span className="text-sm font-semibold text-gray-900 truncate">{fromName}</span>
-              <span className="text-xs text-gray-400 shrink-0">to</span>
+              <span className="text-xs text-gray-500 shrink-0">{tr('给', 'to')}</span>
               <span className="text-xs text-gray-600 truncate">{toName}</span>
             </div>
-            <span className="text-[10px] text-gray-400 shrink-0">{formatDate(msg.createdAt)}</span>
+            <span className="text-[10px] text-gray-500 shrink-0">{formatDate(msg.createdAt)}</span>
           </div>
           <p
             className="mt-1 text-sm text-gray-700 break-words"
@@ -1081,13 +1105,78 @@ export function TaskTimeline({ focusTaskId, tasks, messages, onPanelChange }: Ta
               </span>
             )}
             {msg.status === 'read' && (
-              <span className="text-[10px] text-gray-400">read</span>
+              <span className="text-[10px] text-gray-500">{tr('已读', 'Read')}</span>
             )}
           </div>
         </div>
       </div>
     );
   }
+
+  const showExecutionLoader =
+    focusTaskStatus === 'pending' ||
+    focusTaskStatus === 'accepted' ||
+    focusTaskStatus === 'processing';
+  const focusTask = tasks.find((t) => t.id === focusTaskId) || null;
+  let waitingSinceMs: number | null = null;
+  if (showExecutionLoader) {
+    let latestMessageMs = 0;
+    for (const message of messages) {
+      if (message.taskId !== focusTaskId) continue;
+      const parsed = Date.parse(message.createdAt);
+      if (!Number.isNaN(parsed) && parsed > latestMessageMs) latestMessageMs = parsed;
+    }
+    if (latestMessageMs > 0) {
+      waitingSinceMs = latestMessageMs;
+    } else if (focusTask?.startedAt) {
+      const started = Date.parse(focusTask.startedAt);
+      if (!Number.isNaN(started)) waitingSinceMs = started;
+    } else if (focusTask?.createdAt) {
+      const created = Date.parse(focusTask.createdAt);
+      if (!Number.isNaN(created)) waitingSinceMs = created;
+    }
+  }
+  const waitingElapsedText = waitingSinceMs ? formatElapsedClock(nowMs - waitingSinceMs) : '—';
+  const executionPriority = focusTaskPriority || 'normal';
+  const loaderToneClass =
+    executionPriority === 'urgent'
+      ? 'task-exec-loader--urgent'
+      : executionPriority === 'high'
+        ? 'task-exec-loader--high'
+        : executionPriority === 'low'
+          ? 'task-exec-loader--low'
+          : 'task-exec-loader--normal';
+  const runningLabel =
+    executionPriority === 'urgent'
+      ? tr('紧急处理中', 'Urgent Processing')
+      : executionPriority === 'high'
+        ? tr('高优先处理中', 'High Priority Processing')
+        : executionPriority === 'low'
+          ? tr('低优先处理中', 'Low Priority Processing')
+          : tr('处理中', 'Processing');
+  const runningHint =
+    executionPriority === 'urgent'
+      ? tr('紧急任务执行中，预计很快会有更新...', 'Urgent task is running, updates should come soon...')
+      : executionPriority === 'high'
+        ? tr('高优先任务执行中，正在等待快速更新...', 'High-priority task is running, waiting for quick updates...')
+        : executionPriority === 'low'
+          ? tr('低优先任务稳态执行中...', 'Low-priority task is running steadily...')
+          : tr('实时执行中，等待机器人新更新...', 'Running in real time, waiting for bot updates...');
+  const runningChipTone =
+    executionPriority === 'urgent'
+      ? 'border-rose-200 bg-rose-100 text-rose-700'
+      : executionPriority === 'high'
+        ? 'border-amber-200 bg-amber-100 text-amber-800'
+        : executionPriority === 'low'
+          ? 'border-cyan-200 bg-cyan-100 text-cyan-700'
+          : 'border-primary-200 bg-primary-100 text-primary-700';
+
+  useEffect(() => {
+    if (!showExecutionLoader || !waitingSinceMs) return;
+    setNowMs(Date.now());
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [showExecutionLoader, waitingSinceMs]);
 
   if (tree.kind !== 'task') return null;
 
@@ -1099,14 +1188,14 @@ export function TaskTimeline({ focusTaskId, tasks, messages, onPanelChange }: Ta
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold border border-cyan-200 bg-cyan-50 text-cyan-700">
           <HumanIcon className="w-3 h-3" />
-          HUMAN INTERVENTION
+          {tr('人工介入', 'Human Intervention')}
         </span>
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold border border-amber-200 bg-amber-50 text-amber-700">
           <HumanIcon className="w-3 h-3" />
-          NEEDS HUMAN
+          {tr('需要人工', 'Needs Human')}
         </span>
         <span className="text-[10px] text-gray-500">
-          Highlights manual actions from dashboard and human-in-the-loop handoffs.
+          {tr('高亮显示来自仪表盘的人工操作和人机交接步骤。', 'Highlights human actions and handoff steps from dashboard.')}
         </span>
       </div>
       <div className="rounded-xl border border-gray-200 bg-gray-50">
@@ -1116,7 +1205,7 @@ export function TaskTimeline({ focusTaskId, tasks, messages, onPanelChange }: Ta
           style={{ maxHeight: `${ACTIVITY_VISIBLE_MESSAGE_ROWS * ACTIVITY_ROW_EST_PX}px` }}
         >
           {topLevelItems.length === 0 ? (
-            <p className="text-sm text-gray-400 py-2 px-3">No activity yet</p>
+            <p className="text-sm text-gray-400 py-2 px-3">{tr('暂无活动', 'No activity')}</p>
           ) : (
             topLevelItems.map((item) =>
               item.kind === 'task'
@@ -1125,9 +1214,36 @@ export function TaskTimeline({ focusTaskId, tasks, messages, onPanelChange }: Ta
             )
           )}
         </div>
+        {showExecutionLoader && (
+          <div className="border-t border-gray-200 px-2 pb-2 pt-1.5">
+            <div className={`task-exec-loader ${loaderToneClass}`}>
+              <div className="relative z-[1] flex items-center justify-between gap-3 px-3 py-2.5">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className="task-exec-bars" aria-hidden="true">
+                    <span />
+                    <span />
+                    <span />
+                    <span />
+                  </span>
+                  <span className="text-xs font-semibold text-primary-700 truncate">
+                    {runningHint}
+                  </span>
+                </div>
+                <div className="flex flex-col items-end gap-1">
+                  <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border ${runningChipTone}`}>
+                    {runningLabel}
+                  </span>
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border border-gray-200 bg-gray-50 text-gray-600">
+                    {tr('等待', 'Waiting')} {waitingElapsedText}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
       <p className="mt-2 text-[10px] text-gray-500">
-        Showing the latest activity window (about 10 messages). Scroll up to view older history.
+        {tr('当前仅显示最近活动窗口（约 10 条消息），向上滚动可查看更早历史。', 'Currently showing only the latest activity window (about 10 messages); scroll up for earlier history.')}
       </p>
 
       {typeof document !== 'undefined' && createPortal(

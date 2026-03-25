@@ -24,6 +24,27 @@ export interface TaskCompleterDeps {
   logger: Logger;
 }
 
+interface FileNodeRow {
+  id: string;
+  team_id: string;
+  scope: 'bot_private' | 'task' | 'team_shared';
+  scope_ref: string | null;
+  kind: 'folder' | 'file' | 'doc';
+  name: string;
+  mime_type: string | null;
+  size_bytes: string | number | null;
+  storage_key: string | null;
+  metadata: Record<string, unknown> | null;
+}
+
+interface FileBlobRow {
+  storage_provider: string;
+  storage_key: string;
+  size_bytes: string | number;
+  checksum_sha256: string | null;
+  metadata: Record<string, unknown> | null;
+}
+
 export class TaskCompleter {
   private readonly db: DatabasePool;
   private readonly redis: RedisClient;
@@ -354,6 +375,11 @@ export class TaskCompleter {
       if (input) {
         try {
           await this.writeResumeInputToInbox(task, input, botId, botId);
+          // If delegator provided human input, proactively forward the same input
+          // to executor so execution can continue without manual relay.
+          if (botId === task.fromBotId && task.toBotId && task.toBotId !== botId) {
+            await this.writeResumeInputToInbox(task, input, task.toBotId, botId);
+          }
         } catch (err) {
           this.logger.error('Failed to write humanInput to inbox', { taskId, err });
         }
@@ -431,8 +457,29 @@ export class TaskCompleter {
     const traceId = randomUUID();
     const now = new Date();
 
+    const fileHintSignal = `${task.prompt || ''}\n${humanInput || ''}`;
+    const needsFileHint = /(file service|附件|文件|云空间|workspace|upload|上传|\.html|\.md|\.txt|artifact)/i.test(fileHintSignal);
+    const fileHint = needsFileHint
+      ? (
+        `\n\n[Task File Service Quick Start]\n` +
+        `Use your gateway URL from system prompt (for example: http://localhost:3100).\n` +
+        `1) List task files:\n` +
+        `curl -s $GATEWAY/gateway/tasks/${task.id}/files\n` +
+        `2) Inspect node kind first:\n` +
+        `curl -s $GATEWAY/gateway/tasks/${task.id}/files/<nodeId>\n` +
+        `3) If kind=doc, read raw text:\n` +
+        `curl -s $GATEWAY/gateway/tasks/${task.id}/files/docs/<docId>/raw\n` +
+        `4) If kind=file, read file payload (base64 json):\n` +
+        `curl -s "$GATEWAY/gateway/tasks/${task.id}/files/download/<nodeId>?format=json"\n`
+      )
+      : '';
+
     const content = {
-      text: `[Human Input for Task ${task.id}]\n\n${humanInput}\n\nPlease continue working on the task using this information.`,
+      text:
+        `[Human Input for Task ${task.id}]\n\n` +
+        `${humanInput}` +
+        `${fileHint}\n` +
+        `Please continue working on the task using this information.`,
     };
 
     const inboxMessage = JSON.stringify({
@@ -698,6 +745,21 @@ export class TaskCompleter {
       this.logger.error('Failed to write approve decision message', { taskId, err });
     }
 
+    // If this is a sub-task, mirror approved artifacts into parent task scope so
+    // root/delegator-side Task Files can inspect full delivery outputs.
+    if (task.parentTaskId) {
+      try {
+        await this.syncSubtaskArtifactsToParentTask(task, botId, finalResult);
+      } catch (err) {
+        this.logger.error('Failed to mirror sub-task artifacts to parent task scope', {
+          taskId,
+          parentTaskId: task.parentTaskId,
+          botId,
+          err,
+        });
+      }
+    }
+
     // Notify executor
     await this.safePublish('task_completed', {
       taskId,
@@ -804,6 +866,192 @@ export class TaskCompleter {
       throw new TaskNotFoundError(taskId);
     }
     return taskRowToTask(result.rows[0]);
+  }
+
+  private extractArtifactNodeIds(result: any): string[] {
+    if (!result || typeof result !== 'object') return [];
+    const raw = (result as Record<string, unknown>).artifactNodeIds;
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .filter((v) => typeof v === 'string')
+      .map((v) => (v as string).trim())
+      .filter((v) => v.length > 0);
+  }
+
+  private async syncSubtaskArtifactsToParentTask(
+    subTask: Task,
+    approvedByBotId: string,
+    approvedResult: any,
+  ): Promise<void> {
+    const parentTaskId = subTask.parentTaskId;
+    if (!parentTaskId) return;
+
+    const sourceNodeIds = this.extractArtifactNodeIds(approvedResult);
+    if (sourceNodeIds.length === 0) return;
+
+    const mirrored: string[] = [];
+    for (const sourceNodeId of sourceNodeIds) {
+      const mirroredId = await this.copyArtifactNodeToParentScope(
+        sourceNodeId,
+        subTask.id,
+        parentTaskId,
+        approvedByBotId,
+      );
+      if (mirroredId) mirrored.push(mirroredId);
+    }
+
+    if (mirrored.length > 0) {
+      this.logger.info('Mirrored sub-task artifacts into parent task scope', {
+        subTaskId: subTask.id,
+        parentTaskId,
+        approvedByBotId,
+        mirroredCount: mirrored.length,
+        sourceNodeCount: sourceNodeIds.length,
+        mirroredNodeIds: mirrored,
+      });
+    }
+  }
+
+  private async copyArtifactNodeToParentScope(
+    sourceNodeId: string,
+    sourceTaskId: string,
+    parentTaskId: string,
+    mirroredByBotId: string,
+  ): Promise<string | null> {
+    // Idempotency: skip if this source node was already mirrored to the parent scope.
+    const existingRes = await this.db.query<{ id: string }>(
+      `SELECT id
+         FROM file_nodes
+        WHERE scope = 'task'
+          AND scope_ref = $1::uuid
+          AND deleted_at IS NULL
+          AND metadata->>'mirroredFromNodeId' = $2
+        LIMIT 1`,
+      [parentTaskId, sourceNodeId],
+    );
+    if ((existingRes.rowCount ?? 0) > 0) {
+      return existingRes.rows[0].id;
+    }
+
+    const sourceRes = await this.db.query<FileNodeRow>(
+      `SELECT id, team_id, scope, scope_ref, kind, name, mime_type, size_bytes, storage_key, metadata
+         FROM file_nodes
+        WHERE id = $1
+          AND deleted_at IS NULL
+        LIMIT 1`,
+      [sourceNodeId],
+    );
+    if ((sourceRes.rowCount ?? 0) === 0) {
+      this.logger.warn('Skip artifact mirroring: source node not found', { sourceNodeId, sourceTaskId, parentTaskId });
+      return null;
+    }
+    const source = sourceRes.rows[0];
+
+    const sourceMetadata = (source.metadata && typeof source.metadata === 'object')
+      ? source.metadata as Record<string, unknown>
+      : {};
+    const linkedTaskId = source.scope === 'task'
+      ? String(source.scope_ref || '')
+      : String(sourceMetadata.taskId || '');
+    if (linkedTaskId !== sourceTaskId) {
+      this.logger.warn('Skip artifact mirroring: source node is not linked to sub-task', {
+        sourceNodeId,
+        sourceTaskId,
+        parentTaskId,
+        sourceScope: source.scope,
+        sourceScopeRef: source.scope_ref,
+        metadataTaskId: sourceMetadata.taskId,
+      });
+      return null;
+    }
+
+    const mirroredMetadata: Record<string, unknown> = {
+      ...sourceMetadata,
+      mirroredFromTaskId: sourceTaskId,
+      mirroredFromNodeId: sourceNodeId,
+      mirroredToParentTaskId: parentTaskId,
+      mirroredByBotId,
+      mirroredAt: new Date().toISOString(),
+    };
+
+    const insertNodeRes = await this.db.query<{ id: string }>(
+      `INSERT INTO file_nodes (
+          team_id, parent_id, scope, scope_ref, kind, name, mime_type, size_bytes, storage_key, metadata,
+          created_by_actor_type, created_by_actor_id
+       )
+       VALUES ($1, NULL, 'task', $2::uuid, $3, $4, $5, $6, $7, $8::jsonb, 'system', NULL)
+       RETURNING id`,
+      [
+        source.team_id,
+        parentTaskId,
+        source.kind,
+        source.name,
+        source.mime_type,
+        source.size_bytes,
+        source.storage_key,
+        JSON.stringify(mirroredMetadata),
+      ],
+    );
+    const mirroredNodeId = insertNodeRes.rows[0].id;
+
+    if (source.kind === 'file') {
+      const blobRes = await this.db.query<FileBlobRow>(
+        `SELECT storage_provider, storage_key, size_bytes, checksum_sha256, metadata
+           FROM file_blobs
+          WHERE node_id = $1
+          LIMIT 1`,
+        [source.id],
+      );
+      if ((blobRes.rowCount ?? 0) > 0) {
+        const blob = blobRes.rows[0];
+        await this.db.query(
+          `INSERT INTO file_blobs (node_id, storage_provider, storage_key, size_bytes, checksum_sha256, metadata)
+           VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
+          [
+            mirroredNodeId,
+            blob.storage_provider,
+            blob.storage_key,
+            blob.size_bytes,
+            blob.checksum_sha256,
+            JSON.stringify({
+              ...(blob.metadata || {}),
+              mirroredFromNodeId: sourceNodeId,
+              mirroredFromTaskId: sourceTaskId,
+            }),
+          ],
+        );
+      }
+    } else if (source.kind === 'doc') {
+      const docRes = await this.db.query<{ raw_text_snapshot: string }>(
+        `SELECT raw_text_snapshot
+           FROM doc_contents
+          WHERE doc_id = $1
+          ORDER BY revision DESC
+          LIMIT 1`,
+        [source.id],
+      );
+      await this.db.query(
+        `INSERT INTO doc_contents (doc_id, revision, raw_text_snapshot, updated_at)
+         VALUES ($1, 1, $2, NOW())`,
+        [mirroredNodeId, (docRes.rowCount ?? 0) > 0 ? docRes.rows[0].raw_text_snapshot || '' : ''],
+      );
+    }
+
+    await this.db.query(
+      `INSERT INTO resource_events (resource_id, event_type, actor_type, actor_id, payload)
+       VALUES ($1, 'artifact_mirrored_to_parent_task', 'system', NULL, $2::jsonb)`,
+      [
+        mirroredNodeId,
+        JSON.stringify({
+          sourceNodeId,
+          sourceTaskId,
+          parentTaskId,
+          mirroredByBotId,
+        }),
+      ],
+    );
+
+    return mirroredNodeId;
   }
 
   private async removeFromQueue(taskId: string, botId: string): Promise<void> {

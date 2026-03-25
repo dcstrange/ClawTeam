@@ -55,6 +55,14 @@ Do NOT call /complete or /submit-result yourself. Only the executor bot submits 
 Do NOT use curl to check task status. The gateway monitors tasks automatically.
 
 Step 4: When executor submits a final result, YOU (delegator bot) must review it.
+  Review the referenced artifacts first (from result.artifactNodeIds), for example:
+    - Node detail (must run first): curl -s {{GATEWAY_URL}}/gateway/tasks/{{TASK_ID}}/files/<nodeId>
+    - If node.kind == "doc": read raw text:
+      curl -s {{GATEWAY_URL}}/gateway/tasks/{{TASK_ID}}/files/docs/<nodeId>/raw
+    - If node.kind == "file": read base64 json:
+      curl -s "{{GATEWAY_URL}}/gateway/tasks/{{TASK_ID}}/files/download/<nodeId>?format=json"
+    - Never call /files/docs/<nodeId>/raw for a file node.
+    - Never call /files/download/<nodeId> for a doc node.
   If acceptable, approve:
     curl -s -X POST {{GATEWAY_URL}}/gateway/tasks/{{TASK_ID}}/approve \
       -H 'Content-Type: application/json' \

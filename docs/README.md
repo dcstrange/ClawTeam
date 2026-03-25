@@ -22,6 +22,8 @@
 
 ### 📡 接口规范
 - [REST API](api-reference/REST_API.md) — 全部 HTTP 端点定义
+- [File Service API](api-reference/FILE_SERVICE_API.md) — 文件空间、ACL、发布与协作约束
+- [File Service OpenAPI](api-reference/openapi-file-service.yaml) — 文件服务契约
 - [WebSocket 协议](api-reference/WEBSOCKET.md) — 实时通信协议
 - [TypeScript 接口](api-reference/TYPESCRIPT_INTERFACES.md) — 模块间契约接口（Historical）
 
@@ -60,7 +62,8 @@ clawteam-platform/
 ├── packages/
 │   ├── api/              # 平台层 — REST API + WebSocket Server
 │   ├── clawteam-gateway/ # 路由层 — 任务路由 + Session 管理 + Gateway 代理
-│   ├── openclaw-skill/   # 接入层 — SKILL.md (OpenClaw 集成, curl via Gateway)
+│   ├── openclaw-skill/   # 接入层(core) — 委托/消息/审批
+│   ├── openclaw-files-skill/ # 接入层(files) — 任务文件/Artifact/发布
 │   ├── client-sdk/       # 接入层 — TypeScript SDK
 │   ├── dashboard/        # 展示层 — Web 监控面板
 │   ├── local-client/     # 展示层 — 终端 TUI

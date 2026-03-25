@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils';
+import { useI18n, type Locale } from '@/lib/i18n';
 
 interface StatusBadgeProps {
   status: string;
@@ -45,15 +46,56 @@ const dotConfig: Record<string, { color: string; animate?: string }> = {
   urgent:            { color: 'bg-red-500',    animate: 'animate-status-pulse' },
 };
 
+const statusLabels: Record<Locale, Record<string, string>> = {
+  zh: {
+    online: '在线',
+    offline: '离线',
+    busy: '忙碌',
+    focus_mode: '专注模式',
+    pending: '待处理',
+    accepted: '已接收',
+    processing: '处理中',
+    waiting_for_input: '等待输入',
+    pending_review: '待审核',
+    completed: '已完成',
+    failed: '失败',
+    timeout: '超时',
+    cancelled: '已取消',
+    urgent: '紧急',
+    high: '高',
+    normal: '普通',
+    low: '低',
+    running: '运行中',
+  },
+  en: {
+    online: 'Online',
+    offline: 'Offline',
+    busy: 'Busy',
+    focus_mode: 'Focus Mode',
+    pending: 'Pending',
+    accepted: 'Accepted',
+    processing: 'Processing',
+    waiting_for_input: 'Waiting',
+    pending_review: 'Pending Review',
+    completed: 'Completed',
+    failed: 'Failed',
+    timeout: 'Timeout',
+    cancelled: 'Cancelled',
+    urgent: 'Urgent',
+    high: 'High',
+    normal: 'Normal',
+    low: 'Low',
+    running: 'Running',
+  },
+};
+
 export function StatusBadge({ status, className }: StatusBadgeProps) {
+  const { locale } = useI18n();
   const key = status.toLowerCase();
   const style = statusStyles[key] || statusStyles.offline;
   const dot = dotConfig[key];
 
-  // Format: capitalize first letter, replace underscores with spaces
-  const label = status
-    .replace(/_/g, ' ')
-    .replace(/^./, (c) => c.toUpperCase());
+  const label = statusLabels[locale][key] || status.replace(/_/g, ' ');
 
   return (
     <span

@@ -354,9 +354,48 @@ export function createMessageRoutes(deps: MessageRoutesDeps): FastifyPluginAsync
           );
 
           if (result.rowCount === 0) {
-            return reply.status(404).send({
+            // Idempotent ACK: already-read message should return success instead of 404.
+            const existing = await db.query<{ status: string; priority: string; read_at: Date | null }>(
+              `SELECT status, priority, read_at
+                 FROM messages
+                WHERE id = $1 AND to_bot_id = $2
+                LIMIT 1`,
+              [messageId, botId],
+            );
+
+            if ((existing.rowCount ?? 0) === 0) {
+              return reply.status(404).send({
+                success: false,
+                error: { code: 'MESSAGE_NOT_FOUND', message: `Message not found: ${messageId}` },
+                traceId,
+              });
+            }
+
+            const row = existing.rows[0];
+            if (row.status === 'read') {
+              // Best-effort redis cleanup for stale queue residues.
+              await redis.srem(`${INBOX_KEY_PREFIX}:${botId}:processing`, messageId);
+              const removed = await removeFromInboxList(redis, botId, row.priority, messageId);
+              if (!removed) {
+                for (const p of PRIORITY_ORDER) {
+                  if (await removeFromInboxList(redis, botId, p, messageId)) break;
+                }
+              }
+
+              return reply.send({
+                success: true,
+                data: {
+                  messageId,
+                  status: 'already_read',
+                  readAt: row.read_at?.toISOString?.() ?? row.read_at ?? null,
+                },
+                traceId,
+              });
+            }
+
+            return reply.status(409).send({
               success: false,
-              error: { code: 'MESSAGE_NOT_FOUND', message: `Message not found or already read: ${messageId}` },
+              error: { code: 'INVALID_MESSAGE_STATE', message: `Message ${messageId} is in status "${row.status}"` },
               traceId,
             });
           }

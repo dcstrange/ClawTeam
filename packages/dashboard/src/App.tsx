@@ -13,8 +13,10 @@ import { RouteHistory } from './pages/RouteHistory';
 import { MePage } from './pages/MePage';
 import { Inbox } from './pages/Inbox';
 import { TeamPage } from './pages/TeamPage';
+import { CloudFilesPage } from './pages/CloudFiles';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useRouterWebSocket } from './hooks/useRouterWebSocket';
+import { I18nProvider } from './lib/i18n';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -40,6 +42,7 @@ function AppContent() {
           <Route path="/bots/:botId" element={<BotDetail />} />
           <Route path="/tasks" element={<TaskList />} />
           <Route path="/tasks/:taskId" element={<TaskDetail />} />
+          <Route path="/files" element={<CloudFilesPage />} />
           <Route path="/sessions" element={<SessionList />} />
           <Route path="/routes" element={<RouteHistory />} />
           <Route path="/inbox" element={<Inbox />} />
@@ -54,11 +57,13 @@ function AppContent() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <IdentityProvider>
-          <AppContent />
-        </IdentityProvider>
-      </BrowserRouter>
+      <I18nProvider>
+        <BrowserRouter>
+          <IdentityProvider>
+            <AppContent />
+          </IdentityProvider>
+        </BrowserRouter>
+      </I18nProvider>
     </QueryClientProvider>
   );
 }

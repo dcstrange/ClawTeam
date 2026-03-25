@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-03-25
+
+### Added
+
+- File Service 协作链路增强：
+  - 新增 `openclaw-files-skill`（文件能力与任务协作能力解耦）
+  - Dashboard 支持 Cloud Files 统一文件管理视图
+  - Dashboard Task Files / Cloud Files 支持批量选择后 ZIP 下载
+  - ZIP 下载前支持预览清单，预览路径与实际打包路径一致
+
+### Changed
+
+- 子任务产物治理：
+  - 子任务审批通过后，产物自动镜像到父任务文件空间，避免交付“只留子任务”。
+- Dashboard 交互与视觉：
+  - Task 详情消息历史与侧边详情交互重构
+  - Task 列表信息层级重排（筛选侧栏 + 主内容区）
+  - 深色模式与可读性优化
+- Dashboard 全局 i18n 接入强化（中英切换 + 术语统一）
+
+### Fixed
+
+- 修复子任务文件可见性与协作断链问题（父任务无法看到子任务审批产物）。
+
+### Notes
+
+- 分支级汇总见：
+  - `changelogs/2026-03-25_file-service-branch-summary.md`
+
 ## [Unreleased] - 2026-03-19
 
 ### Changed

@@ -7,6 +7,7 @@ import type { Bot, Task, TaskStatus, Message, MessageType } from '@/lib/types';
 import { BotCharacter } from './BotCharacter';
 import { BotConnection, type InteractionType } from './BotConnection';
 import { WorkspaceTooltip } from './WorkspaceTooltip';
+import { useI18n, termGlobal as termG } from '@/lib/i18n';
 
 interface TeamWorkspaceProps {
   compact?: boolean;
@@ -137,6 +138,7 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 export function TeamWorkspace({ compact = false, filterTaskId, onBotSelect, selectedBotId }: TeamWorkspaceProps) {
+  const { tr } = useI18n();
   const { data: allBots = [] } = useBots();
   const { data: allTasks = [] } = useTasks();
   const { data: allMessages = [] } = useMessages();
@@ -679,9 +681,9 @@ export function TeamWorkspace({ compact = false, filterTaskId, onBotSelect, sele
         content: (
           <div>
             <p className="font-semibold text-gray-900">{bot.name}</p>
-            <p className="text-gray-500">Status: {bot.status}</p>
-            <p className="text-gray-500">{bot.capabilities.length} capabilities</p>
-            <p className="text-gray-500">{taskCount} active tasks</p>
+            <p className="text-gray-500">{tr('状态', 'Status')}: {bot.status}</p>
+            <p className="text-gray-500">{tr(`${bot.capabilities.length} 个能力`, `${bot.capabilities.length} capabilities`)}</p>
+            <p className="text-gray-500">{tr(`${taskCount} 个活跃任务`, `${taskCount} active ${termG('task')}s`)}</p>
           </div>
         ),
       });
@@ -700,9 +702,9 @@ export function TeamWorkspace({ compact = false, filterTaskId, onBotSelect, sele
           y: e.clientY - rect.top,
           content: (
             <div>
-              <p className="font-semibold text-gray-900">{conn.task.capability || 'Task'}</p>
-              <p className="text-gray-500">Priority: {conn.task.priority}</p>
-              <p className="text-gray-500">Status: {conn.task.status}</p>
+              <p className="font-semibold text-gray-900">{conn.task.capability || termG('task')}</p>
+              <p className="text-gray-500">{tr('优先级', 'Priority')}: {conn.task.priority}</p>
+              <p className="text-gray-500">{tr('状态', 'Status')}: {conn.task.status}</p>
               <p className="text-gray-500">
                 {conn.task.fromBotName || conn.task.fromBotId} &rarr; {conn.task.toBotName || conn.task.toBotId}
               </p>
@@ -1035,12 +1037,12 @@ export function TeamWorkspace({ compact = false, filterTaskId, onBotSelect, sele
 
       {/* Zoom controls (non-compact only) */}
       {!compact && (
-        <div className="absolute bottom-3 right-3 z-10 flex items-center gap-1 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-lg shadow-sm px-1 py-0.5">
+        <div className="absolute bottom-3 right-3 z-10 flex items-center gap-1 glass-popover border border-gray-200 rounded-lg px-1 py-0.5">
           <button
             onClick={handleZoomOut}
             disabled={zoom <= MIN_ZOOM}
             className="w-7 h-7 flex items-center justify-center text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm"
-            title="Zoom out"
+            title={tr('缩小', 'Zoom out')}
           >
             −
           </button>
@@ -1051,7 +1053,7 @@ export function TeamWorkspace({ compact = false, filterTaskId, onBotSelect, sele
             onClick={handleZoomIn}
             disabled={zoom >= MAX_ZOOM}
             className="w-7 h-7 flex items-center justify-center text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm"
-            title="Zoom in"
+            title={tr('放大', 'Zoom in')}
           >
             +
           </button>
@@ -1060,7 +1062,7 @@ export function TeamWorkspace({ compact = false, filterTaskId, onBotSelect, sele
             onClick={handleZoomReset}
             disabled={zoom === 1 && panX === 0 && panY === 0}
             className="w-7 h-7 flex items-center justify-center text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-            title="Reset view"
+            title={tr('重置视图', 'Reset view')}
           >
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M2 8a6 6 0 0 1 10.2-4.3L14 2v4h-4l1.7-1.7A4.5 4.5 0 1 0 12.5 8" />
