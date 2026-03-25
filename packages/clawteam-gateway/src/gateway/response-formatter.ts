@@ -140,6 +140,10 @@ export function formatAckResponse(messageId: string): string {
   return `Message acknowledged.\n\nmessageId: ${messageId}`;
 }
 
+export function formatAckAlreadyReadResponse(messageId: string): string {
+  return `Message already acknowledged.\n\nmessageId: ${messageId}\nstatus: already_read`;
+}
+
 export function formatErrorResponse(message: string): string {
   return `Error: ${message}`;
 }

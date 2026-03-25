@@ -465,9 +465,11 @@ export class TaskCompleter {
         `Use your gateway URL from system prompt (for example: http://localhost:3100).\n` +
         `1) List task files:\n` +
         `curl -s $GATEWAY/gateway/tasks/${task.id}/files\n` +
-        `2) Read doc artifact:\n` +
+        `2) Inspect node kind first:\n` +
+        `curl -s $GATEWAY/gateway/tasks/${task.id}/files/<nodeId>\n` +
+        `3) If kind=doc, read raw text:\n` +
         `curl -s $GATEWAY/gateway/tasks/${task.id}/files/docs/<docId>/raw\n` +
-        `3) Read file artifact (base64 json):\n` +
+        `4) If kind=file, read file payload (base64 json):\n` +
         `curl -s "$GATEWAY/gateway/tasks/${task.id}/files/download/<nodeId>?format=json"\n`
       )
       : '';

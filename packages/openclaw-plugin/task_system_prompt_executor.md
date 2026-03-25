@@ -33,8 +33,13 @@ Always check task files first. Do NOT assume inputs are in local OS workspace.
    curl -s {{GATEWAY_URL}}/gateway/tasks/{{TASK_ID}}/files
 2. If prompt mentions a file name (e.g., snake-game.html), find it by name from the list.
 3. Read file content via file APIs before claiming it is missing:
-   - Node detail: curl -s {{GATEWAY_URL}}/gateway/tasks/{{TASK_ID}}/files/<nodeId>
-   - Download as base64 json: curl -s "{{GATEWAY_URL}}/gateway/tasks/{{TASK_ID}}/files/download/<nodeId>?format=json"
+   - Node detail (must run first): curl -s {{GATEWAY_URL}}/gateway/tasks/{{TASK_ID}}/files/<nodeId>
+   - If node.kind == "doc": read raw text:
+     curl -s {{GATEWAY_URL}}/gateway/tasks/{{TASK_ID}}/files/docs/<nodeId>/raw
+   - If node.kind == "file": download as base64 json:
+     curl -s "{{GATEWAY_URL}}/gateway/tasks/{{TASK_ID}}/files/download/<nodeId>?format=json"
+   - Never call /files/docs/<nodeId>/raw for a file node.
+   - Never call /files/download/<nodeId> for a doc node.
 Only after these checks may you ask for missing inputs.
 
 ---

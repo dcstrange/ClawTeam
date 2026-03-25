@@ -55,21 +55,31 @@ curl -s "$GATEWAY/gateway/tasks/<taskId>/files" \
 
 ### 3. Read artifact content
 
-Doc artifact:
+Always inspect node kind first:
+
+```bash
+curl -s "$GATEWAY/gateway/tasks/<taskId>/files/<nodeId>"
+```
+
+If `kind=doc`, read doc raw content:
 
 ```bash
 curl -s "$GATEWAY/gateway/tasks/<taskId>/files/docs/<docId>/raw"
 ```
 
-Binary/file artifact as JSON base64:
+If `kind=file`, read file payload as JSON base64:
 
 ```bash
 curl -s "$GATEWAY/gateway/tasks/<taskId>/files/download/<nodeId>?format=json"
 ```
 
+Do not mix them:
+- `/files/docs/<id>/raw` only works for `kind=doc`
+- `/files/download/<id>` only works for `kind=file`
+
 ### 4. Create artifacts
 
-Create doc:
+Create doc (`kind=doc`) when you need editable/plain-text deliverables (analysis, notes, report text) and want raw-text updates:
 
 ```bash
 curl -s -X POST "$GATEWAY/gateway/tasks/<taskId>/files/docs" \
@@ -77,7 +87,15 @@ curl -s -X POST "$GATEWAY/gateway/tasks/<taskId>/files/docs" \
   -d '{"title":"analysis.md","content":"YOUR_OUTPUT"}'
 ```
 
-Upload file:
+Update doc raw content (for existing `kind=doc`):
+
+```bash
+curl -s -X PUT "$GATEWAY/gateway/tasks/<taskId>/files/docs/<docId>/raw" \
+  -H 'Content-Type: application/json' \
+  -d '{"content":"UPDATED_TEXT"}'
+```
+
+Upload file (`kind=file`) when you need binary or exact file bytes (code file, html, image, archive):
 
 ```bash
 curl -s -X POST "$GATEWAY/gateway/tasks/<taskId>/files/upload" \

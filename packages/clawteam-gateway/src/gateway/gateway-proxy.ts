@@ -24,6 +24,7 @@ import {
   formatSendMessageResponse,
   formatInboxResponse,
   formatAckResponse,
+  formatAckAlreadyReadResponse,
   formatErrorResponse,
   formatSubmitResultResponse,
   formatApproveResponse,
@@ -82,6 +83,10 @@ function sendSuccess(
     return;
   }
   textReply(reply, textFormatter(payload), status);
+}
+
+function sendJsonSuccess(reply: FastifyReply, payload: any, status = 200): void {
+  reply.status(status).type('application/json').send({ success: true, data: payload });
 }
 
 function extractApiError(data: any): string {
@@ -1001,7 +1006,8 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
   server.get<{ Params: { nodeId: string } }>('/gateway/files/download/:nodeId', async (req, reply) => {
     try {
       const query = coerceRecord((req as FastifyRequest & { query?: unknown }).query);
-      const format = typeof query.format === 'string' ? query.format : 'json';
+      const requestedFormat = typeof query.format === 'string' ? query.format : undefined;
+      const format = requestedFormat ?? 'json';
       const nodeId = req.params.nodeId;
 
       if (format === 'binary') {
@@ -1031,7 +1037,12 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
         sendGatewayError(req, reply, `Download failed (HTTP ${res.status}): ${extractApiError(res.data)}`, res.status);
         return;
       }
-      sendSuccess(req, reply, unwrap(res.data), formatFileDownloadResponse);
+      // Force JSON only when caller explicitly requested format=json.
+      if (requestedFormat === 'json') {
+        sendJsonSuccess(reply, unwrap(res.data), res.status);
+      } else {
+        sendSuccess(req, reply, unwrap(res.data), formatFileDownloadResponse, res.status);
+      }
     } catch (err) {
       sendGatewayError(req, reply, (err as Error).message, 502);
     }
@@ -1235,7 +1246,8 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
         return;
       }
       const query = coerceRecord((req as FastifyRequest & { query?: unknown }).query);
-      const format = typeof query.format === 'string' ? query.format : 'json';
+      const requestedFormat = typeof query.format === 'string' ? query.format : undefined;
+      const format = requestedFormat ?? 'json';
 
       if (format === 'binary') {
         const upstream = await fetch(filesApiUrl(`/download/${nodeId}`, { format: 'binary' }), {
@@ -1264,7 +1276,12 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
         sendGatewayError(req, reply, `Task file download failed (HTTP ${res.status}): ${extractApiError(res.data)}`, res.status);
         return;
       }
-      sendSuccess(req, reply, unwrap(res.data), formatFileDownloadResponse);
+      // Force JSON only when caller explicitly requested format=json.
+      if (requestedFormat === 'json') {
+        sendJsonSuccess(reply, unwrap(res.data), res.status);
+      } else {
+        sendSuccess(req, reply, unwrap(res.data), formatFileDownloadResponse, res.status);
+      }
     } catch (err) {
       sendGatewayError(req, reply, (err as Error).message, 502);
     }
@@ -1405,7 +1422,30 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
         headers: authHeaders(key, deps.clawteamBotId),
         body: JSON.stringify(req.body || {}),
       });
-      if (!res.ok) { textReply(reply, formatErrorResponse(`Ack failed (HTTP ${res.status})`), res.status); return; }
+      if (!res.ok) {
+        const errCode = typeof res.data?.error?.code === 'string' ? res.data.error.code : '';
+        // Idempotent ACK behavior: treat "already read" as success.
+        if (res.status === 404 && errCode === 'MESSAGE_NOT_FOUND') {
+          const payload = { messageId: req.params.messageId, status: 'already_read' };
+          if (wantsJsonResponse(req)) {
+            sendJsonSuccess(reply, payload, 200);
+          } else {
+            textReply(reply, formatAckAlreadyReadResponse(req.params.messageId));
+          }
+          return;
+        }
+        textReply(reply, formatErrorResponse(`Ack failed (HTTP ${res.status})`), res.status);
+        return;
+      }
+      const payload = unwrap(res.data);
+      if (payload?.status === 'already_read') {
+        if (wantsJsonResponse(req)) {
+          sendJsonSuccess(reply, payload, 200);
+        } else {
+          textReply(reply, formatAckAlreadyReadResponse(req.params.messageId));
+        }
+        return;
+      }
       textReply(reply, formatAckResponse(req.params.messageId));
     } catch (err) {
       textReply(reply, formatErrorResponse((err as Error).message), 502);

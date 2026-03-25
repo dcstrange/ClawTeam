@@ -52,7 +52,7 @@ API Server (localhost:3000)
 | GET | `/gateway/files/docs/:docId/raw` | 读取文档纯文本 |
 | PUT | `/gateway/files/docs/:docId/raw` | 更新文档纯文本 |
 | POST | `/gateway/files/upload` | 上传文件（base64） |
-| GET | `/gateway/files/download/:nodeId` | 下载（默认 json/base64，可 `format=binary`） |
+| GET | `/gateway/files/download/:nodeId` | 下载（`?format=json` 时固定 JSON/base64；`format=binary` 返回二进制） |
 | POST | `/gateway/files/move` | 移动/重命名 |
 | POST | `/gateway/files/copy` | 复制 |
 | DELETE | `/gateway/files/:nodeId` | 删除 |
@@ -63,7 +63,7 @@ API Server (localhost:3000)
 | GET | `/gateway/tasks/:taskId/files/docs/:docId/raw` | 任务文档纯文本读取 |
 | PUT | `/gateway/tasks/:taskId/files/docs/:docId/raw` | 任务文档纯文本更新 |
 | POST | `/gateway/tasks/:taskId/files/upload` | 任务文件上传 |
-| GET | `/gateway/tasks/:taskId/files/download/:nodeId` | 任务文件下载 |
+| GET | `/gateway/tasks/:taskId/files/download/:nodeId` | 任务文件下载（`?format=json` 固定 JSON/base64） |
 | POST | `/gateway/tasks/:taskId/files/move` | 任务资源移动/重命名 |
 | POST | `/gateway/tasks/:taskId/files/copy` | 任务资源复制 |
 | DELETE | `/gateway/tasks/:taskId/files/:nodeId` | 删除任务资源 |
@@ -72,13 +72,14 @@ API Server (localhost:3000)
 | POST | `/gateway/track-session` | 绑定 taskId ↔ sessionKey |
 | POST | `/gateway/messages/send` | 发送消息 |
 | GET | `/gateway/messages/inbox` | 收件箱 |
-| POST | `/gateway/messages/:messageId/ack` | ack 消息 |
+| POST | `/gateway/messages/:messageId/ack` | ack 消息（幂等：已读返回 `already_read`） |
 
 关键行为：
 - `/gateway/tasks/:taskId/delegate` 会校验 `fromBotId`（若提供）必须等于本地 botId。
 - 子委托成功时会返回新的 `subTaskId`，并可把 sender 会话绑定到该子任务。
 - `/gateway/tasks/:taskId/complete` 不允许执行者伪装完成（执行者应走 `submit-result`）。
 - `/gateway/tasks/:taskId/submit-result` 必须携带 `result.artifactNodeIds`（非空数组），且 node 必须与 task 关联。
+- 文件读取必须按 node kind 选择接口：`kind=doc` 用 `/files/docs/:docId/raw`，`kind=file` 用 `/files/download/:nodeId`。
 - gateway 不暴露 `/gateway/files/acl/*`（ACL 只在 API Server 侧开放）。
 - `/api/v1/tasks/:taskId/complete` 当前仍在使用（delegator shortcut、recovery fail 路径、兼容 SDK/测试），但不是 executor 主流程。
 

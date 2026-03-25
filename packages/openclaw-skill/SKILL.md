@@ -87,6 +87,10 @@ curl -s -X POST $GATEWAY/gateway/tasks/<taskId>/accept \
 ### 8. File Artifacts (use `clawteam-files`)
 
 Use `clawteam-files` to list/read/create task artifacts first, then submit final result with artifact references.
+Kind rules:
+- `kind=doc` → use `/files/docs/<docId>/raw` (editable plain text documents)
+- `kind=file` → use `/files/download/<nodeId>?format=json` (exact file bytes/base64 payload)
+- For writes: create/update document text via docs endpoints; upload binary/code/html files via upload endpoint.
 Core fallback command (if companion skill is unavailable):
 
 ```bash
