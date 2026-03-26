@@ -442,7 +442,14 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
   // Called by the delegation sub-session to deliver the task to the executor.
   server.post<{ Params: { taskId: string } }>('/gateway/tasks/:taskId/delegate', async (req, reply) => {
     const { taskId } = req.params;
-    const body = autoTrack((req.body || {}) as Record<string, any>, taskId);
+    const rawBody = (req.body || {}) as Record<string, any>;
+    const injectedSessionKey = typeof rawBody.sessionKey === 'string' && rawBody.sessionKey.trim()
+      ? rawBody.sessionKey.trim()
+      : undefined;
+    const injectedSessionRole = typeof rawBody.sessionKeyRole === 'string' && rawBody.sessionKeyRole.trim()
+      ? rawBody.sessionKeyRole.trim()
+      : 'sender';
+    const body = autoTrack(rawBody, taskId);
     const localBotId = deps.clawteamBotId;
 
     if (!body.toBotId || typeof body.toBotId !== 'string') {
@@ -476,8 +483,78 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
       });
       if (!res.ok) { textReply(reply, formatErrorResponse(`Delegate failed (HTTP ${res.status}): ${typeof res.data === 'string' ? res.data : JSON.stringify(res.data)}`), res.status); return; }
 
-      log.info({ taskId, toBotId: body.toBotId }, 'Task delegated via /gateway/tasks/:taskId/delegate');
-      textReply(reply, `Task ${taskId} delegated to ${body.toBotId} (enqueued and notification sent).`);
+      const payload = unwrap(res.data) || {};
+      const delegatedTaskId = typeof payload.taskId === 'string'
+        ? payload.taskId
+        : typeof payload.id === 'string'
+          ? payload.id
+          : taskId;
+      const delegationMode = typeof payload.delegationMode === 'string'
+        ? payload.delegationMode
+        : (delegatedTaskId === taskId ? 'direct' : 'sub-task');
+
+      // Important for sub-delegate: autoTrack() only tracked parent taskId from URL.
+      // When API creates a child task, bind the same current session to that child task too.
+      let effectiveSessionKey = injectedSessionKey || deps.sessionTracker.getSessionForTask(taskId);
+      if (!effectiveSessionKey && delegatedTaskId !== taskId && deps.clawteamBotId) {
+        try {
+          const sessionsRes = await proxyFetch(`${apiBase}/api/v1/tasks/${taskId}/sessions`, {
+            headers: authHeaders(key, deps.clawteamBotId),
+          });
+          if (sessionsRes.ok) {
+            const payload = unwrap(sessionsRes.data);
+            const sessions = Array.isArray(payload?.sessions)
+              ? payload.sessions as Array<{ sessionKey?: string; botId?: string; role?: string }>
+              : Array.isArray(payload)
+                ? payload as Array<{ sessionKey?: string; botId?: string; role?: string }>
+                : [];
+            const mine = sessions.find((item) =>
+              item.botId === deps.clawteamBotId && item.role === 'sender' && typeof item.sessionKey === 'string',
+            ) || sessions.find((item) =>
+              item.botId === deps.clawteamBotId && typeof item.sessionKey === 'string',
+            );
+            if (mine?.sessionKey) {
+              effectiveSessionKey = mine.sessionKey;
+              deps.sessionTracker.track(taskId, effectiveSessionKey);
+              log.info({ taskId, effectiveSessionKey }, 'Recovered parent task sessionKey from API task_sessions');
+            }
+          }
+        } catch (err) {
+          log.warn(
+            { taskId, delegatedTaskId, error: (err as Error).message },
+            'Failed to recover parent task sessionKey from API task_sessions',
+          );
+        }
+      }
+      if (delegatedTaskId !== taskId && effectiveSessionKey) {
+        deps.sessionTracker.track(delegatedTaskId, effectiveSessionKey);
+        const botId = deps.clawteamBotId;
+        if (botId) {
+          proxyFetch(`${apiBase}/api/v1/tasks/${delegatedTaskId}/track-session`, {
+            method: 'POST',
+            headers: authHeaders(key, botId),
+            body: JSON.stringify({ sessionKey: effectiveSessionKey, botId, role: injectedSessionRole }),
+          }).catch((err) => {
+            log.warn(
+              { delegatedTaskId, taskId, error: (err as Error).message },
+              'child task track-session persist to API failed',
+            );
+          });
+        }
+      }
+
+      log.info(
+        { taskId, delegatedTaskId, delegationMode, toBotId: body.toBotId },
+        'Task delegated via /gateway/tasks/:taskId/delegate',
+      );
+      if (delegatedTaskId !== taskId) {
+        textReply(
+          reply,
+          `Sub-task ${delegatedTaskId} delegated to ${body.toBotId} (parent ${taskId}, enqueued and notification sent).`,
+        );
+      } else {
+        textReply(reply, `Task ${taskId} delegated to ${body.toBotId} (enqueued and notification sent).`);
+      }
     } catch (err) {
       textReply(reply, formatErrorResponse((err as Error).message), 502);
     }

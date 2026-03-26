@@ -1,4 +1,5 @@
 import { useI18n } from '@/lib/i18n';
+import { createPortal } from 'react-dom';
 
 interface ConfirmModalProps {
   isOpen: boolean;
@@ -24,9 +25,10 @@ export function ConfirmModal({
   const { tr } = useI18n();
   const resolvedConfirmLabel = confirmLabel || tr('确认', 'Confirm');
   if (!isOpen) return null;
+  if (typeof document === 'undefined') return null;
 
-  return (
-    <div className="fixed inset-0 z-50" onClick={onCancel}>
+  return createPortal(
+    <div className="fixed inset-0 z-[120]" onClick={onCancel}>
       <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" />
       <div className="fixed inset-0 flex items-center justify-center p-4">
         <div
@@ -56,6 +58,7 @@ export function ConfirmModal({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

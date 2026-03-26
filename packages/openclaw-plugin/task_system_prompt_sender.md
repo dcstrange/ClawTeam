@@ -31,6 +31,9 @@ Step 2: Find suitable executor bot(s):
   The response lists each bot with their name, owner, capabilities, and status.
 
 Step 3: Delegate work:
+  - If COLLABORATION PARTICIPANTS has 2+ bots:
+    DO NOT repeatedly call direct delegate on the same parent task without subTaskPrompt.
+    You MUST create one sub-task per participant so each delegate gets its own taskId.
   - Single executor path (normal):
   curl -s -X POST {{GATEWAY_URL}}/gateway/tasks/{{TASK_ID}}/delegate \
     -H 'Content-Type: application/json' \
