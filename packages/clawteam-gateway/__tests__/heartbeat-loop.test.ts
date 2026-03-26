@@ -21,9 +21,16 @@ function createMockApi(): jest.Mocked<IClawTeamApiClient> {
     acceptTask: jest.fn().mockResolvedValue(undefined),
     startTask: jest.fn().mockResolvedValue(undefined),
     getTask: jest.fn().mockResolvedValue(null),
+    getBot: jest.fn().mockResolvedValue(null),
     sendHeartbeat: jest.fn().mockResolvedValue(undefined),
     resetTask: jest.fn().mockResolvedValue(true),
+    failTask: jest.fn().mockResolvedValue(true),
+    cancelTask: jest.fn().mockResolvedValue(true),
     ackMessage: jest.fn().mockResolvedValue(true),
+    updateSessionKey: jest.fn().mockResolvedValue(undefined),
+    trackSession: jest.fn().mockResolvedValue(true),
+    getSessionForTaskBot: jest.fn().mockResolvedValue(null),
+    getSessionsForBot: jest.fn().mockResolvedValue([]),
   };
 }
 

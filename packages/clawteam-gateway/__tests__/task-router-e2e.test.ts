@@ -80,9 +80,16 @@ function createMockApi(pendingTasks: Task[] = []): jest.Mocked<IClawTeamApiClien
     getTask: jest.fn().mockImplementation(async (taskId: string) => {
       return taskMap.get(taskId) || null;
     }),
+    getBot: jest.fn().mockResolvedValue(null),
     sendHeartbeat: jest.fn().mockResolvedValue(undefined),
     resetTask: jest.fn().mockResolvedValue(true),
+    failTask: jest.fn().mockResolvedValue(true),
+    cancelTask: jest.fn().mockResolvedValue(true),
     ackMessage: jest.fn().mockResolvedValue(true),
+    updateSessionKey: jest.fn().mockResolvedValue(undefined),
+    trackSession: jest.fn().mockResolvedValue(true),
+    getSessionForTaskBot: jest.fn().mockResolvedValue(null),
+    getSessionsForBot: jest.fn().mockResolvedValue([]),
   };
 }
 
@@ -129,7 +136,7 @@ describe('TaskRouter Integration', () => {
         clawteamApi: mockApi,
         openclawSession: mockSession,
         sessionTracker,
-        clawteamApiUrl: 'http://localhost:3000',
+        gatewayUrl: 'http://localhost:3100',
         logger,
       });
 
@@ -184,7 +191,7 @@ describe('TaskRouter Integration', () => {
         clawteamApi: mockApi,
         openclawSession: mockSession,
         sessionTracker,
-        clawteamApiUrl: 'http://localhost:3000',
+        gatewayUrl: 'http://localhost:3100',
         logger,
       });
 
@@ -255,7 +262,7 @@ describe('TaskRouter Integration', () => {
         clawteamApi: mockApi,
         openclawSession: mockSession,
         sessionTracker,
-        clawteamApiUrl: 'http://localhost:3000',
+        gatewayUrl: 'http://localhost:3100',
         logger,
       });
 
@@ -279,7 +286,7 @@ describe('TaskRouter Integration', () => {
       // Fallback message should contain task info and sub-session instructions
       const message = mockSession.sentMessages[0].message;
       expect(message).toContain('[ClawTeam Task Received]');
-      expect(message).toContain('SUB-SESSION INSTRUCTIONS');
+      expect(message).toContain('Spawn a sub-session with this task value');
       expect(message).toContain('parent-001');
       expect(message).toContain('Parent Task Context');
       expect(message).toContain('code_review');
@@ -306,7 +313,7 @@ describe('TaskRouter Integration', () => {
         clawteamApi: mockApi,
         openclawSession: mockSession,
         sessionTracker: new SessionTracker(),
-        clawteamApiUrl: 'http://localhost:3000',
+        gatewayUrl: 'http://localhost:3100',
         logger,
       });
 
@@ -341,7 +348,7 @@ describe('TaskRouter Integration', () => {
         clawteamApi: mockApi,
         openclawSession: mockSession,
         sessionTracker: new SessionTracker(),
-        clawteamApiUrl: 'http://localhost:3000',
+        gatewayUrl: 'http://localhost:3100',
         logger,
       });
 
@@ -385,7 +392,7 @@ describe('TaskRouter Integration', () => {
         clawteamApi: mockApi,
         openclawSession: mockSession,
         sessionTracker: new SessionTracker(),
-        clawteamApiUrl: 'http://localhost:3000',
+        gatewayUrl: 'http://localhost:3100',
         logger,
       });
 
@@ -418,7 +425,7 @@ describe('TaskRouter Integration', () => {
         clawteamApi: mockApi,
         openclawSession: mockSession,
         sessionTracker: new SessionTracker(),
-        clawteamApiUrl: 'http://localhost:3000',
+        gatewayUrl: 'http://localhost:3100',
         logger,
       });
 
@@ -444,7 +451,7 @@ describe('TaskRouter Integration', () => {
         clawteamApi: mockApi,
         openclawSession: mockSession,
         sessionTracker: new SessionTracker(),
-        clawteamApiUrl: 'http://localhost:3000',
+        gatewayUrl: 'http://localhost:3100',
         logger,
       });
 
@@ -479,7 +486,7 @@ describe('TaskRouter Integration', () => {
         clawteamApi: mockApi,
         openclawSession: mockSession,
         sessionTracker,
-        clawteamApiUrl: 'http://localhost:3000',
+        gatewayUrl: 'http://localhost:3100',
         logger,
       });
 
@@ -508,7 +515,7 @@ describe('TaskRouter Integration', () => {
         clawteamApi: mockApi,
         openclawSession: mockSession,
         sessionTracker,
-        clawteamApiUrl: 'http://localhost:3000',
+        gatewayUrl: 'http://localhost:3100',
         logger,
       });
 
@@ -543,7 +550,7 @@ describe('TaskRouter Integration', () => {
         clawteamApi: mockApi,
         openclawSession: mockSession,
         sessionTracker: new SessionTracker(),
-        clawteamApiUrl: 'http://localhost:3000',
+        gatewayUrl: 'http://localhost:3100',
         logger,
       });
 
@@ -563,8 +570,9 @@ describe('TaskRouter Integration', () => {
       expect(message).toContain('Capability: analyze_data');
       expect(message).toContain('From Bot: originator-123');
       expect(message).toContain('metrics-2026');
-      expect(message).toContain(`POST $CLAWTEAM_API_URL/api/v1/tasks/${task.id}/accept`);
-      expect(message).toContain(`POST $CLAWTEAM_API_URL/api/v1/tasks/${task.id}/complete`);
+      // New task message includes CLAWTEAM token and spawn instruction
+      expect(message).toContain('<!--CLAWTEAM:');
+      expect(message).toContain('Spawn a sub-session now');
     });
 
     it('sub-task message references parent task', async () => {
@@ -585,7 +593,7 @@ describe('TaskRouter Integration', () => {
         clawteamApi: mockApi,
         openclawSession: mockSession,
         sessionTracker: new SessionTracker(),
-        clawteamApiUrl: 'http://localhost:3000',
+        gatewayUrl: 'http://localhost:3100',
         logger,
       });
 
@@ -601,9 +609,9 @@ describe('TaskRouter Integration', () => {
 
       const message = mockSession.sentMessages[0].message;
       expect(message).toContain('[ClawTeam sub-task Task]');
-      expect(message).toContain('Task ID: parent-xyz');
+      expect(message).toContain(`Task ID: ${task.id}`);
+      expect(message).toContain('Parent Task: parent-xyz');
       expect(message).toContain('Check error handling');
-      expect(message).toContain(`POST $CLAWTEAM_API_URL/api/v1/tasks/${task.id}/complete`);
     });
 
     it('direct message prompt contains reply instructions', async () => {
@@ -627,7 +635,7 @@ describe('TaskRouter Integration', () => {
         clawteamApi: mockApi,
         openclawSession: mockSession,
         sessionTracker: new SessionTracker(),
-        clawteamApiUrl: 'http://localhost:3000',
+        gatewayUrl: 'http://localhost:3100',
         logger,
       });
 
@@ -646,7 +654,7 @@ describe('TaskRouter Integration', () => {
       expect(message).toContain('Message ID: dm-002');
       expect(message).toContain('From Bot: bot-alpha');
       expect(message).toContain('Status update: deployment complete');
-      expect(message).toContain('/api/v1/messages/send');
+      expect(message).toContain('/gateway/messages/send');
       expect(message).toContain('"toBotId":"bot-alpha"');
     });
   });
@@ -690,7 +698,7 @@ describe('TaskRouter Integration', () => {
         clawteamApi: mockApi,
         openclawSession: mockSession,
         sessionTracker,
-        clawteamApiUrl: 'http://localhost:3000',
+        gatewayUrl: 'http://localhost:3100',
         logger,
       });
 
@@ -711,7 +719,7 @@ describe('TaskRouter Integration', () => {
       expect(mockSession.sentMessages[0].target).toBe('agent:executor:sub:review');
 
       const message = mockSession.sentMessages[0].message;
-      expect(message).toContain('[ClawTeam Message — Task Context]');
+      expect(message).toContain('[ClawTeam Message -- Task Context]');
       expect(message).toContain('Task ID: task-active-001');
       expect(message).toContain('Capability: code_review');
       expect(message).toContain('From Bot: bot-delegator');
@@ -739,7 +747,7 @@ describe('TaskRouter Integration', () => {
         clawteamApi: mockApi,
         openclawSession: mockSession,
         sessionTracker,
-        clawteamApiUrl: 'http://localhost:3000',
+        gatewayUrl: 'http://localhost:3100',
         logger,
       });
 
@@ -757,8 +765,8 @@ describe('TaskRouter Integration', () => {
       expect(mockSession.sentMessages).toHaveLength(1);
       expect(mockSession.sentMessages[0].target).toBe('main');
       expect(mockSession.sentMessages[0].message).toContain('[ClawTeam Task Received]');
-      // New task message should include clarification reply instructions
-      expect(mockSession.sentMessages[0].message).toContain('/api/v1/messages/send');
+      // New task message includes CLAWTEAM token with task ID
+      expect(mockSession.sentMessages[0].message).toContain('<!--CLAWTEAM:');
       expect(mockSession.sentMessages[0].message).toContain(`"taskId":"${delegatedTask.id}"`);
 
       // Phase 2: Simulate that main session spawned a sub-session and it accepted the task
@@ -790,7 +798,7 @@ describe('TaskRouter Integration', () => {
       expect(mockSession.sentMessages[0].target).toBe('agent:reviewer:sub:work123');
 
       const dmPrompt = mockSession.sentMessages[0].message;
-      expect(dmPrompt).toContain('[ClawTeam Message — Task Context]');
+      expect(dmPrompt).toContain('[ClawTeam Message -- Task Context]');
       expect(dmPrompt).toContain(`Task ID: ${delegatedTask.id}`);
       expect(dmPrompt).toContain('Focus on the error handling in src/api.ts');
       expect(dmPrompt).toContain('Capability: code_review');
@@ -827,7 +835,7 @@ describe('TaskRouter Integration', () => {
         clawteamApi: mockApi,
         openclawSession: mockSession,
         sessionTracker,
-        clawteamApiUrl: 'http://localhost:3000',
+        gatewayUrl: 'http://localhost:3100',
         logger,
       });
 
@@ -848,7 +856,7 @@ describe('TaskRouter Integration', () => {
       expect(mockSession.sentMessages[0].target).toBe('main');
 
       const message = mockSession.sentMessages[0].message;
-      expect(message).toContain('[ClawTeam Message — Task Context]');
+      expect(message).toContain('[ClawTeam Message -- Task Context]');
       expect(message).toContain('Task ID: task-untracked');
       expect(message).toContain('Deploy status?');
     });

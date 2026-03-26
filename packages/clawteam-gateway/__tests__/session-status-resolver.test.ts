@@ -23,14 +23,25 @@ describe('deriveState', () => {
       expect(deriveState(false, null)).toBe('dead');
     });
 
-    it('returns dead when not alive, even with analysis', () => {
-      expect(deriveState(false, { ...baseAnalysis, lastMessageRole: 'assistant' })).toBe('dead');
+    it('trusts JSONL over age when not alive but JSONL shows active work', () => {
+      // alive=false but assistant with no stop reason → JSONL says 'active' → trust JSONL
+      expect(deriveState(false, { ...baseAnalysis, lastMessageRole: 'assistant' })).toBe('active');
     });
 
-    it('returns dead when not alive, even with active analysis', () => {
+    it('trusts JSONL over age when not alive but toolResult present', () => {
+      // alive=false but toolResult → JSONL says 'active' → trust JSONL
       expect(deriveState(false, {
         ...baseAnalysis,
         lastMessageRole: 'toolResult',
+      })).toBe('active');
+    });
+
+    it('returns dead when not alive and JSONL shows non-active state', () => {
+      // alive=false, assistant + stop='stop' → JSONL says 'completed' → not in activeStates → 'dead'
+      expect(deriveState(false, {
+        ...baseAnalysis,
+        lastMessageRole: 'assistant',
+        lastStopReason: 'stop',
       })).toBe('dead');
     });
   });
@@ -111,8 +122,8 @@ describe('deriveState', () => {
       expected: string;
     }> = [
       { alive: false, role: null, stop: null, expected: 'dead' },
-      { alive: false, role: 'assistant', stop: 'stop', expected: 'dead' },
-      { alive: false, role: 'toolResult', stop: null, expected: 'dead' },
+      { alive: false, role: 'assistant', stop: 'stop', expected: 'dead' },  // completed → not in activeStates → dead
+      { alive: false, role: 'toolResult', stop: null, expected: 'active' }, // JSONL shows active work → trust it
       { alive: true, role: null, stop: null, expected: 'idle' },
       { alive: true, role: 'assistant', stop: 'error', expected: 'errored' },
       { alive: true, role: 'assistant', stop: 'stop', expected: 'completed' },
