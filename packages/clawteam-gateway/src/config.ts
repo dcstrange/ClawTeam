@@ -8,11 +8,14 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { parse } from 'yaml';
+import type { SessionProviderType } from './providers/types.js';
 
 /** How the Gateway communicates with OpenClaw */
 export type OpenClawMode = 'cli' | 'http';
 
 export interface GatewayConfig {
+  /** Session provider type: 'openclaw' (default) or 'claude' */
+  sessionProvider?: SessionProviderType;
   /** ClawTeam API base URL */
   clawteamApiUrl: string;
   /** ClawTeam API key for authentication */
@@ -67,6 +70,7 @@ export interface GatewayConfig {
 export type TaskRouterConfig = GatewayConfig;
 
 interface YamlConfig {
+  provider?: { type?: string };
   api?: { url?: string; key?: string; botId?: string };
   gateway?: { url?: string; enabled?: boolean; port?: number; proxyEnabled?: boolean };
   /** @deprecated Use gateway instead */
@@ -109,10 +113,12 @@ export function loadConfig(): GatewayConfig {
     );
   }
 
+  // Session provider type (default: 'openclaw' for backward compatibility)
+  const sessionProvider = (process.env.SESSION_PROVIDER || yaml.provider?.type || 'openclaw') as SessionProviderType;
+
   const openclawMode = (process.env.OPENCLAW_MODE || yaml.openclaw?.mode || 'cli') as OpenClawMode;
-  if (openclawMode !== 'cli' && openclawMode !== 'http') {
-    throw new Error(`Invalid OPENCLAW_MODE: "${openclawMode}". Must be "cli" or "http".`);
-  }
+  // openclawMode 验证仅在 openclaw provider 中执行（已移至 provider-factory.ts）
+  // 避免 Claude provider 启动时因残留的无效 OPENCLAW_MODE 环境变量而崩溃
 
   const openclawHomeEnv = process.env.OPENCLAW_HOME?.trim();
   const openclawHome = openclawHomeEnv
@@ -125,6 +131,7 @@ export function loadConfig(): GatewayConfig {
   const rt = yaml.router;
 
   return {
+    sessionProvider,
     clawteamApiUrl: process.env.CLAWTEAM_API_URL || yaml.api?.url || 'http://localhost:3000',
     clawteamApiKey,
     clawteamBotId: process.env.CLAWTEAM_BOT_ID || yaml.api?.botId || undefined,

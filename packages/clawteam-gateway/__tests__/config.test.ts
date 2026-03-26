@@ -127,7 +127,7 @@ describe('loadConfig', () => {
     });
   });
 
-  describe('openclawMode validation', () => {
+  describe('openclawMode values', () => {
     it('accepts cli mode', () => {
       process.env.OPENCLAW_MODE = 'cli';
       const config = loadConfig();
@@ -140,9 +140,25 @@ describe('loadConfig', () => {
       expect(config.openclawMode).toBe('http');
     });
 
-    it('throws for invalid mode', () => {
+    it('passes through invalid mode (validation moved to provider-factory)', () => {
+      // openclawMode validation is now in createProvider(), not loadConfig()
+      // This allows Claude provider to start even with stale OPENCLAW_MODE env vars
       process.env.OPENCLAW_MODE = 'invalid';
-      expect(() => loadConfig()).toThrow('Invalid OPENCLAW_MODE');
+      const config = loadConfig();
+      expect(config.openclawMode).toBe('invalid');
+    });
+  });
+
+  describe('sessionProvider', () => {
+    it('defaults to openclaw for backward compatibility', () => {
+      const config = loadConfig();
+      expect(config.sessionProvider).toBe('openclaw');
+    });
+
+    it('reads from SESSION_PROVIDER env var', () => {
+      process.env.SESSION_PROVIDER = 'claude';
+      const config = loadConfig();
+      expect(config.sessionProvider).toBe('claude');
     });
   });
 
