@@ -16,14 +16,14 @@ import { EventEmitter } from 'node:events';
 import type { Task } from '@clawteam/shared/types';
 import type { InboxMessage, RoutingDecision, RoutingResult } from '../types.js';
 import type { IClawTeamApiClient } from '../clients/clawteam-api.js';
-import type { IOpenClawSessionClient } from '../clients/openclaw-session.js';
+import type { ISessionClient } from '../providers/types.js';
 import type { SessionTracker } from './session-tracker.js';
 import type { Logger } from 'pino';
 import { printRouteBlock } from '../utils/visual-log.js';
 
 export interface TaskRouterDeps {
   clawteamApi: IClawTeamApiClient;
-  openclawSession: IOpenClawSessionClient;
+  sessionClient: ISessionClient;
   sessionTracker: SessionTracker;
   logger: Logger;
   gatewayUrl: string;
@@ -32,7 +32,7 @@ export interface TaskRouterDeps {
 
 export class TaskRouter extends EventEmitter {
   private readonly clawteamApi: IClawTeamApiClient;
-  private readonly openclawSession: IOpenClawSessionClient;
+  private readonly sessionClient: ISessionClient;
   private readonly sessionTracker: SessionTracker;
   private readonly logger: Logger;
   private readonly gatewayUrl: string;
@@ -41,7 +41,7 @@ export class TaskRouter extends EventEmitter {
   constructor(deps: TaskRouterDeps) {
     super();
     this.clawteamApi = deps.clawteamApi;
-    this.openclawSession = deps.openclawSession;
+    this.sessionClient = deps.sessionClient;
     this.sessionTracker = deps.sessionTracker;
     this.logger = deps.logger.child({ component: 'router' });
     this.gatewayUrl = deps.gatewayUrl;
@@ -231,7 +231,7 @@ export class TaskRouter extends EventEmitter {
       );
 
       const prompt = await this.buildTaskContextMessagePrompt(message, task);
-      const success = await this.openclawSession.sendToMainSession(prompt);
+      const success = await this.sessionClient.sendToMainSession(prompt);
 
       const result: RoutingResult = {
         taskId: message.messageId,
@@ -253,7 +253,7 @@ export class TaskRouter extends EventEmitter {
     );
 
     const prompt = this.buildDirectMessagePrompt(message);
-    const success = await this.openclawSession.sendToMainSession(prompt);
+    const success = await this.sessionClient.sendToMainSession(prompt);
 
     const result: RoutingResult = {
       taskId: message.messageId,
@@ -273,7 +273,7 @@ export class TaskRouter extends EventEmitter {
     task: Task | null,
   ): Promise<RoutingResult> {
     const prompt = await this.buildTaskContextMessagePrompt(message, task);
-    const success = await this.openclawSession.sendToSession(sessionKey, prompt);
+    const success = await this.sessionClient.sendToSession(sessionKey, prompt);
 
     if (success) {
       const result: RoutingResult = {
@@ -293,7 +293,7 @@ export class TaskRouter extends EventEmitter {
       'Send to sub-session failed, falling back to main session',
     );
 
-    const fallbackSuccess = await this.openclawSession.sendToMainSession(prompt);
+    const fallbackSuccess = await this.sessionClient.sendToMainSession(prompt);
     const result: RoutingResult = {
       taskId: message.messageId,
       success: fallbackSuccess,
@@ -445,7 +445,7 @@ export class TaskRouter extends EventEmitter {
 
     const toMeta = await this.resolveDelegateIntentTarget(prompt, parameters);
     const message = this.buildDelegateIntentMessage(taskId, prompt, fromBotId, toMeta);
-    const success = await this.openclawSession.sendToMainSession(message);
+    const success = await this.sessionClient.sendToMainSession(message);
 
     const result: RoutingResult = {
       taskId: msg.messageId,
@@ -627,7 +627,7 @@ export class TaskRouter extends EventEmitter {
     } catch { /* best-effort */ }
 
     const message = this.buildNewTaskMessage(decision.task, fromBotName);
-    const success = await this.openclawSession.sendToMainSession(message, decision.taskId);
+    const success = await this.sessionClient.sendToMainSession(message, decision.taskId);
 
     return {
       taskId: decision.taskId,
@@ -642,11 +642,11 @@ export class TaskRouter extends EventEmitter {
     const targetKey = decision.targetSessionKey!;
 
     // Check if target session is alive
-    const alive = await this.openclawSession.isSessionAlive(targetKey);
+    const alive = await this.sessionClient.isSessionAlive(targetKey);
 
     if (alive) {
       const message = this.buildSubTaskMessage(decision.task);
-      const success = await this.openclawSession.sendToSession(targetKey, message);
+      const success = await this.sessionClient.sendToSession(targetKey, message);
 
       if (success) {
         this.sessionTracker.track(decision.taskId, targetKey);
@@ -679,9 +679,9 @@ export class TaskRouter extends EventEmitter {
       );
 
       // Try to restore the session before falling back
-      if (this.openclawSession.restoreSession) {
+      if (this.sessionClient.restoreSession) {
         try {
-          const restored = await this.openclawSession.restoreSession(targetKey);
+          const restored = await this.sessionClient.restoreSession(targetKey);
           if (restored) {
             this.logger.info(
               { taskId: decision.taskId, targetSessionKey: targetKey },
@@ -689,7 +689,7 @@ export class TaskRouter extends EventEmitter {
             );
 
             const message = this.buildSubTaskMessage(decision.task);
-            const success = await this.openclawSession.sendToSession(targetKey, message);
+            const success = await this.sessionClient.sendToSession(targetKey, message);
 
             if (success) {
               this.sessionTracker.track(decision.taskId, targetKey);
@@ -716,7 +716,7 @@ export class TaskRouter extends EventEmitter {
 
     // Fallback: session expired or send failed -- route to main with parent context
     const fallbackMessage = await this.buildFallbackMessage(decision.task);
-    const fallbackSuccess = await this.openclawSession.sendToMainSession(fallbackMessage, decision.taskId);
+    const fallbackSuccess = await this.sessionClient.sendToMainSession(fallbackMessage, decision.taskId);
 
     return {
       taskId: decision.taskId,

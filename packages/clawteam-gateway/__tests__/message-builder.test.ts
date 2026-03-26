@@ -14,7 +14,7 @@
 
 import type { Task } from '@clawteam/shared/types';
 import type { IClawTeamApiClient } from '../src/clients/clawteam-api';
-import type { IOpenClawSessionClient } from '../src/clients/openclaw-session';
+import type { ISessionClient } from '../src/providers/types';
 import type { TaskSessionStatus, SessionState } from '../src/monitoring/types';
 import { TaskRouter } from '../src/routing/router';
 import { StaleTaskRecoveryLoop } from '../src/recovery/stale-task-recovery-loop';
@@ -66,7 +66,7 @@ function createMockApi(): jest.Mocked<IClawTeamApiClient> {
   };
 }
 
-function createMockSession(): jest.Mocked<Required<IOpenClawSessionClient>> {
+function createMockSession(): jest.Mocked<Required<ISessionClient>> {
   return {
     sendToSession: jest.fn().mockResolvedValue(true),
     sendToMainSession: jest.fn().mockResolvedValue(true),
@@ -110,7 +110,7 @@ function makeStatus(
 describe('Router message content verification', () => {
   let router: TaskRouter;
   let mockApi: jest.Mocked<IClawTeamApiClient>;
-  let mockSession: jest.Mocked<Required<IOpenClawSessionClient>>;
+  let mockSession: jest.Mocked<Required<ISessionClient>>;
   let sessionTracker: SessionTracker;
 
   beforeEach(() => {
@@ -119,7 +119,7 @@ describe('Router message content verification', () => {
     sessionTracker = new SessionTracker();
     router = new TaskRouter({
       clawteamApi: mockApi,
-      openclawSession: mockSession,
+      sessionClient: mockSession,
       sessionTracker,
       gatewayUrl: GATEWAY_URL,
       logger,
@@ -299,7 +299,7 @@ describe('Recovery loop message content verification', () => {
   let loop: StaleTaskRecoveryLoop;
   let mockApi: jest.Mocked<IClawTeamApiClient>;
   let mockResolver: jest.Mocked<Pick<SessionStatusResolver, 'resolveForTasks' | 'fetchCliSessions'>>;
-  let mockSession: jest.Mocked<Required<IOpenClawSessionClient>>;
+  let mockSession: jest.Mocked<Required<ISessionClient>>;
   let tracker: SessionTracker;
   let routedTasks: RoutedTasksTracker;
 
@@ -316,7 +316,7 @@ describe('Recovery loop message content verification', () => {
     loop = new StaleTaskRecoveryLoop({
       resolver: mockResolver as any,
       clawteamApi: mockApi,
-      openclawSession: mockSession,
+      sessionClient: mockSession,
       sessionTracker: tracker,
       routedTasks,
       intervalMs: 120_000,

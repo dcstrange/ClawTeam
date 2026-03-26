@@ -6,7 +6,7 @@
  */
 
 import type { IClawTeamApiClient } from '../src/clients/clawteam-api';
-import type { IOpenClawSessionClient } from '../src/clients/openclaw-session';
+import type { ISessionClient } from '../src/providers/types';
 import type { TaskSessionStatus, SessionState } from '../src/monitoring/types';
 import { StaleTaskRecoveryLoop } from '../src/recovery/stale-task-recovery-loop';
 import { SessionStatusResolver } from '../src/monitoring/session-status-resolver';
@@ -52,7 +52,7 @@ function createMockResolver(): jest.Mocked<Pick<SessionStatusResolver, 'resolveF
   };
 }
 
-function createMockOpenClaw(): jest.Mocked<Required<IOpenClawSessionClient>> {
+function createMockOpenClaw(): jest.Mocked<Required<ISessionClient>> {
   return {
     sendToSession: jest.fn().mockResolvedValue(true),
     sendToMainSession: jest.fn().mockResolvedValue(true),
@@ -93,7 +93,7 @@ describe('StaleTaskRecoveryLoop', () => {
   let loop: StaleTaskRecoveryLoop;
   let mockApi: jest.Mocked<IClawTeamApiClient>;
   let mockResolver: jest.Mocked<Pick<SessionStatusResolver, 'resolveForTasks' | 'fetchCliSessions'>>;
-  let mockOpenClaw: jest.Mocked<Required<IOpenClawSessionClient>>;
+  let mockOpenClaw: jest.Mocked<Required<ISessionClient>>;
   let tracker: SessionTracker;
   let routedTasks: RoutedTasksTracker;
 
@@ -108,7 +108,7 @@ describe('StaleTaskRecoveryLoop', () => {
     loop = new StaleTaskRecoveryLoop({
       resolver: mockResolver as any,
       clawteamApi: mockApi,
-      openclawSession: mockOpenClaw,
+      sessionClient: mockOpenClaw,
       sessionTracker: tracker,
       routedTasks,
       intervalMs: 120_000,
@@ -410,7 +410,7 @@ describe('StaleTaskRecoveryLoop', () => {
         loopWithTimeout = new StaleTaskRecoveryLoop({
           resolver: mockResolver as any,
           clawteamApi: mockApi,
-          openclawSession: mockOpenClaw,
+          sessionClient: mockOpenClaw,
           sessionTracker: tracker,
           routedTasks,
           intervalMs: 120_000,

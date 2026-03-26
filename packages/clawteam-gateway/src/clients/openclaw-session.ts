@@ -14,20 +14,16 @@ import type { SessionSendResponse, SessionStatusResponse } from '../types.js';
 import type { Logger } from 'pino';
 
 
-export interface IOpenClawSessionClient {
-  sendToSession(sessionKey: string, message: string): Promise<boolean>;
-  /** Send a message to the main session. */
-  sendToMainSession(message: string, taskId?: string): Promise<boolean>;
-  isSessionAlive(sessionKey: string): Promise<boolean>;
-  /** Attempt to restore an archived/orphaned session. Returns true if restored. */
-  restoreSession?(sessionKey: string): Promise<boolean>;
-  /** Reverse-lookup: given a raw session ID (UUID), find the session key. */
-  resolveSessionKeyFromId?(sessionId: string): string | undefined;
-  /** Reset the main session via gateway. Returns the new session ID or null on failure. */
-  resetMainSession?(): Promise<string | null>;
-}
+export { type ISessionClient } from '../providers/types.js';
+import type { ISessionClient } from '../providers/types.js';
 
-export class OpenClawSessionClient implements IOpenClawSessionClient {
+/**
+ * @deprecated Use ISessionClient from '../providers/types.js' instead.
+ * Kept as a re-export alias for backward compatibility during migration.
+ */
+export type IOpenClawSessionClient = ISessionClient;
+
+export class OpenClawSessionClient implements ISessionClient {
   private readonly baseUrl: string;
   private readonly mainSessionId: string;
   private readonly apiKey?: string;

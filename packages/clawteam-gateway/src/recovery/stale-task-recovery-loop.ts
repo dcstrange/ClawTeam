@@ -13,7 +13,7 @@
 import type { Task } from '@clawteam/shared/types';
 import type { Logger } from 'pino';
 import type { IClawTeamApiClient } from '../clients/clawteam-api.js';
-import type { IOpenClawSessionClient } from '../clients/openclaw-session.js';
+import type { ISessionClient } from '../providers/types.js';
 import type { SessionStatusResolver } from '../monitoring/session-status-resolver.js';
 import type { SessionTracker } from '../routing/session-tracker.js';
 import type { RoutedTasksTracker } from '../routing/routed-tasks.js';
@@ -33,7 +33,7 @@ import type { RecoveryStep } from '../utils/visual-log.js';
 export interface StaleTaskRecoveryLoopOptions {
   resolver: SessionStatusResolver;
   clawteamApi: IClawTeamApiClient;
-  openclawSession: IOpenClawSessionClient;
+  sessionClient: ISessionClient;
   sessionTracker: SessionTracker;
   /** Shared routed-tasks tracker (also used by TaskPollingLoop) — cleared on reset so poller re-routes */
   routedTasks?: RoutedTasksTracker;
@@ -52,7 +52,7 @@ export interface StaleTaskRecoveryLoopOptions {
 export class StaleTaskRecoveryLoop {
   private readonly resolver: SessionStatusResolver;
   private readonly clawteamApi: IClawTeamApiClient;
-  private readonly openclawSession: IOpenClawSessionClient;
+  private readonly sessionClient: ISessionClient;
   private readonly sessionTracker: SessionTracker;
   private readonly routedTasks: RoutedTasksTracker | null;
   private readonly intervalMs: number;
@@ -73,7 +73,7 @@ export class StaleTaskRecoveryLoop {
   constructor(options: StaleTaskRecoveryLoopOptions) {
     this.resolver = options.resolver;
     this.clawteamApi = options.clawteamApi;
-    this.openclawSession = options.openclawSession;
+    this.sessionClient = options.sessionClient;
     this.sessionTracker = options.sessionTracker;
     this.routedTasks = options.routedTasks ?? null;
     this.intervalMs = options.intervalMs;
@@ -380,7 +380,7 @@ export class StaleTaskRecoveryLoop {
             'Please STOP all work on this task immediately.',
             'Do NOT call the complete endpoint. The task is already cancelled.',
           ].join('\n');
-          await this.openclawSession.sendToSession(sessionKey, message).catch(() => {});
+          await this.sessionClient.sendToSession(sessionKey, message).catch(() => {});
         }
 
         this.sessionTracker.untrack(taskId);
@@ -650,15 +650,15 @@ export class StaleTaskRecoveryLoop {
     };
 
     // Try to restore the session
-    const canRestore = typeof this.openclawSession.restoreSession === 'function';
+    const canRestore = typeof this.sessionClient.restoreSession === 'function';
     if (canRestore) {
       try {
-        const restored = await this.openclawSession.restoreSession!(sessionKey);
+        const restored = await this.sessionClient.restoreSession!(sessionKey);
         if (restored) {
           this.logger.info({ taskId, sessionKey }, `${c.bgGreen(' RESTORE OK ')} Session restored, sending nudge`);
           steps.push({ label: 'Restore session', ok: true, detail: 'restored' });
           const nudgeMsg = this.buildNudgeMessage(taskId, sessionKey, 'dead', task, attemptNum);
-          const sent = await this.openclawSession.sendToSession(sessionKey, nudgeMsg);
+          const sent = await this.sessionClient.sendToSession(sessionKey, nudgeMsg);
           steps.push({ label: 'Nudge', ok: sent, detail: sent ? 'sent' : 'send failed' });
           const result: RecoveryResult = {
             taskId, sessionKey,
@@ -721,7 +721,7 @@ export class StaleTaskRecoveryLoop {
     this.logger.warn({ taskId, sessionKey }, `${c.bgRed(' API RESET FAILED ')} Sending fallback message to main`);
     steps.push({ label: 'API reset task', ok: false, detail: 'reset failed' });
     const fallbackMsg = this.buildFallbackMessage(taskId, sessionKey, task);
-    const sent = await this.openclawSession.sendToMainSession(fallbackMsg);
+    const sent = await this.sessionClient.sendToMainSession(fallbackMsg);
     steps.push({ label: 'Fallback to main', ok: sent, detail: sent ? 'sent' : 'send failed' });
     this.sessionTracker.untrack(taskId);
     this.firstSeenAt.delete(taskId);
@@ -748,7 +748,7 @@ export class StaleTaskRecoveryLoop {
     this.attemptTracker.recordAttempt(taskId, sessionState as any);
 
     const nudgeMsg = this.buildNudgeMessage(taskId, sessionKey, sessionState, task, attemptNum);
-    const sent = await this.openclawSession.sendToSession(sessionKey, nudgeMsg);
+    const sent = await this.sessionClient.sendToSession(sessionKey, nudgeMsg);
 
     this.logger.info(
       { taskId, sessionKey, sessionState, attemptNum, sent },

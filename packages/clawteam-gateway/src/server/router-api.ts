@@ -13,7 +13,7 @@ import type { TaskRouter } from '../routing/router.js';
 import type { TaskPollingLoop } from '../polling/task-poller.js';
 import type { HeartbeatLoop } from '../monitoring/heartbeat-loop.js';
 import type { SessionStatusResolver } from '../monitoring/session-status-resolver.js';
-import type { IOpenClawSessionClient } from '../clients/openclaw-session.js';
+import type { ISessionClient } from '../providers/types.js';
 import type { IClawTeamApiClient } from '../clients/clawteam-api.js';
 import type { RoutingResult } from '../types.js';
 import type { TaskSessionStatus } from '../monitoring/types.js';
@@ -34,7 +34,7 @@ export interface RouterApiDeps {
   poller: TaskPollingLoop;
   heartbeatLoop: HeartbeatLoop | null;
   resolver: SessionStatusResolver | null;
-  openclawSession: IOpenClawSessionClient | null;
+  sessionClient: ISessionClient | null;
   clawteamApi: IClawTeamApiClient | null;
   clawteamApiUrl: string;
   clawteamApiKey: string;
@@ -54,7 +54,7 @@ export class RouterApiServer {
   private readonly poller: TaskPollingLoop;
   private readonly heartbeatLoop: HeartbeatLoop | null;
   private readonly resolver: SessionStatusResolver | null;
-  private readonly openclawSession: IOpenClawSessionClient | null;
+  private readonly sessionClient: ISessionClient | null;
   private readonly clawteamApi: IClawTeamApiClient | null;
   private readonly clawteamApiUrl: string;
   private readonly pollIntervalMs: number;
@@ -76,7 +76,7 @@ export class RouterApiServer {
     this.poller = deps.poller;
     this.heartbeatLoop = deps.heartbeatLoop;
     this.resolver = deps.resolver;
-    this.openclawSession = deps.openclawSession;
+    this.sessionClient = deps.sessionClient;
     this.clawteamApi = deps.clawteamApi;
     this.clawteamApiUrl = deps.clawteamApiUrl;
     this.pollIntervalMs = deps.pollIntervalMs;
@@ -171,7 +171,7 @@ export class RouterApiServer {
       const { taskId } = req.params;
       const reason = (req.body as any)?.reason ?? 'Cancelled from dashboard';
 
-      if (!this.openclawSession || !this.clawteamApi) {
+      if (!this.sessionClient || !this.clawteamApi) {
         return { success: false, reason: 'Cancel not available (missing dependencies)' };
       }
 
@@ -200,7 +200,7 @@ export class RouterApiServer {
           'Do NOT call the complete endpoint. The task is already cancelled.',
         ].join('\n');
 
-        sessionNotified = await this.openclawSession.sendToSession(sessionKey, message);
+        sessionNotified = await this.sessionClient.sendToSession(sessionKey, message);
         this.logger.info({ taskId, sessionKey, sessionNotified }, 'Cancel message sent to session');
       }
 
@@ -239,7 +239,7 @@ export class RouterApiServer {
     this.server.post<{ Params: { taskId: string } }>('/tasks/:taskId/nudge', async (req) => {
       const { taskId } = req.params;
 
-      if (!this.openclawSession || !this.clawteamApi) {
+      if (!this.sessionClient || !this.clawteamApi) {
         return { success: false, reason: 'Nudge not available (missing dependencies)' };
       }
 
@@ -270,7 +270,7 @@ export class RouterApiServer {
         `Complete: POST $CLAWTEAM_API_URL/api/v1/tasks/${taskId}/complete`,
       ].join('\n');
 
-      const sent = await this.openclawSession.sendToSession(sessionKey, message);
+      const sent = await this.sessionClient.sendToSession(sessionKey, message);
       this.logger.info({ taskId, sessionKey, sent }, sent ? 'Manual nudge sent' : 'Manual nudge failed');
 
       return { success: sent, action: 'nudge', sessionKey, reason: sent ? 'Nudge sent' : 'Send failed' };
@@ -302,17 +302,17 @@ export class RouterApiServer {
         }
 
         let alive = false;
-        if (sessionKey && this.openclawSession) {
+        if (sessionKey && this.sessionClient) {
           try {
-            alive = await this.openclawSession.isSessionAlive(sessionKey);
+            alive = await this.sessionClient.isSessionAlive(sessionKey);
           } catch (err) {
             this.logger.warn({ taskId, sessionKey, error: (err as Error).message }, 'Session alive check failed');
           }
 
           // Try restoring archived session before giving up
-          if (!alive && this.openclawSession.restoreSession) {
+          if (!alive && this.sessionClient.restoreSession) {
             try {
-              const restored = await this.openclawSession.restoreSession(sessionKey);
+              const restored = await this.sessionClient.restoreSession(sessionKey);
               if (restored) {
                 this.logger.info({ taskId, sessionKey }, 'Session restored from archive for resume');
                 alive = true;
@@ -360,11 +360,11 @@ export class RouterApiServer {
 
     // Reset main session: archives old transcript and assigns a new session ID
     this.server.post('/sessions/main/reset', async () => {
-      if (!this.openclawSession?.resetMainSession) {
+      if (!this.sessionClient?.resetMainSession) {
         return { success: false, message: 'Reset not available (missing session client or method)' };
       }
 
-      const newSessionId = await this.openclawSession.resetMainSession();
+      const newSessionId = await this.sessionClient.resetMainSession();
       if (newSessionId) {
         this.logger.info({ newSessionId }, 'Main session reset via API');
         return { success: true, newSessionId };

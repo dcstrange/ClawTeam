@@ -27,7 +27,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { promisify } from 'node:util';
-import type { IOpenClawSessionClient } from './openclaw-session.js';
+import type { ISessionClient } from '../providers/types.js';
 import type { Logger } from 'pino';
 import { buildOpenclawCliEnv } from '../utils/openclaw-env.js';
 
@@ -55,7 +55,7 @@ function parseAgentId(sessionKey: string): string | null {
   return null;
 }
 
-export class OpenClawSessionCliClient implements IOpenClawSessionClient {
+export class OpenClawSessionCliClient implements ISessionClient {
   private readonly mainAgentId: string;
   private readonly logger: Logger;
   private readonly timeoutMs: number;
@@ -497,5 +497,7 @@ export class OpenClawSessionCliClient implements IOpenClawSessionClient {
   }
 }
 
-// Re-export the interface for convenience
+// Re-export the interfaces for convenience
+export type { ISessionClient } from '../providers/types.js';
+/** @deprecated Use ISessionClient instead */
 export type { IOpenClawSessionClient } from './openclaw-session.js';

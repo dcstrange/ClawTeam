@@ -12,7 +12,8 @@ import { loadConfig } from './config.js';
 import { createLogger } from './utils/logger.js';
 import { printStartupBanner } from './utils/startup-banner.js';
 import { ClawTeamApiClient } from './clients/clawteam-api.js';
-import { OpenClawSessionClient, type IOpenClawSessionClient } from './clients/openclaw-session.js';
+import { OpenClawSessionClient } from './clients/openclaw-session.js';
+import type { ISessionClient } from './providers/types.js';
 import { OpenClawSessionCliClient } from './clients/openclaw-session-cli.js';
 import { SessionTracker } from './routing/session-tracker.js';
 import { RoutedTasksTracker } from './routing/routed-tasks.js';
@@ -31,7 +32,7 @@ const __dirname = dirname(__filename);
 loadEnv({ path: resolve(__dirname, '../../../.env') });
 
 /** Create the appropriate OpenClaw session client based on config mode */
-function createOpenClawClient(config: GatewayConfig, logger: Logger): IOpenClawSessionClient {
+function createOpenClawClient(config: GatewayConfig, logger: Logger): ISessionClient {
   if (config.openclawMode === 'cli') {
     return new OpenClawSessionCliClient(config.mainAgentId, logger, {
       openclawBin: config.openclawBin,
@@ -72,8 +73,8 @@ async function main() {
     config.clawteamBotId,
   );
 
-  const openclawSession = createOpenClawClient(config, logger);
-  logger.info({ mode: config.openclawMode, mainAgentId: config.mainAgentId }, 'OpenClaw client created');
+  const sessionClient = createOpenClawClient(config, logger);
+  logger.info({ mode: config.openclawMode, mainAgentId: config.mainAgentId }, 'Session client created');
 
   // 4. Create session tracker and shared routed-tasks tracker
   const sessionTracker = new SessionTracker();
@@ -88,7 +89,7 @@ async function main() {
 
   const router = new TaskRouter({
     clawteamApi,
-    openclawSession,
+    sessionClient,
     sessionTracker,
     logger,
     gatewayUrl,
@@ -139,7 +140,7 @@ async function main() {
     recoveryLoop = new StaleTaskRecoveryLoop({
       resolver: recoveryResolver,
       clawteamApi,
-      openclawSession,
+      sessionClient,
       sessionTracker,
       routedTasks,
       intervalMs: config.recoveryIntervalMs,
@@ -174,7 +175,7 @@ async function main() {
       poller,
       heartbeatLoop,
       resolver: apiResolver,
-      openclawSession,
+      sessionClient,
       clawteamApi,
       clawteamApiUrl: config.clawteamApiUrl,
       clawteamApiKey: config.clawteamApiKey,

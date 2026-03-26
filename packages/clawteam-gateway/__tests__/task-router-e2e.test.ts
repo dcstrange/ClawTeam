@@ -11,7 +11,7 @@
 
 import type { Task } from '@clawteam/shared/types';
 import type { IClawTeamApiClient } from '../src/clients/clawteam-api';
-import type { IOpenClawSessionClient } from '../src/clients/openclaw-session';
+import type { ISessionClient } from '../src/providers/types';
 import type { InboxMessage } from '../src/types';
 import { TaskRouter } from '../src/routing/router';
 import { SessionTracker } from '../src/routing/session-tracker';
@@ -99,7 +99,7 @@ interface SentMessage {
   message: string;
 }
 
-function createMockSessionClient(): jest.Mocked<IOpenClawSessionClient> & { sentMessages: SentMessage[] } {
+function createMockSessionClient(): jest.Mocked<ISessionClient> & { sentMessages: SentMessage[] } {
   const sentMessages: SentMessage[] = [];
   const mock = {
     sentMessages,
@@ -134,7 +134,7 @@ describe('TaskRouter Integration', () => {
 
       const router = new TaskRouter({
         clawteamApi: mockApi,
-        openclawSession: mockSession,
+        sessionClient: mockSession,
         sessionTracker,
         gatewayUrl: 'http://localhost:3100',
         logger,
@@ -189,7 +189,7 @@ describe('TaskRouter Integration', () => {
 
       const router = new TaskRouter({
         clawteamApi: mockApi,
-        openclawSession: mockSession,
+        sessionClient: mockSession,
         sessionTracker,
         gatewayUrl: 'http://localhost:3100',
         logger,
@@ -260,7 +260,7 @@ describe('TaskRouter Integration', () => {
       const sessionTracker = new SessionTracker();
       const router = new TaskRouter({
         clawteamApi: mockApi,
-        openclawSession: mockSession,
+        sessionClient: mockSession,
         sessionTracker,
         gatewayUrl: 'http://localhost:3100',
         logger,
@@ -311,7 +311,7 @@ describe('TaskRouter Integration', () => {
 
       const router = new TaskRouter({
         clawteamApi: mockApi,
-        openclawSession: mockSession,
+        sessionClient: mockSession,
         sessionTracker: new SessionTracker(),
         gatewayUrl: 'http://localhost:3100',
         logger,
@@ -346,7 +346,7 @@ describe('TaskRouter Integration', () => {
 
       const router = new TaskRouter({
         clawteamApi: mockApi,
-        openclawSession: mockSession,
+        sessionClient: mockSession,
         sessionTracker: new SessionTracker(),
         gatewayUrl: 'http://localhost:3100',
         logger,
@@ -390,7 +390,7 @@ describe('TaskRouter Integration', () => {
 
       const router = new TaskRouter({
         clawteamApi: mockApi,
-        openclawSession: mockSession,
+        sessionClient: mockSession,
         sessionTracker: new SessionTracker(),
         gatewayUrl: 'http://localhost:3100',
         logger,
@@ -423,7 +423,7 @@ describe('TaskRouter Integration', () => {
 
       const router = new TaskRouter({
         clawteamApi: mockApi,
-        openclawSession: mockSession,
+        sessionClient: mockSession,
         sessionTracker: new SessionTracker(),
         gatewayUrl: 'http://localhost:3100',
         logger,
@@ -449,7 +449,7 @@ describe('TaskRouter Integration', () => {
 
       const router = new TaskRouter({
         clawteamApi: mockApi,
-        openclawSession: mockSession,
+        sessionClient: mockSession,
         sessionTracker: new SessionTracker(),
         gatewayUrl: 'http://localhost:3100',
         logger,
@@ -484,7 +484,7 @@ describe('TaskRouter Integration', () => {
 
       const router = new TaskRouter({
         clawteamApi: mockApi,
-        openclawSession: mockSession,
+        sessionClient: mockSession,
         sessionTracker,
         gatewayUrl: 'http://localhost:3100',
         logger,
@@ -513,7 +513,7 @@ describe('TaskRouter Integration', () => {
 
       const router = new TaskRouter({
         clawteamApi: mockApi,
-        openclawSession: mockSession,
+        sessionClient: mockSession,
         sessionTracker,
         gatewayUrl: 'http://localhost:3100',
         logger,
@@ -548,7 +548,7 @@ describe('TaskRouter Integration', () => {
 
       const router = new TaskRouter({
         clawteamApi: mockApi,
-        openclawSession: mockSession,
+        sessionClient: mockSession,
         sessionTracker: new SessionTracker(),
         gatewayUrl: 'http://localhost:3100',
         logger,
@@ -591,7 +591,7 @@ describe('TaskRouter Integration', () => {
 
       const router = new TaskRouter({
         clawteamApi: mockApi,
-        openclawSession: mockSession,
+        sessionClient: mockSession,
         sessionTracker: new SessionTracker(),
         gatewayUrl: 'http://localhost:3100',
         logger,
@@ -633,7 +633,7 @@ describe('TaskRouter Integration', () => {
 
       const router = new TaskRouter({
         clawteamApi: mockApi,
-        openclawSession: mockSession,
+        sessionClient: mockSession,
         sessionTracker: new SessionTracker(),
         gatewayUrl: 'http://localhost:3100',
         logger,
@@ -696,7 +696,7 @@ describe('TaskRouter Integration', () => {
 
       const router = new TaskRouter({
         clawteamApi: mockApi,
-        openclawSession: mockSession,
+        sessionClient: mockSession,
         sessionTracker,
         gatewayUrl: 'http://localhost:3100',
         logger,
@@ -745,7 +745,7 @@ describe('TaskRouter Integration', () => {
 
       const router = new TaskRouter({
         clawteamApi: mockApi,
-        openclawSession: mockSession,
+        sessionClient: mockSession,
         sessionTracker,
         gatewayUrl: 'http://localhost:3100',
         logger,
@@ -833,7 +833,7 @@ describe('TaskRouter Integration', () => {
 
       const router = new TaskRouter({
         clawteamApi: mockApi,
-        openclawSession: mockSession,
+        sessionClient: mockSession,
         sessionTracker,
         gatewayUrl: 'http://localhost:3100',
         logger,
