@@ -19,6 +19,7 @@ export function CreateTaskModal({ isOpen, onClose, onSuccess }: CreateTaskModalP
 
   const [fromBotId, setFromBotId] = useState('');
   const [toBotId, setToBotId] = useState('');
+  const [participantBotIds, setParticipantBotIds] = useState<string[]>([]);
   const [prompt, setPrompt] = useState('');
   const [capability, setCapability] = useState('');
   const [priority, setPriority] = useState<TaskPriority>('normal');
@@ -31,6 +32,7 @@ export function CreateTaskModal({ isOpen, onClose, onSuccess }: CreateTaskModalP
   const ownedBots = me?.ownedBots ?? [];
   const onlineBots = bots.filter((b) => b.status === 'online');
   const toBot = bots.find((b) => b.id === toBotId);
+  const collaborationBots = onlineBots.filter((b) => b.id !== fromBotId);
 
   const readFileAsBase64 = async (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -113,6 +115,21 @@ export function CreateTaskModal({ isOpen, onClose, onSuccess }: CreateTaskModalP
     setIsSubmitting(true);
 
     try {
+      const collaborationParticipantIds = Array.from(
+        new Set(
+          [toBotId, ...participantBotIds]
+            .filter((id): id is string => typeof id === 'string' && id.trim().length > 0 && id !== fromBotId),
+        ),
+      );
+      const collaborationParticipantBots = collaborationParticipantIds.map((id) => {
+        const bot = bots.find((b) => b.id === id);
+        return {
+          botId: id,
+          botName: bot?.name || '',
+          botOwner: bot?.ownerEmail || '',
+        };
+      });
+
       // Build intent prompt with toBotId and capability info embedded
       const lines = [
         `Delegate a task to bot ${toBotId}:`,
@@ -120,6 +137,9 @@ export function CreateTaskModal({ isOpen, onClose, onSuccess }: CreateTaskModalP
       ];
       if (capability) lines.push(`Capability: ${capability}`);
       lines.push(`Priority: ${priority}`);
+      if (collaborationParticipantIds.length > 1) {
+        lines.push(`Participants: ${collaborationParticipantBots.map((b) => b.botName ? `${b.botName}(${b.botId})` : b.botId).join(', ')}`);
+      }
       if (attachments.length > 0) {
         lines.push(`Attachments: ${attachments.map((f) => f.name).join(', ')}`);
       }
@@ -130,10 +150,18 @@ export function CreateTaskModal({ isOpen, onClose, onSuccess }: CreateTaskModalP
       const createResult = await routerApi.createTask(intentPrompt, priority, fromBotId, {
         capability: capability || undefined,
         parameters: {
+          collaboration: {
+            mode: 'delegator_multi_participants',
+            strictParticipantScope: true,
+            participantBotIds: collaborationParticipantIds,
+            participantBots: collaborationParticipantBots,
+          },
           delegateIntent: {
             toBotId,
             toBotName: toBot?.name || '',
             toBotOwner: toBot?.ownerEmail || '',
+            participantBotIds: collaborationParticipantIds,
+            participantBots: collaborationParticipantBots,
             attachmentNames: attachments.map((f) => f.name),
             source: 'dashboard_create_task_modal',
           },
@@ -187,6 +215,7 @@ export function CreateTaskModal({ isOpen, onClose, onSuccess }: CreateTaskModalP
   const resetForm = () => {
     setFromBotId('');
     setToBotId('');
+    setParticipantBotIds([]);
     setPrompt('');
     setCapability('');
     setPriority('normal');
@@ -245,7 +274,18 @@ export function CreateTaskModal({ isOpen, onClose, onSuccess }: CreateTaskModalP
                 </label>
                 <select
                   value={fromBotId}
-                  onChange={(e) => setFromBotId(e.target.value)}
+                  onChange={(e) => {
+                    const nextFromBotId = e.target.value;
+                    setFromBotId(nextFromBotId);
+                    setParticipantBotIds((prev) => {
+                      const next = prev.filter((id) => id !== nextFromBotId);
+                      return next;
+                    });
+                    if (toBotId && toBotId === nextFromBotId) {
+                      setToBotId('');
+                      setCapability('');
+                    }
+                  }}
                   className="w-full bg-gray-50 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-shadow"
                   required
                 >
@@ -264,13 +304,19 @@ export function CreateTaskModal({ isOpen, onClose, onSuccess }: CreateTaskModalP
               {/* To Bot */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {tr(`目标${term('bot')}（Executor）`, `Executor ${term('bot')}`)}
+                  {tr(`初始执行${term('bot')}（Initial Executor）`, `Initial Executor ${term('bot')}`)}
                 </label>
                 <select
                   value={toBotId}
                   onChange={(e) => {
-                    setToBotId(e.target.value);
+                    const nextToBotId = e.target.value;
+                    setToBotId(nextToBotId);
                     setCapability('');
+                    setParticipantBotIds((prev) => {
+                      const next = new Set(prev.filter((id) => id !== fromBotId));
+                      if (nextToBotId) next.add(nextToBotId);
+                      return Array.from(next);
+                    });
                   }}
                   className="w-full bg-gray-50 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-shadow"
                   required
@@ -282,6 +328,64 @@ export function CreateTaskModal({ isOpen, onClose, onSuccess }: CreateTaskModalP
                     </option>
                   ))}
                 </select>
+              </div>
+
+              {/* Collaboration Participants */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {tr(`协作参与者（可多选）`, `Collaboration participants (multi-select)`)}
+                </label>
+                <p className="text-xs text-gray-500 mb-2">
+                  {tr(
+                    `将作为该${term('task')}的候选协作者。委托与转委托应优先在此名单内进行；初始执行者会自动包含在名单中。`,
+                    `These bots are preferred collaborators for this ${term('task')}. Delegation and sub-delegation should stay within this roster; initial executor is included automatically.`,
+                  )}
+                </p>
+                <div className="max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-gray-50 p-2 space-y-1">
+                  {collaborationBots.length === 0 ? (
+                    <p className="text-xs text-gray-500 px-1 py-1">
+                      {tr(`没有可用的在线${term('bot')}`, `No available online ${term('bot')}s`)}
+                    </p>
+                  ) : (
+                    collaborationBots.map((bot) => {
+                      const isInitialExecutor = bot.id === toBotId;
+                      const checked = participantBotIds.includes(bot.id) || isInitialExecutor;
+                      return (
+                        <label
+                          key={bot.id}
+                          className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 hover:bg-white cursor-pointer"
+                        >
+                          <span className="min-w-0">
+                            <span className="text-sm text-gray-900">{bot.name}</span>
+                            <span className="text-[11px] text-gray-500 font-mono ml-2 break-all">{bot.id}</span>
+                          </span>
+                          <span className="inline-flex items-center gap-2 shrink-0">
+                            {isInitialExecutor && (
+                              <span className="inline-flex items-center rounded border border-primary-200 bg-primary-50 px-1.5 py-0.5 text-[10px] font-semibold text-primary-700">
+                                {tr('初始执行者', 'Initial')}
+                              </span>
+                            )}
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              disabled={isInitialExecutor}
+                              onChange={(e) => {
+                                const nextChecked = e.target.checked;
+                                setParticipantBotIds((prev) => {
+                                  const next = new Set(prev.filter((id) => id !== fromBotId));
+                                  if (nextChecked) next.add(bot.id);
+                                  else next.delete(bot.id);
+                                  if (toBotId) next.add(toBotId);
+                                  return Array.from(next);
+                                });
+                              }}
+                            />
+                          </span>
+                        </label>
+                      );
+                    })
+                  )}
+                </div>
               </div>
 
               {/* Prompt */}

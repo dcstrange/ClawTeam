@@ -16,6 +16,28 @@ export function TaskParticipants({ task, allTasks }: TaskParticipantsProps) {
     const ids = new Set<string>();
     ids.add(task.fromBotId);
     ids.add(task.toBotId);
+
+    const params = (task.parameters && typeof task.parameters === 'object')
+      ? task.parameters as Record<string, unknown>
+      : {};
+    const collaboration = (params.collaboration && typeof params.collaboration === 'object')
+      ? params.collaboration as Record<string, unknown>
+      : {};
+    const rawParticipantIds = Array.isArray(collaboration.participantBotIds)
+      ? collaboration.participantBotIds
+      : [];
+    for (const item of rawParticipantIds) {
+      if (typeof item === 'string' && item.trim()) ids.add(item.trim());
+    }
+    const rawParticipantBots = Array.isArray(collaboration.participantBots)
+      ? collaboration.participantBots
+      : [];
+    for (const item of rawParticipantBots) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+      const rec = item as Record<string, unknown>;
+      if (typeof rec.botId === 'string' && rec.botId.trim()) ids.add(rec.botId.trim());
+    }
+
     for (const t of allTasks) {
       if (t.parentTaskId === task.id) {
         ids.add(t.fromBotId);

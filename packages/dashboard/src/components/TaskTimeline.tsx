@@ -163,12 +163,50 @@ function firstNonEmptyString(...values: unknown[]): string {
   return '';
 }
 
+function normalizeBotIdList(...values: unknown[]): string[] {
+  const ids = new Set<string>();
+  for (const value of values) {
+    if (!Array.isArray(value)) continue;
+    for (const item of value) {
+      if (typeof item !== 'string') continue;
+      const trimmed = item.trim();
+      if (trimmed) ids.add(trimmed);
+    }
+  }
+  return Array.from(ids);
+}
+
+function normalizeParticipantBots(...values: unknown[]): Array<{ botId: string; botName?: string; botOwner?: string }> {
+  const out: Array<{ botId: string; botName?: string; botOwner?: string }> = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    if (!Array.isArray(value)) continue;
+    for (const item of value) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+      const rec = item as Record<string, unknown>;
+      const botId = firstNonEmptyString(rec.botId);
+      if (!botId || seen.has(botId)) continue;
+      seen.add(botId);
+      const botName = firstNonEmptyString(rec.botName);
+      const botOwner = firstNonEmptyString(rec.botOwner);
+      out.push({
+        botId,
+        ...(botName ? { botName } : {}),
+        ...(botOwner ? { botOwner } : {}),
+      });
+    }
+  }
+  return out;
+}
+
 interface DelegateIntentMeta {
   source: string;
   toBotId: string;
   toBotName: string;
   toBotOwner: string;
   prompt: string;
+  participantBotIds: string[];
+  participantBots: Array<{ botId: string; botName?: string; botOwner?: string }>;
 }
 
 function getDelegateIntentMeta(payload: ParsedMessagePayload): DelegateIntentMeta {
@@ -178,6 +216,9 @@ function getDelegateIntentMeta(payload: ParsedMessagePayload): DelegateIntentMet
     : {};
   const delegateIntent = params.delegateIntent && typeof params.delegateIntent === 'object'
     ? params.delegateIntent as Record<string, any>
+    : {};
+  const collaboration = params.collaboration && typeof params.collaboration === 'object'
+    ? params.collaboration as Record<string, any>
     : {};
 
   return {
@@ -190,6 +231,16 @@ function getDelegateIntentMeta(payload: ParsedMessagePayload): DelegateIntentMet
     toBotName: firstNonEmptyString(raw.toBotName, delegateIntent.toBotName),
     toBotOwner: firstNonEmptyString(raw.toBotOwner, delegateIntent.toBotOwner),
     prompt: firstNonEmptyString(raw.prompt, raw.intent, raw.label),
+    participantBotIds: normalizeBotIdList(
+      raw.participantBotIds,
+      delegateIntent.participantBotIds,
+      collaboration.participantBotIds,
+    ),
+    participantBots: normalizeParticipantBots(
+      raw.participantBots,
+      delegateIntent.participantBots,
+      collaboration.participantBots,
+    ),
   };
 }
 
@@ -250,7 +301,15 @@ function messagePreview(msg: Message, payload?: ParsedMessagePayload): string {
     const target = delegateMeta.toBotName || delegateMeta.toBotId;
     if (target) {
       const prefix = /dashboard/i.test(delegateMeta.source) ? trG('仪表盘意图', 'Dashboard Intent') : trG('委托意图', 'Delegate Intent');
+      const rosterSize = delegateMeta.participantBotIds.length;
+      if (rosterSize > 1) {
+        return trG(`${prefix}: 发给 ${target}（${rosterSize} 个参与者）`, `${prefix}: to ${target} (${rosterSize} participants)`);
+      }
       return trG(`${prefix}: 发给 ${target}`, `${prefix}: to ${target}`);
+    }
+    if (delegateMeta.participantBotIds.length > 0) {
+      const prefix = /dashboard/i.test(delegateMeta.source) ? trG('仪表盘意图', 'Dashboard Intent') : trG('委托意图', 'Delegate Intent');
+      return trG(`${prefix}: ${delegateMeta.participantBotIds.length} 个参与者`, `${prefix}: ${delegateMeta.participantBotIds.length} participants`);
     }
     if (delegateMeta.prompt) {
       return trG(`委托意图: ${normalizePreviewText(delegateMeta.prompt)}`, `Delegate Intent: ${normalizePreviewText(delegateMeta.prompt)}`);
@@ -579,6 +638,25 @@ function MessageDetailPanel({ msg, onClose }: { msg: Message; onClose: () => voi
               <p className="text-xs text-sky-700">
                 {tr('目标所有者', 'Target Owner')}: <span className="font-medium">{delegateIntentMeta.toBotOwner}</span>
               </p>
+            )}
+            {(delegateIntentMeta.participantBotIds.length > 0 || delegateIntentMeta.participantBots.length > 0) && (
+              <div className="text-xs text-sky-700">
+                <p>
+                  {tr('协作参与者', 'Collaboration Participants')}:
+                  <span className="font-medium"> {delegateIntentMeta.participantBotIds.length || delegateIntentMeta.participantBots.length}</span>
+                </p>
+                <div className="mt-1 space-y-0.5">
+                  {((delegateIntentMeta.participantBots.length > 0
+                    ? delegateIntentMeta.participantBots
+                    : delegateIntentMeta.participantBotIds.map((botId) => ({ botId }))
+                  ) as Array<{ botId: string; botName?: string; botOwner?: string }>).map((participant) => (
+                    <p key={participant.botId} className="font-mono text-[11px] break-all">
+                      {participant.botName ? `${participant.botName} (${participant.botId})` : participant.botId}
+                      {participant.botOwner ? ` | ${participant.botOwner}` : ''}
+                    </p>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
         )}

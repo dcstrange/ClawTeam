@@ -355,7 +355,21 @@ async function isUserOwnerOfBot(db: DatabasePool, botId: string, userId: string)
 
 async function isTaskParticipant(db: DatabasePool, taskId: string, actor: ActorContext): Promise<boolean> {
   if (actor.actorType === 'bot') {
-    const res = await db.query<TaskParticipantRow>(
+    try {
+      const graphRes = await db.query<{ task_id: string }>(
+        `SELECT task_id
+           FROM task_participants
+          WHERE task_id = $1
+            AND bot_id = $2
+          LIMIT 1`,
+        [taskId, actor.botId!],
+      );
+      if ((graphRes.rowCount ?? 0) > 0) return true;
+    } catch {
+      // Backward-compatible fallback for environments not yet migrated.
+    }
+
+    const fallbackRes = await db.query<TaskParticipantRow>(
       `SELECT id, from_bot_id, to_bot_id
          FROM tasks
         WHERE id = $1
@@ -363,10 +377,25 @@ async function isTaskParticipant(db: DatabasePool, taskId: string, actor: ActorC
         LIMIT 1`,
       [taskId, actor.botId!],
     );
-    return (res.rowCount ?? 0) > 0;
+    return (fallbackRes.rowCount ?? 0) > 0;
   }
 
-  const res = await db.query<TaskParticipantRow>(
+  try {
+    const graphRes = await db.query<{ task_id: string }>(
+      `SELECT tp.task_id
+         FROM task_participants tp
+         JOIN bots b ON b.id = tp.bot_id
+        WHERE tp.task_id = $1
+          AND b.user_id = $2
+        LIMIT 1`,
+      [taskId, actor.userId!],
+    );
+    if ((graphRes.rowCount ?? 0) > 0) return true;
+  } catch {
+    // Backward-compatible fallback for environments not yet migrated.
+  }
+
+  const fallbackRes = await db.query<TaskParticipantRow>(
     `SELECT t.id, t.from_bot_id, t.to_bot_id
        FROM tasks t
        LEFT JOIN bots bf ON bf.id = t.from_bot_id
@@ -376,7 +405,7 @@ async function isTaskParticipant(db: DatabasePool, taskId: string, actor: ActorC
       LIMIT 1`,
     [taskId, actor.userId!],
   );
-  return (res.rowCount ?? 0) > 0;
+  return (fallbackRes.rowCount ?? 0) > 0;
 }
 
 async function canViewTaskScope(db: DatabasePool, taskId: string, actor: ActorContext): Promise<boolean> {
@@ -388,6 +417,53 @@ async function canViewTaskScope(db: DatabasePool, taskId: string, actor: ActorCo
   // Ancestor-chain visibility: if actor participates in any ancestor task,
   // allow read-only access to descendant task scope.
   if (actor.actorType === 'bot') {
+    try {
+      const res = await db.query<{ id: string }>(
+        `WITH RECURSIVE lineage AS (
+           SELECT id, parent_task_id, from_bot_id, to_bot_id
+             FROM tasks
+            WHERE id = $1
+           UNION ALL
+           SELECT t.id, t.parent_task_id, t.from_bot_id, t.to_bot_id
+             FROM tasks t
+             JOIN lineage l ON l.parent_task_id = t.id
+         )
+         SELECT id
+           FROM lineage
+          WHERE from_bot_id = $2
+             OR to_bot_id = $2
+             OR EXISTS (
+               SELECT 1
+                 FROM task_participants tp
+                WHERE tp.task_id = lineage.id
+                  AND tp.bot_id = $2
+             )
+          LIMIT 1`,
+        [taskId, actor.botId!],
+      );
+      return (res.rowCount ?? 0) > 0;
+    } catch {
+      const fallbackRes = await db.query<{ id: string }>(
+        `WITH RECURSIVE lineage AS (
+           SELECT id, parent_task_id, from_bot_id, to_bot_id
+             FROM tasks
+            WHERE id = $1
+           UNION ALL
+           SELECT t.id, t.parent_task_id, t.from_bot_id, t.to_bot_id
+             FROM tasks t
+             JOIN lineage l ON l.parent_task_id = t.id
+         )
+         SELECT id
+           FROM lineage
+          WHERE from_bot_id = $2 OR to_bot_id = $2
+          LIMIT 1`,
+        [taskId, actor.botId!],
+      );
+      return (fallbackRes.rowCount ?? 0) > 0;
+    }
+  }
+
+  try {
     const res = await db.query<{ id: string }>(
       `WITH RECURSIVE lineage AS (
          SELECT id, parent_task_id, from_bot_id, to_bot_id
@@ -398,34 +474,44 @@ async function canViewTaskScope(db: DatabasePool, taskId: string, actor: ActorCo
            FROM tasks t
            JOIN lineage l ON l.parent_task_id = t.id
        )
-       SELECT id
-         FROM lineage
-        WHERE from_bot_id = $2 OR to_bot_id = $2
+       SELECT l.id
+         FROM lineage l
+         LEFT JOIN bots bf ON bf.id = l.from_bot_id
+         LEFT JOIN bots bt ON bt.id = l.to_bot_id
+        WHERE bf.user_id = $2
+           OR bt.user_id = $2
+           OR EXISTS (
+             SELECT 1
+               FROM task_participants tp
+               JOIN bots bp ON bp.id = tp.bot_id
+              WHERE tp.task_id = l.id
+                AND bp.user_id = $2
+           )
         LIMIT 1`,
-      [taskId, actor.botId!],
+      [taskId, actor.userId!],
     );
     return (res.rowCount ?? 0) > 0;
+  } catch {
+    const fallbackRes = await db.query<{ id: string }>(
+      `WITH RECURSIVE lineage AS (
+         SELECT id, parent_task_id, from_bot_id, to_bot_id
+           FROM tasks
+          WHERE id = $1
+         UNION ALL
+         SELECT t.id, t.parent_task_id, t.from_bot_id, t.to_bot_id
+           FROM tasks t
+           JOIN lineage l ON l.parent_task_id = t.id
+       )
+       SELECT l.id
+         FROM lineage l
+         LEFT JOIN bots bf ON bf.id = l.from_bot_id
+         LEFT JOIN bots bt ON bt.id = l.to_bot_id
+        WHERE bf.user_id = $2 OR bt.user_id = $2
+        LIMIT 1`,
+      [taskId, actor.userId!],
+    );
+    return (fallbackRes.rowCount ?? 0) > 0;
   }
-
-  const res = await db.query<{ id: string }>(
-    `WITH RECURSIVE lineage AS (
-       SELECT id, parent_task_id, from_bot_id, to_bot_id
-         FROM tasks
-        WHERE id = $1
-       UNION ALL
-       SELECT t.id, t.parent_task_id, t.from_bot_id, t.to_bot_id
-         FROM tasks t
-         JOIN lineage l ON l.parent_task_id = t.id
-     )
-     SELECT l.id
-       FROM lineage l
-       LEFT JOIN bots bf ON bf.id = l.from_bot_id
-       LEFT JOIN bots bt ON bt.id = l.to_bot_id
-      WHERE bf.user_id = $2 OR bt.user_id = $2
-      LIMIT 1`,
-    [taskId, actor.userId!],
-  );
-  return (res.rowCount ?? 0) > 0;
 }
 
 async function canPublishForTask(db: DatabasePool, taskId: string, actor: ActorContext): Promise<boolean> {

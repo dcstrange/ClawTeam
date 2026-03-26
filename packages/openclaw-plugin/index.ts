@@ -22,6 +22,7 @@
  *   {{TARGET_BOT_NAME}}→ pre-selected executor bot name (sender role)
  *   {{TARGET_OWNER}}   → pre-selected executor owner (sender role)
  *   {{TARGET_EXECUTOR_BLOCK}} → optional formatted target executor section
+ *   {{COLLABORATION_PARTICIPANTS_BLOCK}} → optional formatted collaboration roster section
  *   {{MY_BOT_ID}}      → this bot's ID
  *   {{MY_BOT_NAME}}    → this bot's name
  *   {{MY_OWNER}}       → this bot's owner
@@ -41,10 +42,42 @@ interface TaskMarkers {
   toBotId?: string;
   toBotName?: string;
   toBotOwner?: string;
+  participantBotIds?: string[];
+  participantBots?: Array<{ botId: string; botName?: string; botOwner?: string }>;
 }
 
 /** Structured token format: <!--CLAWTEAM:{"role":"...","taskId":"...","fromBotId":"...","toBotId":"..."}--> */
 const CLAWTEAM_TOKEN_RE = /<!--CLAWTEAM:(\{.*?\})-->/;
+
+function normalizeBotIdList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const ids = value
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+  return Array.from(new Set(ids));
+}
+
+function normalizeParticipantBots(value: unknown): Array<{ botId: string; botName?: string; botOwner?: string }> {
+  if (!Array.isArray(value)) return [];
+  const out: Array<{ botId: string; botName?: string; botOwner?: string }> = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+    const rec = item as Record<string, unknown>;
+    const botId = typeof rec.botId === 'string' ? rec.botId.trim() : '';
+    if (!botId || seen.has(botId)) continue;
+    seen.add(botId);
+    const botName = typeof rec.botName === 'string' && rec.botName.trim() ? rec.botName.trim() : undefined;
+    const botOwner = typeof rec.botOwner === 'string' && rec.botOwner.trim() ? rec.botOwner.trim() : undefined;
+    out.push({
+      botId,
+      ...(botName ? { botName } : {}),
+      ...(botOwner ? { botOwner } : {}),
+    });
+  }
+  return out;
+}
 
 /** Parse ClawTeam markers from a task string.
  *  Primary: structured JSON token (immune to timestamp/indent/LLM rewrite).
@@ -79,6 +112,8 @@ function parseTaskMarkers(task: string): TaskMarkers | null {
     toBotId: tokenParsed.toBotId || toBotMatch?.[1] || undefined,
     toBotName: tokenParsed.toBotName || toBotNameMatch?.[1]?.trim() || undefined,
     toBotOwner: tokenParsed.toBotOwner || toBotOwnerMatch?.[1]?.trim() || undefined,
+    participantBotIds: normalizeBotIdList((tokenParsed as Record<string, unknown>).participantBotIds),
+    participantBots: normalizeParticipantBots((tokenParsed as Record<string, unknown>).participantBots),
   };
 }
 
@@ -218,6 +253,7 @@ function renderTemplate(template: string, vars: Record<string, string>): string 
     .replaceAll('{{TARGET_BOT_NAME}}', vars.targetBotName ?? 'unknown')
     .replaceAll('{{TARGET_OWNER}}', vars.targetOwner ?? 'unknown')
     .replaceAll('{{TARGET_EXECUTOR_BLOCK}}', vars.targetExecutorBlock ?? '')
+    .replaceAll('{{COLLABORATION_PARTICIPANTS_BLOCK}}', vars.collaborationParticipantsBlock ?? '')
     .replaceAll('{{MY_BOT_ID}}', vars.myBotId ?? '')
     .replaceAll('{{MY_BOT_NAME}}', vars.myBotName ?? 'unknown')
     .replaceAll('{{MY_OWNER}}', vars.myOwner ?? 'unknown');
@@ -270,8 +306,10 @@ export default {
 
         if (!markers?.role) return; // Not a ClawTeam spawn, skip
 
-        let { role, taskId, fromBotId, toBotId, toBotName, toBotOwner } = markers;
+        let { role, taskId, fromBotId, toBotId, toBotName, toBotOwner, participantBotIds, participantBots } = markers;
         fromBotId = fromBotId || '';
+        participantBotIds = normalizeBotIdList(participantBotIds || []);
+        participantBots = normalizeParticipantBots(participantBots || []);
 
         console.log(`${TAG} before_tool_call: role=${role}, taskId=${taskId || '(none)'}, fromBotId=${fromBotId || '(none)'}`);
 
@@ -355,6 +393,38 @@ export default {
           }
         }
 
+        const collaborationMap = new Map<string, { botName?: string; botOwner?: string }>();
+        for (const participant of participantBots || []) {
+          collaborationMap.set(participant.botId, {
+            botName: participant.botName,
+            botOwner: participant.botOwner,
+          });
+        }
+        if (toBotId) {
+          const ids = new Set(participantBotIds || []);
+          ids.add(toBotId);
+          participantBotIds = Array.from(ids);
+        }
+
+        const resolvedParticipants: Array<{ botId: string; botName?: string; botOwner?: string }> = [];
+        for (const botId of participantBotIds || []) {
+          const cached = collaborationMap.get(botId) || {};
+          let botName = cached.botName;
+          let botOwner = cached.botOwner;
+          if (!botName || !botOwner) {
+            const info = await fetchBotInfo(gw, botId);
+            if (info) {
+              if (!botName) botName = info.name;
+              if (!botOwner) botOwner = info.ownerEmail || '';
+            }
+          }
+          resolvedParticipants.push({
+            botId,
+            ...(botName ? { botName } : {}),
+            ...(botOwner ? { botOwner } : {}),
+          });
+        }
+
         // Strip marker lines from task content so sub-session doesn't see raw markers
         const cleanTask = stripMarkerLines(rawTask);
         const injectedParams: Record<string, any> = {};
@@ -388,6 +458,14 @@ export default {
                   `  Bot ID: ${toBotId}`,
                   `  Bot Name: ${toBotName || 'unknown'}`,
                   `  Owner: ${toBotOwner || 'unknown'}`,
+                  '',
+                ].join('\n')
+              : '',
+            collaborationParticipantsBlock: (role === 'sender' && resolvedParticipants.length > 0)
+              ? [
+                  'COLLABORATION PARTICIPANTS (dashboard-selected roster):',
+                  ...resolvedParticipants.map((item) =>
+                    `  - ${item.botName || 'unknown'} (${item.botId})${item.botOwner ? ` | owner: ${item.botOwner}` : ''}`),
                   '',
                 ].join('\n')
               : '',

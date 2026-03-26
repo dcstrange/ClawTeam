@@ -28,6 +28,32 @@ export interface TaskDispatcherDeps {
   logger: Logger;
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function normalizeBotIdList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const ids = value
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+  return Array.from(new Set(ids));
+}
+
+function extractParticipantBotIds(parameters: unknown): string[] {
+  const top = asRecord(parameters);
+  if (!top) return [];
+  const collaboration = asRecord(top.collaboration);
+  const delegateIntent = asRecord(top.delegateIntent);
+  const ids = new Set<string>();
+  for (const id of normalizeBotIdList(top.participantBotIds)) ids.add(id);
+  for (const id of normalizeBotIdList(collaboration?.participantBotIds)) ids.add(id);
+  for (const id of normalizeBotIdList(delegateIntent?.participantBotIds)) ids.add(id);
+  return Array.from(ids);
+}
+
 export class TaskDispatcher {
   private readonly db: DatabasePool;
   private readonly redis: RedisClient;
@@ -41,6 +67,39 @@ export class TaskDispatcher {
     this.registry = deps.registry;
     this.messageBus = deps.messageBus;
     this.logger = deps.logger;
+  }
+
+  private async upsertTaskParticipant(
+    taskId: string,
+    botId: string,
+    role: 'delegator' | 'executor' | 'participant',
+    addedByBotId?: string,
+  ): Promise<void> {
+    if (!taskId || !botId) return;
+
+    try {
+      await this.db.query(
+        `INSERT INTO task_participants (task_id, bot_id, role, added_by_bot_id)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (task_id, bot_id)
+         DO UPDATE SET
+           role = CASE
+             WHEN task_participants.role = 'delegator' THEN task_participants.role
+             WHEN EXCLUDED.role = 'delegator' THEN EXCLUDED.role
+             WHEN EXCLUDED.role = 'executor' THEN EXCLUDED.role
+             ELSE task_participants.role
+           END,
+           added_by_bot_id = COALESCE(task_participants.added_by_bot_id, EXCLUDED.added_by_bot_id)`,
+        [taskId, botId, role, addedByBotId || null],
+      );
+    } catch (error) {
+      this.logger.warn('task_participants sync skipped (likely pre-migration)', {
+        taskId,
+        botId,
+        role,
+        error: (error as Error).message,
+      });
+    }
   }
 
   /**
@@ -90,6 +149,10 @@ export class TaskDispatcher {
     );
 
     task.toBotId = toBotId;
+
+    // Keep participant graph in sync for collaboration/permissions.
+    await this.upsertTaskParticipant(task.id, task.fromBotId, 'delegator', task.fromBotId);
+    await this.upsertTaskParticipant(task.id, toBotId, 'executor', task.fromBotId);
 
     // Enqueue to Redis
     await this.enqueue(task);
@@ -357,6 +420,13 @@ export class TaskDispatcher {
         now,
       ]
     );
+
+    // Seed participant graph: delegator + optional collaboration roster.
+    await this.upsertTaskParticipant(id, fromBotId, 'delegator', fromBotId);
+    const participantBotIds = extractParticipantBotIds(req.parameters).filter((botId) => botId !== fromBotId);
+    for (const participantBotId of participantBotIds) {
+      await this.upsertTaskParticipant(id, participantBotId, 'participant', fromBotId);
+    }
 
     return {
       id,

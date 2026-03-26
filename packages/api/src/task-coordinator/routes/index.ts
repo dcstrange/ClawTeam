@@ -6,7 +6,7 @@ import type { FastifyPluginAsync, FastifyReply, FastifyRequest, preHandlerHookHa
 import type { ApiResponse, Task, TaskCreateRequest, TaskCompleteRequest, PaginatedResponse } from '@clawteam/shared/types';
 import type { ICapabilityRegistry } from '@clawteam/api/capability-registry';
 import type { ITaskCoordinator } from '../interface';
-import { isClawTeamError } from '@clawteam/api/common';
+import { isClawTeamError, ValidationError } from '@clawteam/api/common';
 import { createAuthMiddleware } from '../middleware/auth';
 import { REDIS_KEYS, PRIORITY_ORDER } from '../constants';
 import { randomUUID } from 'crypto';
@@ -56,6 +56,179 @@ function getBotId(request: FastifyRequest): string {
   if (typeof queryBotId === 'string') return queryBotId;
 
   return '';
+}
+
+function asRecord(value: unknown): Record<string, any> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, any>;
+}
+
+function normalizeBotIdList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const ids = value
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+  return Array.from(new Set(ids));
+}
+
+function normalizeParticipantBots(value: unknown): Array<{ botId: string; botName?: string; botOwner?: string }> {
+  if (!Array.isArray(value)) return [];
+  const next: Array<{ botId: string; botName?: string; botOwner?: string }> = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    const rec = asRecord(item);
+    if (!rec) continue;
+    const botId = typeof rec.botId === 'string' ? rec.botId.trim() : '';
+    if (!botId || seen.has(botId)) continue;
+    seen.add(botId);
+    const botName = typeof rec.botName === 'string' && rec.botName.trim() ? rec.botName.trim() : undefined;
+    const botOwner = typeof rec.botOwner === 'string' && rec.botOwner.trim() ? rec.botOwner.trim() : undefined;
+    next.push({ botId, ...(botName ? { botName } : {}), ...(botOwner ? { botOwner } : {}) });
+  }
+  return next;
+}
+
+function extractParticipantBotIdsFromParameters(parameters: unknown): string[] {
+  const top = asRecord(parameters);
+  if (!top) return [];
+
+  const collaboration = asRecord(top.collaboration);
+  const delegateIntent = asRecord(top.delegateIntent);
+
+  const ids = new Set<string>();
+  for (const id of normalizeBotIdList(top.participantBotIds)) ids.add(id);
+  for (const id of normalizeBotIdList(collaboration?.participantBotIds)) ids.add(id);
+  for (const id of normalizeBotIdList(delegateIntent?.participantBotIds)) ids.add(id);
+
+  const collabBots = normalizeParticipantBots(collaboration?.participantBots);
+  const intentBots = normalizeParticipantBots(delegateIntent?.participantBots);
+  for (const item of collabBots) ids.add(item.botId);
+  for (const item of intentBots) ids.add(item.botId);
+
+  return Array.from(ids);
+}
+
+function readStrictParticipantScope(parameters: unknown): boolean {
+  const top = asRecord(parameters);
+  const collaboration = asRecord(top?.collaboration);
+  if (typeof collaboration?.strictParticipantScope === 'boolean') {
+    return collaboration.strictParticipantScope;
+  }
+  return extractParticipantBotIdsFromParameters(parameters).length > 0;
+}
+
+function normalizeCreateParameters(parameters: unknown, fromBotId: string): Record<string, any> {
+  const top = asRecord(parameters);
+  if (!top) return {};
+
+  const next: Record<string, any> = { ...top };
+  const collaboration = asRecord(next.collaboration) || {};
+  const delegateIntent = asRecord(next.delegateIntent) || {};
+
+  const participantBotIds = extractParticipantBotIdsFromParameters(next).filter((id) => id !== fromBotId);
+  if (participantBotIds.length === 0) return next;
+
+  const participantBots = normalizeParticipantBots(collaboration.participantBots).length > 0
+    ? normalizeParticipantBots(collaboration.participantBots)
+    : normalizeParticipantBots(delegateIntent.participantBots);
+
+  next.collaboration = {
+    ...collaboration,
+    participantBotIds,
+    ...(participantBots.length > 0 ? { participantBots } : {}),
+    strictParticipantScope:
+      typeof collaboration.strictParticipantScope === 'boolean'
+        ? collaboration.strictParticipantScope
+        : true,
+  };
+
+  if (Object.keys(delegateIntent).length > 0) {
+    next.delegateIntent = {
+      ...delegateIntent,
+      participantBotIds,
+      ...(participantBots.length > 0 ? { participantBots } : {}),
+    };
+  }
+
+  return next;
+}
+
+function inheritCollaborationParameters(
+  parentParameters: unknown,
+  childParameters: Record<string, unknown>,
+): Record<string, unknown> {
+  const parentTop = asRecord(parentParameters);
+  if (!parentTop) return childParameters;
+
+  const parentParticipantBotIds = extractParticipantBotIdsFromParameters(parentTop);
+  if (parentParticipantBotIds.length === 0) return childParameters;
+
+  const next: Record<string, unknown> = { ...childParameters };
+  const childTop = asRecord(next) || {};
+  const parentCollaboration = asRecord(parentTop.collaboration) || {};
+  const parentDelegateIntent = asRecord(parentTop.delegateIntent) || {};
+  const childCollaboration = asRecord(childTop.collaboration) || {};
+  const childDelegateIntent = asRecord(childTop.delegateIntent) || {};
+
+  const childParticipantBotIds = extractParticipantBotIdsFromParameters(childTop);
+  const mergedParticipantBotIds = Array.from(new Set([...parentParticipantBotIds, ...childParticipantBotIds]));
+
+  const participantBots = normalizeParticipantBots(childCollaboration.participantBots).length > 0
+    ? normalizeParticipantBots(childCollaboration.participantBots)
+    : normalizeParticipantBots(parentCollaboration.participantBots).length > 0
+      ? normalizeParticipantBots(parentCollaboration.participantBots)
+      : normalizeParticipantBots(parentDelegateIntent.participantBots);
+
+  next.collaboration = {
+    ...parentCollaboration,
+    ...childCollaboration,
+    participantBotIds: mergedParticipantBotIds,
+    ...(participantBots.length > 0 ? { participantBots } : {}),
+    strictParticipantScope:
+      typeof childCollaboration.strictParticipantScope === 'boolean'
+        ? childCollaboration.strictParticipantScope
+        : typeof parentCollaboration.strictParticipantScope === 'boolean'
+          ? parentCollaboration.strictParticipantScope
+          : true,
+  };
+
+  if (Object.keys(parentDelegateIntent).length > 0 || Object.keys(childDelegateIntent).length > 0) {
+    next.delegateIntent = {
+      ...parentDelegateIntent,
+      ...childDelegateIntent,
+      participantBotIds: mergedParticipantBotIds,
+      ...(participantBots.length > 0 ? { participantBots } : {}),
+    };
+  }
+
+  return next;
+}
+
+async function isTaskParticipantBot(db: any, taskId: string, botId: string): Promise<boolean> {
+  try {
+    const graphRes = await db.query(
+      `SELECT task_id
+         FROM task_participants
+        WHERE task_id = $1
+          AND bot_id = $2
+        LIMIT 1`,
+      [taskId, botId],
+    );
+    if ((graphRes.rowCount ?? 0) > 0) return true;
+  } catch {
+    // Backward-compatible fallback for pre-migration DB.
+  }
+
+  const fallbackRes = await db.query(
+    `SELECT id
+       FROM tasks
+      WHERE id = $1
+        AND (from_bot_id = $2 OR to_bot_id = $2)
+      LIMIT 1`,
+    [taskId, botId],
+  );
+  return (fallbackRes.rowCount ?? 0) > 0;
 }
 
 function handleError(error: unknown, reply: FastifyReply, traceId: string): FastifyReply {
@@ -141,7 +314,22 @@ export function createTaskRoutes(deps: TaskRoutesDeps): FastifyPluginAsync {
         const fromBotId = getBotId(request);
 
         try {
-          const task = await coordinator.createTask(request.body, fromBotId);
+          const normalizedBody: TaskCreateRequest = {
+            ...request.body,
+            parameters: normalizeCreateParameters(request.body?.parameters, fromBotId),
+          };
+
+          const participantBotIds = extractParticipantBotIdsFromParameters(normalizedBody.parameters);
+          if (registry && participantBotIds.length > 0) {
+            for (const participantBotId of participantBotIds) {
+              const bot = await registry.getBot(participantBotId);
+              if (!bot) {
+                throw new ValidationError(`participant bot not found: ${participantBotId}`);
+              }
+            }
+          }
+
+          const task = await coordinator.createTask(normalizedBody, fromBotId);
 
           return reply.status(201).send({
             success: true,
@@ -220,10 +408,20 @@ export function createTaskRoutes(deps: TaskRoutesDeps): FastifyPluginAsync {
 
           const terminalStatuses = new Set(['completed', 'failed', 'cancelled', 'timeout']);
           const hasSubTaskPrompt = typeof subTaskPrompt === 'string' && subTaskPrompt.trim().length > 0;
+          const participantBotIds = extractParticipantBotIdsFromParameters(task.parameters);
+          const strictParticipantScope = readStrictParticipantScope(task.parameters);
 
-          // Sub-delegate: any participant (from/to) can create a child task and delegate it.
+          if (strictParticipantScope && participantBotIds.length > 0 && !participantBotIds.includes(toBotId)) {
+            throw new ValidationError(
+              `toBotId ${toBotId} is outside collaboration participant roster: ${participantBotIds.join(', ')}`,
+            );
+          }
+
+          // Sub-delegate: any task participant can create a child task and delegate it.
           if (hasSubTaskPrompt) {
-            const isParticipant = task.fromBotId === fromBotId || task.toBotId === fromBotId;
+            const isParticipant = deps.db
+              ? await isTaskParticipantBot(deps.db, task.id, fromBotId)
+              : (task.fromBotId === fromBotId || task.toBotId === fromBotId);
             if (!isParticipant) {
               throw new UnauthorizedTaskError(request.params.taskId, fromBotId);
             }
@@ -237,14 +435,17 @@ export function createTaskRoutes(deps: TaskRoutesDeps): FastifyPluginAsync {
               ]);
             }
 
+            const rawChildParams = (subTaskParameters && typeof subTaskParameters === 'object')
+              ? (subTaskParameters as Record<string, unknown>)
+              : {};
+            const inheritedChildParams = inheritCollaborationParameters(task.parameters, rawChildParams);
+
             const subTask = await coordinator.createTask(
               {
                 prompt: subTaskPrompt.trim(),
                 title: subTaskTitle,
                 capability: subTaskCapability || task.capability,
-                parameters: (subTaskParameters && typeof subTaskParameters === 'object')
-                  ? subTaskParameters
-                  : {},
+                parameters: inheritedChildParams,
                 priority: subTaskPriority || task.priority,
                 type: 'sub-task',
                 parentTaskId: task.id,

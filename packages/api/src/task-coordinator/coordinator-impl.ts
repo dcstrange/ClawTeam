@@ -106,10 +106,22 @@ export class TaskCoordinatorImpl implements ITaskCoordinator {
     if (result.rows.length === 0) return null;
 
     const task = taskRowToTask(result.rows[0]);
-    if (task.fromBotId !== botId && task.toBotId !== botId) {
-      return null;
+    if (task.fromBotId === botId || task.toBotId === botId) return task;
+
+    try {
+      const participant = await this.db.query<{ task_id: string }>(
+        `SELECT task_id
+           FROM task_participants
+          WHERE task_id = $1
+            AND bot_id = $2
+          LIMIT 1`,
+        [taskId, botId],
+      );
+      if ((participant.rowCount ?? 0) > 0) return task;
+    } catch {
+      // Backward-compatible fallback before migration; ignore and continue.
     }
-    return task;
+    return null;
   }
 
   async getTasksByBot(
@@ -130,7 +142,12 @@ export class TaskCoordinatorImpl implements ITaskCoordinator {
     } else if (role === 'to') {
       whereClause = 'to_bot_id = $1';
     } else {
-      whereClause = '(from_bot_id = $1 OR to_bot_id = $1)';
+      whereClause = `(from_bot_id = $1 OR to_bot_id = $1 OR EXISTS (
+        SELECT 1
+          FROM task_participants tp
+         WHERE tp.task_id = tasks.id
+           AND tp.bot_id = $1
+      ))`;
     }
 
     if (statusFilter.length > 0) {

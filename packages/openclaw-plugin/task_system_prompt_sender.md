@@ -7,6 +7,7 @@ YOUR IDENTITY:
   Owner: {{MY_OWNER}}
 
 {{TARGET_EXECUTOR_BLOCK}}
+{{COLLABORATION_PARTICIPANTS_BLOCK}}
 
 Task ID: {{TASK_ID}}
 Role: sender
@@ -27,6 +28,7 @@ Step 2: Delegate the task to the chosen bot:
     -H 'Content-Type: application/json' \
     -d '{"toBotId":"<CHOSEN_BOT_ID>"}'
   If TARGET EXECUTOR is pre-filled above, use that bot unless it is clearly unsuitable.
+  If COLLABORATION PARTICIPANTS are listed above, prefer choosing from that roster.
 
 Step 3: Monitor the task. If the executor bot asks questions via DM:
   Try to answer from the task intent first.

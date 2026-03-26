@@ -444,7 +444,8 @@ export class TaskRouter extends EventEmitter {
     }
 
     const toMeta = await this.resolveDelegateIntentTarget(prompt, parameters);
-    const message = this.buildDelegateIntentMessage(taskId, prompt, fromBotId, toMeta);
+    const collaborationParticipants = await this.resolveCollaborationParticipants(parameters);
+    const message = this.buildDelegateIntentMessage(taskId, prompt, fromBotId, toMeta, collaborationParticipants);
     const success = await this.openclawSession.sendToMainSession(message);
 
     const result: RoutingResult = {
@@ -481,6 +482,7 @@ export class TaskRouter extends EventEmitter {
     prompt: string,
     fromBotId: string,
     target: { toBotId?: string; toBotName?: string; toBotOwner?: string },
+    collaborationParticipants: Array<{ botId: string; botName?: string; botOwner?: string }> = [],
   ): string {
     const intentText = prompt || '';
     const cleanPrompt = intentText.trim();
@@ -502,9 +504,18 @@ export class TaskRouter extends EventEmitter {
     if (toBotId) taskContentLines.push(`To Bot: ${toBotId}`);
     if (toBotName) taskContentLines.push(`To Bot Name: ${toBotName}`);
     if (toBotOwner) taskContentLines.push(`To Bot Owner: ${toBotOwner}`);
+    if (collaborationParticipants.length > 0) {
+      taskContentLines.push('Collaboration Participants:');
+      for (const participant of collaborationParticipants) {
+        const labelParts = [participant.botId];
+        if (participant.botName) labelParts.push(`name=${participant.botName}`);
+        if (participant.botOwner) labelParts.push(`owner=${participant.botOwner}`);
+        taskContentLines.push(`- ${labelParts.join(' | ')}`);
+      }
+    }
     const taskContent = taskContentLines.join('\n');
 
-    const tokenData: Record<string, string> = {
+    const tokenData: Record<string, unknown> = {
       role: 'sender',
       fromBotId: fromBotId || '',
     };
@@ -512,6 +523,14 @@ export class TaskRouter extends EventEmitter {
     if (toBotId) tokenData.toBotId = toBotId;
     if (toBotName) tokenData.toBotName = toBotName;
     if (toBotOwner) tokenData.toBotOwner = toBotOwner;
+    if (collaborationParticipants.length > 0) {
+      tokenData.participantBotIds = collaborationParticipants.map((item) => item.botId);
+      tokenData.participantBots = collaborationParticipants.map((item) => ({
+        botId: item.botId,
+        ...(item.botName ? { botName: item.botName } : {}),
+        ...(item.botOwner ? { botOwner: item.botOwner } : {}),
+      }));
+    }
     const token = `<!--CLAWTEAM:${JSON.stringify(tokenData)}-->`;
     const taskValue = `${token}\n${taskContent}`;
 
@@ -523,6 +542,9 @@ export class TaskRouter extends EventEmitter {
       '[ClawTeam Delegate Intent]',
       `From Bot: ${fromBotId}`,
       `Intent: ${intentLabel}`,
+      ...(collaborationParticipants.length > 0
+        ? [`Participants: ${collaborationParticipants.map((item) => item.botName ? `${item.botName} (${item.botId})` : item.botId).join(', ')}`]
+        : []),
       taskIdLine,
       '',
       'ACTION REQUIRED: Spawn a sub-session now.',
@@ -553,6 +575,91 @@ export class TaskRouter extends EventEmitter {
       if (trimmed) return trimmed;
     }
     return '';
+  }
+
+  private normalizeBotIdList(value: unknown): string[] {
+    if (!Array.isArray(value)) return [];
+    const ids = value
+      .filter((item): item is string => typeof item === 'string')
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
+    return Array.from(new Set(ids));
+  }
+
+  private normalizeParticipantBots(value: unknown): Array<{ botId: string; botName?: string; botOwner?: string }> {
+    if (!Array.isArray(value)) return [];
+    const out: Array<{ botId: string; botName?: string; botOwner?: string }> = [];
+    const seen = new Set<string>();
+    for (const item of value) {
+      const rec = this.asRecord(item);
+      if (!rec) continue;
+      const botId = this.firstNonEmptyString(rec.botId);
+      if (!botId || seen.has(botId)) continue;
+      seen.add(botId);
+      const botName = this.firstNonEmptyString(rec.botName);
+      const botOwner = this.firstNonEmptyString(rec.botOwner);
+      out.push({
+        botId,
+        ...(botName ? { botName } : {}),
+        ...(botOwner ? { botOwner } : {}),
+      });
+    }
+    return out;
+  }
+
+  private async resolveCollaborationParticipants(
+    parameters: Record<string, any>,
+  ): Promise<Array<{ botId: string; botName?: string; botOwner?: string }>> {
+    const top = this.asRecord(parameters);
+    if (!top) return [];
+
+    const collaboration = this.asRecord(top?.collaboration);
+    const delegateIntent = this.asRecord(top?.delegateIntent);
+
+    const ids = new Set<string>();
+    for (const id of this.normalizeBotIdList(top?.participantBotIds)) ids.add(id);
+    for (const id of this.normalizeBotIdList(collaboration?.participantBotIds)) ids.add(id);
+    for (const id of this.normalizeBotIdList(delegateIntent?.participantBotIds)) ids.add(id);
+
+    const metadata = new Map<string, { botName?: string; botOwner?: string }>();
+    const applyParticipantMeta = (items: Array<{ botId: string; botName?: string; botOwner?: string }>) => {
+      for (const item of items) {
+        ids.add(item.botId);
+        const prev = metadata.get(item.botId) || {};
+        metadata.set(item.botId, {
+          botName: prev.botName || item.botName,
+          botOwner: prev.botOwner || item.botOwner,
+        });
+      }
+    };
+
+    applyParticipantMeta(this.normalizeParticipantBots(collaboration?.participantBots));
+    applyParticipantMeta(this.normalizeParticipantBots(delegateIntent?.participantBots));
+
+    const resolved: Array<{ botId: string; botName?: string; botOwner?: string }> = [];
+    for (const botId of ids) {
+      const existing = metadata.get(botId) || {};
+      let botName = existing.botName;
+      let botOwner = existing.botOwner;
+      if (!botName || !botOwner) {
+        try {
+          const bot = await this.clawteamApi.getBot(botId);
+          if (bot) {
+            if (!botName && bot.name) botName = bot.name;
+            if (!botOwner && bot.ownerEmail) botOwner = bot.ownerEmail;
+          }
+        } catch {
+          // best-effort enrichment
+        }
+      }
+      resolved.push({
+        botId,
+        ...(botName ? { botName } : {}),
+        ...(botOwner ? { botOwner } : {}),
+      });
+    }
+
+    return resolved;
   }
 
   private extractToBotIdFromIntent(intentText: string): string {
