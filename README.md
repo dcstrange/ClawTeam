@@ -14,6 +14,21 @@
 
 ClawTeam connects your personal OpenClaw agents to a **team, enterprise, or internet-wide collaboration space**. It's a place where teams share, discover, and leverage each other's carefully crafted OpenClaw agents.
 
+### Reliable Collaboration (At a Glance)
+
+**ClawTeam's core philosophy** is:
+**Task State Machine + Task Interfaces + Correction Mechanisms**
+
+This solves a real pain in multi-bot systems: tasks look "in progress", but collaboration silently drifts into wrong paths (premature submissions, wrong recipients, bypassed delegators, or dead loops).
+
+**How ClawTeam prevents that:**
+
+1. **Task State Machine**: Every task move is explicit and constrained (`pending` → `processing` → `pending_review` → `completed`, with controlled branches for rejection, rework, and failure).
+2. **Task Interfaces**: Each action has a clear semantic contract (`delegate`, `need-human-input`, `submit-result`, `approve`, `reject`, `request-rework`) so agents do not "invent" their own protocol.
+3. **Correction Mechanisms**: When agents call the wrong interface at the wrong time, the system blocks, explains, and redirects to the correct next action instead of allowing hidden inconsistency.
+
+**User outcome**: fewer stuck tasks, fewer cross-bot misunderstandings, and a collaboration process that remains auditable and recoverable under real production pressure.
+
 ### The Core Idea
 
 You've spent months perfecting your OpenClaw agents. Your colleague has done the same. Your security team has their specialized agents. **ClawTeam connects them all.**
@@ -404,6 +419,37 @@ POST /gateway/delegate
 
 **Result**: Consistent behavior across all protocols, future-proof architecture.
 
+<<<<<<< ours
+### 🧭 Reliable Collaboration by Design
+
+**ClawTeam's core philosophy** is:
+**Task State Machine + Task Interfaces + Correction Mechanisms**
+
+This solves a real pain in multi-bot systems: tasks look "in progress", but collaboration silently drifts into wrong paths (premature submissions, wrong recipients, bypassed delegators, or dead loops).
+
+**How ClawTeam prevents that:**
+
+1. **Task State Machine**: Every task move is explicit and constrained (`pending` → `processing` → `pending_review` → `completed`, with controlled branches for rejection, rework, and failure).
+2. **Task Interfaces**: Each action has a clear semantic contract (`delegate`, `need-human-input`, `submit-result`, `approve`, `reject`, `request-rework`) so agents do not "invent" their own protocol.
+3. **Correction Mechanisms**: When agents call the wrong interface at the wrong time, the system blocks, explains, and redirects to the correct next action instead of allowing hidden inconsistency.
+
+**User outcome**: fewer stuck tasks, fewer cross-bot misunderstandings, and a collaboration process that remains auditable and recoverable under real production pressure.
+
+<<<<<<< ours
+**Technical Summary**
+
+- **State-guarded transitions**: API enforces legal task transitions and rejects invalid calls by current task state.
+- **Interface ownership checks**: sensitive actions validate caller identity and participant role (who can delegate, review, ask human input, or finalize).
+- **Session-task binding**: each task is bound to active session keys for sender/executor paths, so routing goes to the correct sub-session instead of leaking to `main`.
+- **Recursive task lineage**: parent/child task links and sub-task IDs are preserved, enabling nested delegation with traceable workflow trees.
+- **Proxy-only human workflow**: cross-user interactions must flow through the delegator bot session; dashboard intervention is mediated by the owner bot, not bypassed.
+- **Correction-first behavior**: wrong-time or wrong-interface calls are blocked with actionable feedback, preventing silent state corruption.
+- **Recovery and liveness controls**: nudge/recovery loops act on task+session context with exhaustion guards and idempotent behavior to avoid false cancellations.
+
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
 ---
 
 ## Quick Start

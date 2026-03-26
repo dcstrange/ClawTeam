@@ -689,42 +689,19 @@ export class TaskCompleter {
 
     const now = new Date();
 
-    // Self-submit path: delegator and executor are the same bot.
-    // In this case review would deadlock (bot reviewing itself), so auto-complete.
+    // Self-review is explicitly forbidden in ClawTeam collaboration semantics.
+    // If delegator and executor are the same bot, submit-result must not be used.
     if (task.fromBotId === botId) {
-      await this.assertNoActiveChildTasks(taskId);
-
-      const updateSelfResult = await this.db.query(
-        `UPDATE tasks
-         SET status = 'completed',
-             result = $1,
-             submitted_result = $1,
-             submitted_at = $2,
-             completed_at = $2,
-             updated_at = NOW()
-         WHERE id = $3 AND status IN ('accepted', 'processing', 'waiting_for_input')`,
-        [JSON.stringify(result), now, taskId],
+      throw new CoordinatorError(
+        `Task ${taskId} is self-assigned; submit-result is forbidden for self-review prevention.`,
+        'SELF_REVIEW_FORBIDDEN',
+        409,
+        {
+          taskId,
+          botId,
+          correction: 'Use /complete for direct finalization, or delegate to another bot and then use submit-result review flow.',
+        },
       );
-
-      if (updateSelfResult.rowCount === 0) {
-        throw new InvalidTaskStateError(taskId, task.status, validStates);
-      }
-
-      tasksCompletedTotal.inc({ status: 'completed', capability: task.capability });
-      const durationSeconds = (now.getTime() - new Date(task.createdAt).getTime()) / 1000;
-      taskDuration.observe({ capability: task.capability, status: 'completed' }, durationSeconds);
-
-      await this.redis.zrem(REDIS_KEYS.PROCESSING_SET, taskId);
-      await this.redis.del(`${REDIS_KEYS.TASK_CACHE}:${taskId}`);
-
-      await this.safePublish('task_completed', {
-        taskId,
-        status: 'completed',
-        result,
-      }, task.toBotId);
-
-      this.logger.info('Task auto-completed from self submit (no review needed)', { taskId, botId });
-      return;
     }
 
     const updateResult = await this.db.query(

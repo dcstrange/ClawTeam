@@ -80,6 +80,7 @@ API Server (localhost:3000)
 - 子委托成功时会返回新的 `subTaskId`，并可把 sender 会话绑定到该子任务。
 - `/gateway/tasks/:taskId/complete` 不允许执行者伪装完成（执行者应走 `submit-result`）。
 - `/gateway/tasks/:taskId/submit-result` 必须携带 `result.artifactNodeIds`（非空数组），且 node 必须与 task 关联。
+- `/gateway/tasks/:taskId/submit-result` 在自委托任务（`fromBotId == toBotId == 本地bot`）会被拒绝（409），并返回纠正建议（改走 `/complete` 或委托给其他 bot）。
 - 文件读取必须按 node kind 选择接口：`kind=doc` 用 `/files/docs/:docId/raw`，`kind=file` 用 `/files/download/:nodeId`。
 - gateway 不暴露 `/gateway/files/acl/*`（ACL 只在 API Server 侧开放）。
 - `/api/v1/tasks/:taskId/complete` 当前仍在使用（delegator shortcut、recovery fail 路径、兼容 SDK/测试），但不是 executor 主流程。

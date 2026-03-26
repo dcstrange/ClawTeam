@@ -142,3 +142,43 @@ def test_pending_review_request_changes_flow(api_url: str, delegator: SimBot, ex
     final_task = delegator.get_task(task_id).get("data", {})
     assert final_task["status"] == "completed"
     assert (final_task.get("result") or {}).get("summary") == "v2 output with edge cases"
+
+
+def test_submit_result_forbidden_on_self_assigned_task(api_url: str, delegator: SimBot):
+    # Create + delegate-to-self through API server path to simulate misconfigured flow.
+    create_resp = requests.post(
+        f"{api_url}/api/v1/tasks/create",
+        json={
+            "prompt": "Self-assigned task should not enter review flow",
+            "capability": "general",
+            "parameters": {},
+        },
+        headers=delegator._headers(),
+        timeout=10,
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    task_id = create_resp.json()["data"]["taskId"]
+
+    delegate_self = requests.post(
+        f"{api_url}/api/v1/tasks/{task_id}/delegate",
+        json={"toBotId": delegator.bot_id},
+        headers=delegator._headers(),
+        timeout=10,
+    )
+    assert delegate_self.status_code == 200, delegate_self.text
+
+    delegator.accept_task(task_id, executor_session_key=delegator.generate_session_key())
+
+    submit_self = requests.post(
+        f"{api_url}/api/v1/tasks/{task_id}/submit-result",
+        json={"result": {"summary": "self submitted final"}},
+        headers=delegator._headers(),
+        timeout=10,
+    )
+    assert submit_self.status_code == 409, submit_self.text
+    payload = submit_self.json()
+    assert payload["success"] is False
+    assert payload["error"]["code"] == "SELF_REVIEW_FORBIDDEN"
+
+    task_after = delegator.get_task(task_id).get("data", {})
+    assert task_after["status"] == "processing"

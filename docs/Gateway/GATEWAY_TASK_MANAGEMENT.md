@@ -100,7 +100,7 @@ plugin 在 sender spawn 前验证：
 | `POST /gateway/tasks/:taskId/delegate` | 若 body 含 `fromBotId`，必须等于本地 botId；并禁止 `toBotId === 本地 botId` | 直接委托：仅 `fromBotId` 且 `pending`；子委托：参与者可发起，父任务必须非终态 |
 | `POST /gateway/tasks/:taskId/accept` | 自动携带本地 bot 身份；可自动补 `executorSessionKey` | 仅 `toBotId` 可调；状态必须 `pending` |
 | `POST /gateway/tasks/:taskId/need-human-input` | 自动携带本地 bot 身份；支持幂等提示和冲突纠正文案 | 仅参与者可调；状态允许 `pending/accepted/processing/waiting_for_input` |
-| `POST /gateway/tasks/:taskId/submit-result` | 空结果会在 gateway 层先拦截 | 仅 `toBotId` 可调；状态 `accepted/processing/waiting_for_input` |
+| `POST /gateway/tasks/:taskId/submit-result` | 空结果会在 gateway 层先拦截；自委托任务会前置拒绝并给出纠正建议 | 仅 `toBotId` 可调；状态 `accepted/processing/waiting_for_input`（自委托触发 `SELF_REVIEW_FORBIDDEN`） |
 | `POST /gateway/tasks/:taskId/approve` / `request-changes` / `reject` | 自动携带本地 bot 身份 | 仅 `fromBotId` 可调；状态必须 `pending_review` |
 | `POST /gateway/tasks/:taskId/complete` | 对 executor 返回清晰错误提示（应走 submit-result） | `fromBotId` 可完成；`toBotId` 仅可上报失败；状态须活跃 |
 | `POST /gateway/tasks/:taskId/reset` | 无额外网关特殊逻辑 | 仅 `toBotId` 可调；需未耗尽重试配额 |

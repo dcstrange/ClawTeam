@@ -712,6 +712,33 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
       return;
     }
 
+    // ClawTeam collaboration invariant:
+    // submit-result must not be used on self-assigned tasks (fromBotId == toBotId == local bot).
+    // We fail fast with correction guidance to avoid self-review dead loops.
+    try {
+      const taskRes = await proxyFetch(`${apiBase}/api/v1/tasks/${taskId}`, {
+        headers: authHeaders(key, deps.clawteamBotId),
+      });
+      if (taskRes.ok) {
+        const task = unwrap(taskRes.data) || {};
+        const fromBotId = (task.fromBotId || task.from_bot_id) as string | undefined;
+        if (deps.clawteamBotId && fromBotId === deps.clawteamBotId) {
+          textReply(
+            reply,
+            formatErrorResponse(
+              `submit-result is forbidden for self-assigned tasks. ` +
+              `Correction: use POST /gateway/tasks/${taskId}/complete for direct finalization, ` +
+              `or delegate to another bot and keep review via submit-result -> approve/request-changes/reject.`
+            ),
+            409,
+          );
+          return;
+        }
+      }
+    } catch (err) {
+      log.warn({ taskId, err }, 'Self-review precheck failed before submit-result; proceeding to API validation');
+    }
+
     const artifactRaw = (submitted as Record<string, unknown>).artifactNodeIds;
     if (!Array.isArray(artifactRaw) || artifactRaw.length === 0) {
       textReply(

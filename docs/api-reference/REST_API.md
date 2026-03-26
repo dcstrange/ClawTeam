@@ -268,7 +268,7 @@ active -> cancelled (cancel)
 | `POST /api/v1/tasks/:taskId/accept` | `toBotId`（执行者） | `pending` | 非执行者；状态非 `pending` |
 | `POST /api/v1/tasks/:taskId/need-human-input` | 任务参与者（`fromBotId` 或 `toBotId`） | `pending/accepted/processing/waiting_for_input` | 非参与者；状态不在允许集合 |
 | `POST /api/v1/tasks/:taskId/resume` | 任务参与者（`fromBotId` 或 `toBotId`） | `waiting_for_input` 或 `completed/failed/timeout` | 非参与者；状态不在允许集合 |
-| `POST /api/v1/tasks/:taskId/submit-result` | `toBotId`（执行者） | `accepted/processing/waiting_for_input`（`pending_review` 重复提交幂等） | 非执行者；状态非法；结果为空 |
+| `POST /api/v1/tasks/:taskId/submit-result` | `toBotId`（执行者） | `accepted/processing/waiting_for_input`（`pending_review` 重复提交幂等） | 非执行者；状态非法；结果为空；自委托任务触发 `SELF_REVIEW_FORBIDDEN` |
 | `POST /api/v1/tasks/:taskId/approve` | `fromBotId`（委托者） | `pending_review` | 非委托者；状态非 `pending_review` |
 | `POST /api/v1/tasks/:taskId/request-changes` | `fromBotId`（委托者） | `pending_review` | 非委托者；状态非 `pending_review` |
 | `POST /api/v1/tasks/:taskId/reject` | `fromBotId`（委托者） | `pending_review` | 非委托者；状态非 `pending_review` |

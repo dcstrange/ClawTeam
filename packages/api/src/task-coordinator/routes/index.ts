@@ -231,6 +231,58 @@ async function isTaskParticipantBot(db: any, taskId: string, botId: string): Pro
   return (fallbackRes.rowCount ?? 0) > 0;
 }
 
+async function findPreferredExecutorSessionKey(
+  db: any,
+  parentTaskId: string,
+  executorBotId: string,
+): Promise<string | undefined> {
+  try {
+    const result = await db.query(
+      `WITH RECURSIVE ancestors AS (
+         SELECT id, parent_task_id, 0 AS depth
+           FROM tasks
+          WHERE id = $1
+         UNION ALL
+         SELECT t.id, t.parent_task_id, ancestors.depth + 1
+           FROM tasks t
+           JOIN ancestors ON ancestors.parent_task_id = t.id
+       ),
+       root AS (
+         SELECT id
+           FROM ancestors
+          ORDER BY depth DESC
+          LIMIT 1
+       ),
+       lineage AS (
+         SELECT t.id, t.parent_task_id, 0 AS depth
+           FROM tasks t
+          WHERE t.id = (SELECT id FROM root)
+         UNION ALL
+         SELECT c.id, c.parent_task_id, lineage.depth + 1
+           FROM tasks c
+           JOIN lineage ON c.parent_task_id = lineage.id
+       )
+       SELECT ts.session_key
+         FROM task_sessions ts
+         JOIN lineage l ON l.id = ts.task_id
+        WHERE ts.bot_id = $2
+          AND ts.role = 'executor'
+          AND ts.session_key IS NOT NULL
+          AND ts.session_key <> ''
+        ORDER BY ts.created_at DESC
+        LIMIT 1`,
+      [parentTaskId, executorBotId],
+    );
+
+    const sessionKey = result.rows[0]?.session_key;
+    return typeof sessionKey === 'string' && sessionKey.trim().length > 0
+      ? sessionKey.trim()
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function handleError(error: unknown, reply: FastifyReply, traceId: string): FastifyReply {
   if (isClawTeamError(error)) {
     return reply.status(error.statusCode).send({
@@ -438,6 +490,19 @@ export function createTaskRoutes(deps: TaskRoutesDeps): FastifyPluginAsync {
             const rawChildParams = (subTaskParameters && typeof subTaskParameters === 'object')
               ? (subTaskParameters as Record<string, unknown>)
               : {};
+            const explicitTargetSessionKey = typeof rawChildParams.targetSessionKey === 'string'
+              ? rawChildParams.targetSessionKey.trim()
+              : '';
+            if (!explicitTargetSessionKey && deps.db) {
+              const preferredExecutorSessionKey = await findPreferredExecutorSessionKey(
+                deps.db,
+                task.id,
+                toBotId,
+              );
+              if (preferredExecutorSessionKey) {
+                rawChildParams.targetSessionKey = preferredExecutorSessionKey;
+              }
+            }
             const inheritedChildParams = inheritCollaborationParameters(task.parameters, rawChildParams);
 
             const subTask = await coordinator.createTask(
