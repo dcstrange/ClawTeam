@@ -13,7 +13,7 @@
 import type { Task } from '@clawteam/shared/types';
 import type { Logger } from 'pino';
 import type { IClawTeamApiClient } from '../clients/clawteam-api.js';
-import type { ISessionClient } from '../providers/types.js';
+import type { ISessionClient, IMessageBuilder } from '../providers/types.js';
 import type { SessionStatusResolver } from '../monitoring/session-status-resolver.js';
 import type { SessionTracker } from '../routing/session-tracker.js';
 import type { RoutedTasksTracker } from '../routing/routed-tasks.js';
@@ -35,6 +35,7 @@ export interface StaleTaskRecoveryLoopOptions {
   clawteamApi: IClawTeamApiClient;
   sessionClient: ISessionClient;
   sessionTracker: SessionTracker;
+  messageBuilder: IMessageBuilder;
   /** Shared routed-tasks tracker (also used by TaskPollingLoop) — cleared on reset so poller re-routes */
   routedTasks?: RoutedTasksTracker;
   intervalMs: number;
@@ -54,6 +55,7 @@ export class StaleTaskRecoveryLoop {
   private readonly clawteamApi: IClawTeamApiClient;
   private readonly sessionClient: ISessionClient;
   private readonly sessionTracker: SessionTracker;
+  private readonly messageBuilder: IMessageBuilder;
   private readonly routedTasks: RoutedTasksTracker | null;
   private readonly intervalMs: number;
   private readonly stalenessThresholdMs: number;
@@ -75,6 +77,7 @@ export class StaleTaskRecoveryLoop {
     this.clawteamApi = options.clawteamApi;
     this.sessionClient = options.sessionClient;
     this.sessionTracker = options.sessionTracker;
+    this.messageBuilder = options.messageBuilder;
     this.routedTasks = options.routedTasks ?? null;
     this.intervalMs = options.intervalMs;
     this.stalenessThresholdMs = options.stalenessThresholdMs;
@@ -657,7 +660,7 @@ export class StaleTaskRecoveryLoop {
         if (restored) {
           this.logger.info({ taskId, sessionKey }, `${c.bgGreen(' RESTORE OK ')} Session restored, sending nudge`);
           steps.push({ label: 'Restore session', ok: true, detail: 'restored' });
-          const nudgeMsg = this.buildNudgeMessage(taskId, sessionKey, 'dead', task, attemptNum);
+          const nudgeMsg = this.messageBuilder.buildNudgeMessage(taskId, task, 'dead', attemptNum, this.attemptTracker['maxAttempts']);
           const sent = await this.sessionClient.sendToSession(sessionKey, nudgeMsg);
           steps.push({ label: 'Nudge', ok: sent, detail: sent ? 'sent' : 'send failed' });
           const result: RecoveryResult = {
@@ -720,7 +723,7 @@ export class StaleTaskRecoveryLoop {
     // API reset failed — last resort: send message to main using normal task format
     this.logger.warn({ taskId, sessionKey }, `${c.bgRed(' API RESET FAILED ')} Sending fallback message to main`);
     steps.push({ label: 'API reset task', ok: false, detail: 'reset failed' });
-    const fallbackMsg = this.buildFallbackMessage(taskId, sessionKey, task);
+    const fallbackMsg = this.messageBuilder.buildRecoveryFallbackMessage(task);
     const sent = await this.sessionClient.sendToMainSession(fallbackMsg);
     steps.push({ label: 'Fallback to main', ok: sent, detail: sent ? 'sent' : 'send failed' });
     this.sessionTracker.untrack(taskId);
@@ -747,7 +750,7 @@ export class StaleTaskRecoveryLoop {
   ): Promise<RecoveryResult> {
     this.attemptTracker.recordAttempt(taskId, sessionState as any);
 
-    const nudgeMsg = this.buildNudgeMessage(taskId, sessionKey, sessionState, task, attemptNum);
+    const nudgeMsg = this.messageBuilder.buildNudgeMessage(taskId, task, sessionState, attemptNum, this.attemptTracker['maxAttempts']);
     const sent = await this.sessionClient.sendToSession(sessionKey, nudgeMsg);
 
     this.logger.info(
@@ -776,103 +779,4 @@ export class StaleTaskRecoveryLoop {
     return nudgeResult;
   }
 
-  /** Build the nudge message sent to a stale session. */
-  private buildNudgeMessage(
-    taskId: string,
-    sessionKey: string,
-    sessionState: string,
-    task: Task,
-    attemptNum: number,
-  ): string {
-    const maxAttempts = this.attemptTracker['maxAttempts'];
-    const instructions = task.prompt || `Execute the "${task.capability || 'general'}" capability`;
-
-    return [
-      '[ClawTeam Task Recovery — Nudge]',
-      `Task ID: ${taskId}`,
-      `Instructions: ${instructions}`,
-      task.capability && task.capability !== 'general' ? `Capability: ${task.capability}` : null,
-      `Status: ${task.status}`,
-      `Session State Detected: ${sessionState}`,
-      `Recovery Attempt: ${attemptNum}/${maxAttempts}`,
-      '',
-      'Your session appears to have gone idle while this task is still in-progress.',
-      'Please continue working on the task and complete it when done.',
-      '',
-      `If you need task-related info (personal details, preferences, etc.), ask the delegator bot via DM first.`,
-      `If you need executor-specific info (API keys, credentials), call /need-human-input:`,
-      `  curl -s -X POST ${this.gatewayUrl}/gateway/tasks/${taskId}/need-human-input -H 'Content-Type: application/json' -d '{"reason":"DESCRIBE_WHAT_YOU_NEED","targetBotId":"${task.toBotId}"}'`,
-      '',
-      `Complete using:`,
-      `  curl -s -X POST ${this.gatewayUrl}/gateway/tasks/${taskId}/complete -H 'Content-Type: application/json' \\`,
-      `    -d '{"status":"completed","result":{"summary":"<your output>"}}'`,
-    ].filter(Boolean).join('\n');
-  }
-
-  /**
-   * Build a fallback message using the same format as normal task routing.
-   * Uses [ClawTeam Task Received] header (no "recovery/fallback" wording)
-   * so the main session treats it identically to a new task.
-   */
-  private buildFallbackMessage(
-    taskId: string,
-    _sessionKey: string,
-    task: Task,
-  ): string {
-    const instructions = task.prompt || `Execute the "${task.capability || 'general'}" capability`;
-    const hasParams = task.parameters && Object.keys(task.parameters).length > 0;
-
-    return [
-      '[ClawTeam Task Received]',
-      `Task ID: ${taskId}`,
-      `Instructions: ${instructions}`,
-      task.capability && task.capability !== 'general' ? `Capability: ${task.capability}` : null,
-      `Type: ${task.type || 'new'}`,
-      `From Bot: ${task.fromBotId}`,
-      `Priority: ${task.priority}`,
-      '',
-      'ACTION REQUIRED: Unified task flow:',
-      'DO NOT call any /tasks/ API endpoints yourself. The sub-session handles the full lifecycle.',
-      '',
-      '1. Spawn an EMPTY sub-session (no task details in the spawn prompt).',
-      '   Just tell it: "You are a ClawTeam task executor. Wait for instructions."',
-      '',
-      `2. After spawning, call track-session to link the task to the sub-session:`,
-      `   curl -s -X POST ${this.gatewayUrl}/gateway/track-session -H 'Content-Type: application/json' -d '{"taskId":"${taskId}","sessionKey":"THE_CHILD_SESSION_KEY"}'`,
-      '',
-      '3. Then send the full task details to the sub-session (below).',
-      '',
-      '=== SUB-SESSION TASK DETAILS (send via sessions_send after track-session) ===',
-      '',
-      `You are a ClawTeam sub-session. Execute the task below step by step.`,
-      `The task has been auto-accepted by the gateway. Start working immediately.`,
-      '',
-      `Task ID: ${taskId}`,
-      `Instructions: ${instructions}`,
-      hasParams ? `Additional Context: ${JSON.stringify(task.parameters)}` : null,
-      '',
-      `Step 1: Execute the instructions above.`,
-      '',
-      `CRITICAL RULE: NEVER call /complete unless you have actually produced the requested deliverable.`,
-      `If you cannot fulfill the request for ANY reason (missing APIs, insufficient permissions, missing info):`,
-      `  - Do NOT call /complete. No exceptions. A "cannot do" summary is NOT a valid completion.`,
-      `  - Instead, follow the information-gathering steps below.`,
-      '',
-      `INFORMATION GATHERING -- follow this order:`,
-      `  1. Task-related info (personal details, preferences, travel dates, names, budgets, etc.)`,
-      `     These belong to the DELEGATOR's human user. Ask the delegator bot via DM:`,
-      `     curl -s -X POST ${this.gatewayUrl}/gateway/messages/send -H 'Content-Type: application/json' -d '{"toBotId":"${task.fromBotId}","taskId":"${taskId}","content":"YOUR_QUESTION"}'`,
-      `     The delegator bot will answer from context or escalate to its own human.`,
-      `  2. Executor-specific info (your API keys, system config, tool access, credentials)`,
-      `     Only YOUR human user can provide these. Call /need-human-input:`,
-      `     curl -s -X POST ${this.gatewayUrl}/gateway/tasks/${taskId}/need-human-input -H 'Content-Type: application/json' -d '{"reason":"DESCRIBE_WHAT_YOU_NEED","targetBotId":"${task.toBotId}"}'`,
-      `     This asks YOUR human user only. Then STOP and wait.`,
-      `  3. If you are completely blocked and neither approach applies, call /need-human-input as a last resort.`,
-      '',
-      `Step 2: Complete the task:`,
-      `  curl -s -X POST ${this.gatewayUrl}/gateway/tasks/${taskId}/complete -H 'Content-Type: application/json' -d '{"status":"completed","result":{"summary":"YOUR_OUTPUT"}}'`,
-      '',
-      '=== END SUB-SESSION TASK DETAILS ===',
-    ].filter(Boolean).join('\n');
-  }
 }

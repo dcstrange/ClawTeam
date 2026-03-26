@@ -16,7 +16,7 @@ import { EventEmitter } from 'node:events';
 import type { Task } from '@clawteam/shared/types';
 import type { InboxMessage, RoutingDecision, RoutingResult } from '../types.js';
 import type { IClawTeamApiClient } from '../clients/clawteam-api.js';
-import type { ISessionClient } from '../providers/types.js';
+import type { ISessionClient, IMessageBuilder } from '../providers/types.js';
 import type { SessionTracker } from './session-tracker.js';
 import type { Logger } from 'pino';
 import { printRouteBlock } from '../utils/visual-log.js';
@@ -25,6 +25,7 @@ export interface TaskRouterDeps {
   clawteamApi: IClawTeamApiClient;
   sessionClient: ISessionClient;
   sessionTracker: SessionTracker;
+  messageBuilder: IMessageBuilder;
   logger: Logger;
   gatewayUrl: string;
   botId?: string;
@@ -34,6 +35,7 @@ export class TaskRouter extends EventEmitter {
   private readonly clawteamApi: IClawTeamApiClient;
   private readonly sessionClient: ISessionClient;
   private readonly sessionTracker: SessionTracker;
+  private readonly messageBuilder: IMessageBuilder;
   private readonly logger: Logger;
   private readonly gatewayUrl: string;
   private readonly botId?: string;
@@ -43,6 +45,7 @@ export class TaskRouter extends EventEmitter {
     this.clawteamApi = deps.clawteamApi;
     this.sessionClient = deps.sessionClient;
     this.sessionTracker = deps.sessionTracker;
+    this.messageBuilder = deps.messageBuilder;
     this.logger = deps.logger.child({ component: 'router' });
     this.gatewayUrl = deps.gatewayUrl;
     this.botId = deps.botId;
@@ -444,7 +447,7 @@ export class TaskRouter extends EventEmitter {
     }
 
     const toMeta = await this.resolveDelegateIntentTarget(prompt, parameters);
-    const message = this.buildDelegateIntentMessage(taskId, prompt, fromBotId, toMeta);
+    const message = this.messageBuilder.buildDelegateIntentMessage(taskId, prompt, fromBotId, toMeta);
     const success = await this.sessionClient.sendToMainSession(message);
 
     const result: RoutingResult = {
@@ -470,75 +473,6 @@ export class TaskRouter extends EventEmitter {
     });
 
     return result;
-  }
-
-  /**
-   * Build the message sent to main session for delegate_intent.
-   * Task value contains only meta block + task facts. The plugin injects sender-specific rules.
-   */
-  private buildDelegateIntentMessage(
-    taskId: string,
-    prompt: string,
-    fromBotId: string,
-    target: { toBotId?: string; toBotName?: string; toBotOwner?: string },
-  ): string {
-    const intentText = prompt || '';
-    const cleanPrompt = intentText.trim();
-    const taskIdRef = taskId || 'TASK_ID';
-    const toBotId = target.toBotId?.trim() || '';
-    const toBotName = target.toBotName?.trim() || '';
-    const toBotOwner = target.toBotOwner?.trim() || '';
-    const intentLabel = (toBotId
-      ? `Delegate a task to bot ${toBotId}:`
-      : cleanPrompt) || 'Delegate a task';
-
-    // Task content is just the intent — delegation rules come from the sender template
-    const taskContentLines = [
-      `From Bot: ${fromBotId}`,
-      `Intent: ${intentLabel}`,
-      `Task ID: ${taskIdRef}`,
-    ];
-    if (cleanPrompt && cleanPrompt !== intentLabel) taskContentLines.push(`Prompt: ${cleanPrompt}`);
-    if (toBotId) taskContentLines.push(`To Bot: ${toBotId}`);
-    if (toBotName) taskContentLines.push(`To Bot Name: ${toBotName}`);
-    if (toBotOwner) taskContentLines.push(`To Bot Owner: ${toBotOwner}`);
-    const taskContent = taskContentLines.join('\n');
-
-    const tokenData: Record<string, string> = {
-      role: 'sender',
-      fromBotId: fromBotId || '',
-    };
-    if (taskId) tokenData.taskId = taskId;
-    if (toBotId) tokenData.toBotId = toBotId;
-    if (toBotName) tokenData.toBotName = toBotName;
-    if (toBotOwner) tokenData.toBotOwner = toBotOwner;
-    const token = `<!--CLAWTEAM:${JSON.stringify(tokenData)}-->`;
-    const taskValue = `${token}\n${taskContent}`;
-
-    const taskIdLine = taskId
-      ? `Task ID: ${taskId} (pre-created by dashboard)`
-      : 'No taskId yet. The plugin will auto-create it when spawning.';
-
-    return [
-      '[ClawTeam Delegate Intent]',
-      `From Bot: ${fromBotId}`,
-      `Intent: ${intentLabel}`,
-      taskIdLine,
-      '',
-      'ACTION REQUIRED: Spawn a sub-session now.',
-      '',
-      'IMPORTANT: The task value MUST include the <!--CLAWTEAM:...--> line exactly as shown.',
-      'This token is required for the plugin to inject delegation rules. Copy it verbatim.',
-      '',
-      '---TASK VALUE START---',
-      taskValue,
-      '---TASK VALUE END---',
-      '',
-      `label: "${intentLabel.substring(0, 60)}"`,
-      '',
-      'Pass everything between the START/END markers as the task value.',
-      'No follow-up sessions_send is needed — all task details are included in the task value.',
-    ].join('\n');
   }
 
   private asRecord(value: unknown): Record<string, unknown> | null {
@@ -626,7 +560,7 @@ export class TaskRouter extends EventEmitter {
       fromBotName = fromBot?.name;
     } catch { /* best-effort */ }
 
-    const message = this.buildNewTaskMessage(decision.task, fromBotName);
+    const message = this.messageBuilder.buildNewTaskMessage(decision.task, fromBotName);
     const success = await this.sessionClient.sendToMainSession(message, decision.taskId);
 
     return {
@@ -645,7 +579,7 @@ export class TaskRouter extends EventEmitter {
     const alive = await this.sessionClient.isSessionAlive(targetKey);
 
     if (alive) {
-      const message = this.buildSubTaskMessage(decision.task);
+      const message = this.messageBuilder.buildSubTaskMessage(decision.task);
       const success = await this.sessionClient.sendToSession(targetKey, message);
 
       if (success) {
@@ -688,7 +622,7 @@ export class TaskRouter extends EventEmitter {
               'Session restored, retrying send',
             );
 
-            const message = this.buildSubTaskMessage(decision.task);
+            const message = this.messageBuilder.buildSubTaskMessage(decision.task);
             const success = await this.sessionClient.sendToSession(targetKey, message);
 
             if (success) {
@@ -715,107 +649,11 @@ export class TaskRouter extends EventEmitter {
     }
 
     // Fallback: session expired or send failed -- route to main with parent context
-    const fallbackMessage = await this.buildFallbackMessage(decision.task);
-    const fallbackSuccess = await this.sessionClient.sendToMainSession(fallbackMessage, decision.taskId);
-
-    return {
-      taskId: decision.taskId,
-      success: fallbackSuccess,
-      action: 'send_to_main',
-      sessionKey: 'main',
-      fallback: true,
-      error: fallbackSuccess ? undefined : 'Failed to send fallback to main session',
-    };
-  }
-
-  /**
-   * Strip delegation prefix from a task prompt so the executor sees only the actual task.
-   * e.g. "Delegate a task to bot abda8113-...: \nPrompt: 写一个消息队列" → "写一个消息队列"
-   */
-  private cleanPromptForExecutor(prompt: string | undefined): string | undefined {
-    if (!prompt) return prompt;
-    // Remove "Delegate a task to bot <UUID>:" prefix (with optional whitespace/newline)
-    let cleaned = prompt.replace(/^Delegate\s+a\s+task\s+to\s+bot\s+[\w-]+:\s*/i, '');
-    // Remove leading "Prompt:" prefix if present
-    cleaned = cleaned.replace(/^Prompt:\s*/i, '');
-    return cleaned.trim() || prompt;
-  }
-
-  /**
-   * Build message for new tasks routed to main session.
-   * All task details are embedded in the task value — single spawn, no follow-up sessions_send needed.
-   */
-  private buildNewTaskMessage(task: Task, fromBotName?: string): string {
-    const cleanPrompt = this.cleanPromptForExecutor(task.prompt);
-    const paramsLine = task.parameters && Object.keys(task.parameters).length > 0
-      ? `\nParameters: ${JSON.stringify(task.parameters)}`
-      : '';
-
-    const taskContent = [
-      `Task ID: ${task.id}`,
-      ...(cleanPrompt ? [`Prompt: ${cleanPrompt}`] : []),
-      `Capability: ${task.capability}`,
-      ...(paramsLine ? [paramsLine.trim()] : []),
-    ].join('\n');
-
-    const token = `<!--CLAWTEAM:${JSON.stringify({ role: 'executor', taskId: task.id, fromBotId: task.fromBotId })}-->`;
-    const executorTaskValue = `${token}\n${taskContent}`;
-    const fromBotLabel = fromBotName ? `${fromBotName} (${task.fromBotId})` : task.fromBotId;
-
-    return [
-      '[ClawTeam Task Received]',
-      `Task ID: ${task.id}`,
-      `Capability: ${task.capability}`,
-      `Type: ${task.type || 'new'}`,
-      `From Bot: ${fromBotLabel}`,
-      `Priority: ${task.priority}`,
-      ...(cleanPrompt ? [`Prompt: ${cleanPrompt}`, ''] : ['']),
-      '',
-      'ACTION REQUIRED: Spawn a sub-session now.',
-      'DO NOT call any /tasks/ API endpoints yourself. The plugin handles tracking automatically.',
-      '',
-      'IMPORTANT: The task value MUST include the <!--CLAWTEAM:...--> line exactly as shown.',
-      'This token is required for the plugin to inject execution rules. Copy it verbatim.',
-      '',
-      '---TASK VALUE START---',
-      executorTaskValue,
-      '---TASK VALUE END---',
-      '',
-      `label: "${(cleanPrompt || task.capability || '').slice(0, 60)}"`,
-      '',
-      'Pass everything between the START/END markers as the task value.',
-      'No follow-up sessions_send is needed — all task details are included in the task value.',
-    ].join('\n');
-  }
-
-  private buildSubTaskMessage(task: Task): string {
-    const taskType = task.type || 'sub-task';
-    return [
-      `[ClawTeam ${taskType} Task]`,
-      `Task ID: ${task.id}`,
-      ...(task.prompt ? [`Prompt: ${task.prompt}`] : []),
-      `Capability: ${task.capability}`,
-      ...(task.parameters && Object.keys(task.parameters).length > 0
-        ? [`Parameters: ${JSON.stringify(task.parameters)}`]
-        : []),
-      `Parent Task: ${task.parentTaskId}`,
-      '',
-      `Process this ${taskType} in the context of your previous work on task ${task.parentTaskId}.`,
-      `The task has been auto-accepted by the gateway. Start working immediately.`,
-    ].join('\n');
-  }
-
-  /**
-   * Build fallback message when target session is expired.
-   * Task value contains only meta block + task facts. The plugin injects executor-specific rules.
-   */
-  private async buildFallbackMessage(task: Task): Promise<string> {
-    const taskType = task.type || 'sub-task';
-    let parentContext = '';
-
-    if (task.parentTaskId) {
+    // Pre-fetch parent context (was previously inside buildFallbackMessage)
+    let parentContext: string | undefined;
+    if (decision.task.parentTaskId) {
       try {
-        const parentTask = await this.clawteamApi.getTask(task.parentTaskId);
+        const parentTask = await this.clawteamApi.getTask(decision.task.parentTaskId);
         if (parentTask) {
           parentContext = [
             '',
@@ -832,48 +670,22 @@ export class TaskRouter extends EventEmitter {
         }
       } catch (error) {
         this.logger.warn(
-          { parentTaskId: task.parentTaskId, error: (error as Error).message },
+          { parentTaskId: decision.task.parentTaskId, error: (error as Error).message },
           'Failed to fetch parent task for fallback context',
         );
       }
     }
+    const fallbackMessage = this.messageBuilder.buildFallbackMessage(decision.task, parentContext);
+    const fallbackSuccess = await this.sessionClient.sendToMainSession(fallbackMessage, decision.taskId);
 
-    const taskContent = [
-      `Task ID: ${task.id}`,
-      ...(task.prompt ? [`Prompt: ${task.prompt}`] : []),
-      `Capability: ${task.capability}`,
-      `Type: ${taskType}`,
-      `Parent Task: ${task.parentTaskId}`,
-      ...(task.parameters && Object.keys(task.parameters).length > 0
-        ? [`Parameters: ${JSON.stringify(task.parameters)}`]
-        : []),
-      parentContext,
-    ].join('\n');
-
-    const roleHeader = `Role: executor\nTask ID: ${task.id}\nFrom Bot: ${task.fromBotId}`;
-    const executorTaskValue = `${roleHeader}\n${taskContent}`;
-
-    const taskLines = executorTaskValue.split('\n').map(line => `     ${line}`).join('\n');
-
-    return [
-      `[ClawTeam Task Received]`,
-      `Task ID: ${task.id}`,
-      ...(task.prompt ? [`Prompt: ${task.prompt}`] : []),
-      `Capability: ${task.capability}`,
-      `Type: ${task.type || 'sub-task'}`,
-      `Parent Task: ${task.parentTaskId}`,
-      `From Bot: ${task.fromBotId}`,
-      `Priority: ${task.priority}`,
-      '',
-      'ACTION REQUIRED: Spawn a sub-session with this task value:',
-      'DO NOT call any /tasks/ API endpoints yourself. The plugin handles tracking automatically.',
-      '',
-      taskLines,
-      '',
-      `   label: "${(task.prompt || task.capability || '').slice(0, 60)}"`,
-      '',
-      'The task value above is a multi-line string. Pass it exactly as shown (without the leading spaces).',
-      'No follow-up sessions_send is needed — all task details are included in the task value.',
-    ].join('\n');
+    return {
+      taskId: decision.taskId,
+      success: fallbackSuccess,
+      action: 'send_to_main',
+      sessionKey: 'main',
+      fallback: true,
+      error: fallbackSuccess ? undefined : 'Failed to send fallback to main session',
+    };
   }
+
 }

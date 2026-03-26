@@ -12,7 +12,10 @@ import { StaleTaskRecoveryLoop } from '../src/recovery/stale-task-recovery-loop'
 import { SessionStatusResolver } from '../src/monitoring/session-status-resolver';
 import { SessionTracker } from '../src/routing/session-tracker';
 import { RoutedTasksTracker } from '../src/routing/routed-tasks';
+import { OpenClawMessageBuilder } from '../src/providers/openclaw/openclaw-message-builder';
 import pino from 'pino';
+
+const GATEWAY_URL = 'http://localhost:3100';
 
 const logger = pino({ level: 'silent' });
 
@@ -110,6 +113,7 @@ describe('StaleTaskRecoveryLoop', () => {
       clawteamApi: mockApi,
       sessionClient: mockOpenClaw,
       sessionTracker: tracker,
+      messageBuilder: new OpenClawMessageBuilder(GATEWAY_URL),
       routedTasks,
       intervalMs: 120_000,
       stalenessThresholdMs: 300_000, // 5 min
@@ -412,12 +416,13 @@ describe('StaleTaskRecoveryLoop', () => {
           clawteamApi: mockApi,
           sessionClient: mockOpenClaw,
           sessionTracker: tracker,
+          messageBuilder: new OpenClawMessageBuilder(GATEWAY_URL),
           routedTasks,
           intervalMs: 120_000,
           stalenessThresholdMs: 300_000,
           toolCallingTimeoutMs: 600_000, // 10 min
           maxRecoveryAttempts: 3,
-          gatewayUrl: 'http://localhost:3100',
+          gatewayUrl: GATEWAY_URL,
           mainSessionKey: 'agent:main:main',
           logger,
         });

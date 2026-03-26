@@ -21,6 +21,7 @@ import { StaleTaskRecoveryLoop } from '../src/recovery/stale-task-recovery-loop'
 import { SessionTracker } from '../src/routing/session-tracker';
 import { RoutedTasksTracker } from '../src/routing/routed-tasks';
 import { SessionStatusResolver } from '../src/monitoring/session-status-resolver';
+import { OpenClawMessageBuilder } from '../src/providers/openclaw/openclaw-message-builder';
 import pino from 'pino';
 
 // ── Helpers ────────────────────────────────────────────────────
@@ -121,6 +122,7 @@ describe('Router message content verification', () => {
       clawteamApi: mockApi,
       sessionClient: mockSession,
       sessionTracker,
+      messageBuilder: new OpenClawMessageBuilder(GATEWAY_URL),
       gatewayUrl: GATEWAY_URL,
       logger,
     });
@@ -318,6 +320,7 @@ describe('Recovery loop message content verification', () => {
       clawteamApi: mockApi,
       sessionClient: mockSession,
       sessionTracker: tracker,
+      messageBuilder: new OpenClawMessageBuilder(GATEWAY_URL),
       routedTasks,
       intervalMs: 120_000,
       stalenessThresholdMs: 300_000,

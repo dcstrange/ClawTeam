@@ -16,7 +16,10 @@ import type { InboxMessage } from '../src/types';
 import { TaskRouter } from '../src/routing/router';
 import { SessionTracker } from '../src/routing/session-tracker';
 import { TaskPollingLoop } from '../src/polling/task-poller';
+import { OpenClawMessageBuilder } from '../src/providers/openclaw/openclaw-message-builder';
 import pino from 'pino';
+
+const GATEWAY_URL = 'http://localhost:3100';
 
 // ── Test Helpers ──────────────────────────────────────────────
 
@@ -136,7 +139,8 @@ describe('TaskRouter Integration', () => {
         clawteamApi: mockApi,
         sessionClient: mockSession,
         sessionTracker,
-        gatewayUrl: 'http://localhost:3100',
+        messageBuilder: new OpenClawMessageBuilder(GATEWAY_URL),
+        gatewayUrl: GATEWAY_URL,
         logger,
       });
 
@@ -191,7 +195,8 @@ describe('TaskRouter Integration', () => {
         clawteamApi: mockApi,
         sessionClient: mockSession,
         sessionTracker,
-        gatewayUrl: 'http://localhost:3100',
+        messageBuilder: new OpenClawMessageBuilder(GATEWAY_URL),
+        gatewayUrl: GATEWAY_URL,
         logger,
       });
 
@@ -262,7 +267,8 @@ describe('TaskRouter Integration', () => {
         clawteamApi: mockApi,
         sessionClient: mockSession,
         sessionTracker,
-        gatewayUrl: 'http://localhost:3100',
+        messageBuilder: new OpenClawMessageBuilder(GATEWAY_URL),
+        gatewayUrl: GATEWAY_URL,
         logger,
       });
 
@@ -313,7 +319,8 @@ describe('TaskRouter Integration', () => {
         clawteamApi: mockApi,
         sessionClient: mockSession,
         sessionTracker: new SessionTracker(),
-        gatewayUrl: 'http://localhost:3100',
+        messageBuilder: new OpenClawMessageBuilder(GATEWAY_URL),
+        gatewayUrl: GATEWAY_URL,
         logger,
       });
 
@@ -348,7 +355,8 @@ describe('TaskRouter Integration', () => {
         clawteamApi: mockApi,
         sessionClient: mockSession,
         sessionTracker: new SessionTracker(),
-        gatewayUrl: 'http://localhost:3100',
+        messageBuilder: new OpenClawMessageBuilder(GATEWAY_URL),
+        gatewayUrl: GATEWAY_URL,
         logger,
       });
 
@@ -392,7 +400,8 @@ describe('TaskRouter Integration', () => {
         clawteamApi: mockApi,
         sessionClient: mockSession,
         sessionTracker: new SessionTracker(),
-        gatewayUrl: 'http://localhost:3100',
+        messageBuilder: new OpenClawMessageBuilder(GATEWAY_URL),
+        gatewayUrl: GATEWAY_URL,
         logger,
       });
 
@@ -425,7 +434,8 @@ describe('TaskRouter Integration', () => {
         clawteamApi: mockApi,
         sessionClient: mockSession,
         sessionTracker: new SessionTracker(),
-        gatewayUrl: 'http://localhost:3100',
+        messageBuilder: new OpenClawMessageBuilder(GATEWAY_URL),
+        gatewayUrl: GATEWAY_URL,
         logger,
       });
 
@@ -451,7 +461,8 @@ describe('TaskRouter Integration', () => {
         clawteamApi: mockApi,
         sessionClient: mockSession,
         sessionTracker: new SessionTracker(),
-        gatewayUrl: 'http://localhost:3100',
+        messageBuilder: new OpenClawMessageBuilder(GATEWAY_URL),
+        gatewayUrl: GATEWAY_URL,
         logger,
       });
 
@@ -486,7 +497,8 @@ describe('TaskRouter Integration', () => {
         clawteamApi: mockApi,
         sessionClient: mockSession,
         sessionTracker,
-        gatewayUrl: 'http://localhost:3100',
+        messageBuilder: new OpenClawMessageBuilder(GATEWAY_URL),
+        gatewayUrl: GATEWAY_URL,
         logger,
       });
 
@@ -515,7 +527,8 @@ describe('TaskRouter Integration', () => {
         clawteamApi: mockApi,
         sessionClient: mockSession,
         sessionTracker,
-        gatewayUrl: 'http://localhost:3100',
+        messageBuilder: new OpenClawMessageBuilder(GATEWAY_URL),
+        gatewayUrl: GATEWAY_URL,
         logger,
       });
 
@@ -550,7 +563,8 @@ describe('TaskRouter Integration', () => {
         clawteamApi: mockApi,
         sessionClient: mockSession,
         sessionTracker: new SessionTracker(),
-        gatewayUrl: 'http://localhost:3100',
+        messageBuilder: new OpenClawMessageBuilder(GATEWAY_URL),
+        gatewayUrl: GATEWAY_URL,
         logger,
       });
 
@@ -593,7 +607,8 @@ describe('TaskRouter Integration', () => {
         clawteamApi: mockApi,
         sessionClient: mockSession,
         sessionTracker: new SessionTracker(),
-        gatewayUrl: 'http://localhost:3100',
+        messageBuilder: new OpenClawMessageBuilder(GATEWAY_URL),
+        gatewayUrl: GATEWAY_URL,
         logger,
       });
 
@@ -635,7 +650,8 @@ describe('TaskRouter Integration', () => {
         clawteamApi: mockApi,
         sessionClient: mockSession,
         sessionTracker: new SessionTracker(),
-        gatewayUrl: 'http://localhost:3100',
+        messageBuilder: new OpenClawMessageBuilder(GATEWAY_URL),
+        gatewayUrl: GATEWAY_URL,
         logger,
       });
 
@@ -698,7 +714,8 @@ describe('TaskRouter Integration', () => {
         clawteamApi: mockApi,
         sessionClient: mockSession,
         sessionTracker,
-        gatewayUrl: 'http://localhost:3100',
+        messageBuilder: new OpenClawMessageBuilder(GATEWAY_URL),
+        gatewayUrl: GATEWAY_URL,
         logger,
       });
 
@@ -747,7 +764,8 @@ describe('TaskRouter Integration', () => {
         clawteamApi: mockApi,
         sessionClient: mockSession,
         sessionTracker,
-        gatewayUrl: 'http://localhost:3100',
+        messageBuilder: new OpenClawMessageBuilder(GATEWAY_URL),
+        gatewayUrl: GATEWAY_URL,
         logger,
       });
 
@@ -835,7 +853,8 @@ describe('TaskRouter Integration', () => {
         clawteamApi: mockApi,
         sessionClient: mockSession,
         sessionTracker,
-        gatewayUrl: 'http://localhost:3100',
+        messageBuilder: new OpenClawMessageBuilder(GATEWAY_URL),
+        gatewayUrl: GATEWAY_URL,
         logger,
       });
 

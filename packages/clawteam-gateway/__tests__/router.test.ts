@@ -10,6 +10,7 @@ import type { IClawTeamApiClient } from '../src/clients/clawteam-api';
 import type { ISessionClient } from '../src/providers/types';
 import { TaskRouter } from '../src/routing/router';
 import { SessionTracker } from '../src/routing/session-tracker';
+import { OpenClawMessageBuilder } from '../src/providers/openclaw/openclaw-message-builder';
 import pino from 'pino';
 
 function makeTask(overrides: Partial<Task> = {}): Task {
@@ -78,6 +79,7 @@ describe('TaskRouter', () => {
       clawteamApi: mockApi,
       sessionClient: mockSession,
       sessionTracker,
+      messageBuilder: new OpenClawMessageBuilder('http://localhost:3100'),
       gatewayUrl: 'http://localhost:3100',
       logger,
     });

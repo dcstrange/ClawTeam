@@ -15,6 +15,7 @@ import { ClawTeamApiClient } from './clients/clawteam-api.js';
 import { OpenClawSessionClient } from './clients/openclaw-session.js';
 import type { ISessionClient } from './providers/types.js';
 import { OpenClawSessionCliClient } from './clients/openclaw-session-cli.js';
+import { OpenClawMessageBuilder } from './providers/openclaw/openclaw-message-builder.js';
 import { SessionTracker } from './routing/session-tracker.js';
 import { RoutedTasksTracker } from './routing/routed-tasks.js';
 import { TaskRouter } from './routing/router.js';
@@ -86,11 +87,13 @@ async function main() {
 
   // 5. Create router
   const gatewayUrl = `http://localhost:${config.gatewayPort}`;
+  const messageBuilder = new OpenClawMessageBuilder(gatewayUrl);
 
   const router = new TaskRouter({
     clawteamApi,
     sessionClient,
     sessionTracker,
+    messageBuilder,
     logger,
     gatewayUrl,
     botId: config.clawteamBotId,
@@ -142,6 +145,7 @@ async function main() {
       clawteamApi,
       sessionClient,
       sessionTracker,
+      messageBuilder,
       routedTasks,
       intervalMs: config.recoveryIntervalMs,
       stalenessThresholdMs: config.stalenessThresholdMs,
