@@ -27,9 +27,9 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { promisify } from 'node:util';
-import type { ISessionClient } from '../providers/types.js';
+import type { ISessionClient } from '../types.js';
 import type { Logger } from 'pino';
-import { buildOpenclawCliEnv } from '../utils/openclaw-env.js';
+import { buildOpenclawCliEnv } from './openclaw-env.js';
 
 /** On Windows, spawn/execFile need shell:true to resolve .cmd/.bat shims */
 const IS_WINDOWS = os.platform() === 'win32';
@@ -498,6 +498,6 @@ export class OpenClawSessionCliClient implements ISessionClient {
 }
 
 // Re-export the interfaces for convenience
-export type { ISessionClient } from '../providers/types.js';
+export type { ISessionClient } from '../types.js';
 /** @deprecated Use ISessionClient instead */
 export type { IOpenClawSessionClient } from './openclaw-session.js';

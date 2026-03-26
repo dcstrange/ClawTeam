@@ -10,15 +10,15 @@
  * hooks on sessions_spawn. The plugin calls /gateway/track-session to link
  * the task to the sub-session.
  */
-import type { SessionSendResponse, SessionStatusResponse } from '../types.js';
+import type { SessionSendResponse, SessionStatusResponse } from '../../types.js';
 import type { Logger } from 'pino';
 
 
-export { type ISessionClient } from '../providers/types.js';
-import type { ISessionClient } from '../providers/types.js';
+export { type ISessionClient } from '../types.js';
+import type { ISessionClient } from '../types.js';
 
 /**
- * @deprecated Use ISessionClient from '../providers/types.js' instead.
+ * @deprecated Use ISessionClient from '../types.js' instead.
  * Kept as a re-export alias for backward compatibility during migration.
  */
 export type IOpenClawSessionClient = ISessionClient;

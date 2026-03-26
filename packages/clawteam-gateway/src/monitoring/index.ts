@@ -11,7 +11,7 @@ export type {
   CliSessionInfo,
 } from './types.js';
 
-export { analyzeTail, buildJsonlPath, readLastMessages } from './jsonl-analyzer.js';
-export type { ParsedMessage, ContentBlock } from './jsonl-analyzer.js';
+export { analyzeTail, buildJsonlPath, readLastMessages } from '../providers/openclaw/openclaw-jsonl-analyzer.js';
+export type { ParsedMessage, ContentBlock } from '../providers/openclaw/openclaw-jsonl-analyzer.js';
 export { SessionStatusResolver, deriveState } from './session-status-resolver.js';
 export { HeartbeatLoop } from './heartbeat-loop.js';
