@@ -86,13 +86,13 @@ describe('Gateway Proxy — session key tracking', () => {
       });
 
       expect(response.statusCode).toBe(200);
-      // Original agent: key preserved — current startsWith('agent:') logic
+      // Existing tracking preserved (provider-agnostic: never overwrite)
       expect(sessionTracker.getSessionForTask('t2')).toBe('agent:bot:sub:existing');
     });
 
-    it('overwrites non-agent: tracking with new key (current behavior)', async () => {
-      // Non-agent key (unusual but tests current startsWith check)
-      sessionTracker.track('t3', 'http-session-old');
+    it('preserves any existing tracking regardless of format', async () => {
+      // Any existing key is preserved — no longer checks startsWith('agent:')
+      sessionTracker.track('t3', 'claude:f47ac10b-uuid');
 
       const response = await server.inject({
         method: 'POST',
@@ -101,8 +101,8 @@ describe('Gateway Proxy — session key tracking', () => {
       });
 
       expect(response.statusCode).toBe(200);
-      // Non-agent: existing gets overwritten by current logic
-      expect(sessionTracker.getSessionForTask('t3')).toBe('agent:bot:sub:new');
+      // Claude session key preserved — provider-agnostic tracking
+      expect(sessionTracker.getSessionForTask('t3')).toBe('claude:f47ac10b-uuid');
     });
 
     it('does not track when no executorSessionKey in body', async () => {

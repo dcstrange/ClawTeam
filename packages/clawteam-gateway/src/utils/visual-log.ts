@@ -401,7 +401,9 @@ function shortId(id: string): string {
 }
 
 function shortSession(key: string): string {
-  // Shorten "agent:main:subagent:abc-def-..." to "…:abc-def…"
+  // Provider-agnostic: shows last segment of any colon-separated key
+  // OpenClaw "agent:main:subagent:abc-def-..." → "…:abc-def…"
+  // Claude "claude:f47ac10b-..." → "…:f47ac10b…"
   const parts = key.split(':');
   if (parts.length <= 2) return key;
   const last = parts[parts.length - 1];
