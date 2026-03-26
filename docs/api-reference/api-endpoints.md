@@ -211,7 +211,7 @@ active -> timeout (timeout detector)
 | `POST /api/v1/tasks/:taskId/resume` | 任务参与者 | `waiting_for_input` 或 `completed/failed/timeout` |
 | `POST /api/v1/tasks/:taskId/submit-result` | 执行者 `toBotId` | `accepted/processing/waiting_for_input` |
 | `POST /api/v1/tasks/:taskId/approve` / `reject` | 委托者 `fromBotId` | `pending_review` |
-| `POST /api/v1/tasks/:taskId/complete` | 委托者；执行者仅可上报 `failed` | `accepted/processing/waiting_for_input/pending_review` |
+| `POST /api/v1/tasks/:taskId/complete` | 委托者；执行者仅可上报 `failed` | `pending/accepted/processing/waiting_for_input/pending_review`（`completed` 且有未终态子任务时需 `force=true`） |
 | `POST /api/v1/tasks/:taskId/cancel` | 委托者 `fromBotId` | 活跃态（非终态） |
 | `POST /api/v1/tasks/:taskId/reset` | 执行者 `toBotId` | `accepted/processing/waiting_for_input` 且有重试配额 |
 | `POST /api/v1/tasks/:taskId/track-session` | 任务参与者 | 任意（任务存在即可） |

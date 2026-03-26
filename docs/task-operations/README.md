@@ -42,6 +42,8 @@ processing --timeout------------------> timeout
 - `accepted` 是兼容状态值；当前主路径里 `accept` 直接推进到 `processing`（无独立 `start`）。
 - 推荐主路径：执行者 `submit-result` -> 委托者 `approve/reject`。
 - `complete` 是直接终结路径，通常不作为主审阅流。
+- 当任务存在未终态子任务时，`complete(status=completed)` / `approve` 会返回 `PENDING_CHILD_TASKS`（409）。
+- 如需强制结束父任务，可由委托者在 `/complete` 请求体使用 `force: true`（需谨慎使用）。
 
 ## Task 与 Session 状态关系（概念）
 

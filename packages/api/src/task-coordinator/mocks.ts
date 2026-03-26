@@ -124,12 +124,22 @@ export class MockTaskCoordinator implements ITaskCoordinator {
     if (task.fromBotId !== botId) {
       throw new UnauthorizedTaskError(taskId, botId);
     }
-    const validStates: TaskStatus[] = ['accepted', 'processing', 'waiting_for_input', 'pending_review'];
+    const validStates: TaskStatus[] = ['pending', 'accepted', 'processing', 'waiting_for_input', 'pending_review'];
     if (!validStates.includes(task.status)) {
       throw new InvalidTaskStateError(taskId, task.status, validStates);
     }
 
-    task.status = req.status === 'completed' ? 'completed' : 'failed';
+    const finalStatus = req.status === 'failed' ? 'failed' : 'completed';
+    if (finalStatus === 'completed' && req.force !== true && this.hasActiveChildren(taskId)) {
+      throw new CoordinatorError(
+        `Task ${taskId} still has active child tasks; finalize after children are terminal or use force=true.`,
+        'PENDING_CHILD_TASKS',
+        409,
+        { taskId },
+      );
+    }
+
+    task.status = finalStatus;
     task.result = req.result;
     task.error = req.error;
     task.completedAt = new Date().toISOString();
@@ -152,6 +162,14 @@ export class MockTaskCoordinator implements ITaskCoordinator {
     if (task.fromBotId !== botId) throw new UnauthorizedTaskError(taskId, botId);
     if (task.status !== ('pending_review' as TaskStatus)) {
       throw new InvalidTaskStateError(taskId, task.status, ['pending_review']);
+    }
+    if (this.hasActiveChildren(taskId)) {
+      throw new CoordinatorError(
+        `Task ${taskId} still has active child tasks; approve is blocked until children are terminal.`,
+        'PENDING_CHILD_TASKS',
+        409,
+        { taskId },
+      );
     }
     task.status = 'completed';
     task.result = resultOverride ?? task.submittedResult;
@@ -373,5 +391,15 @@ export class MockTaskCoordinator implements ITaskCoordinator {
       total += queue.length;
     }
     return total;
+  }
+
+  private hasActiveChildren(parentTaskId: string): boolean {
+    for (const task of this.tasks.values()) {
+      if (task.parentTaskId !== parentTaskId) continue;
+      if (!['completed', 'failed', 'timeout', 'cancelled'].includes(task.status)) {
+        return true;
+      }
+    }
+    return false;
   }
 }

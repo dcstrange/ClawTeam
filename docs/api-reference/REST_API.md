@@ -130,6 +130,12 @@ Authorization: Bearer <api-key>
 { "status": "completed", "result": { "summary": "..." } }
 ```
 
+或（强制结束父任务，忽略未终态子任务门禁）
+
+```json
+{ "status": "completed", "force": true, "result": { "summary": "..." } }
+```
+
 或
 
 ```json
@@ -140,6 +146,7 @@ Authorization: Bearer <api-key>
 - 该接口仍在使用：委托者可直接完成，recovery 失败路径也会调用它上报 `failed`。
 - 兼容层（部分 SDK/示例/测试）仍会直接调用 `/complete`。
 - executor 推荐主路径：`submit-result -> approve/reject`，而不是直接 `complete`。
+- 若存在未终态子任务，`status=completed` 会返回 `409 PENDING_CHILD_TASKS`；可由委托者显式传 `force=true` 覆盖。
 
 #### `POST /api/v1/tasks/:taskId/cancel`
 
@@ -253,7 +260,7 @@ active -> cancelled (cancel)
 | `POST /api/v1/tasks/:taskId/submit-result` | `toBotId`（执行者） | `accepted/processing/waiting_for_input`（`pending_review` 重复提交幂等） | 非执行者；状态非法；结果为空 |
 | `POST /api/v1/tasks/:taskId/approve` | `fromBotId`（委托者） | `pending_review` | 非委托者；状态非 `pending_review` |
 | `POST /api/v1/tasks/:taskId/reject` | `fromBotId`（委托者） | `pending_review` | 非委托者；状态非 `pending_review` |
-| `POST /api/v1/tasks/:taskId/complete` | `fromBotId`；或 `toBotId` 仅在上报 `failed` 时 | `accepted/processing/waiting_for_input/pending_review` | 非授权角色；状态不在允许集合 |
+| `POST /api/v1/tasks/:taskId/complete` | `fromBotId`；或 `toBotId` 仅在上报 `failed` 时 | `pending/accepted/processing/waiting_for_input/pending_review` | 非授权角色；状态不在允许集合；有未终态子任务且未 `force` |
 | `POST /api/v1/tasks/:taskId/cancel` | `fromBotId`（委托者） | `pending/accepted/processing/waiting_for_input/pending_review` | 非委托者；状态已终态 |
 | `POST /api/v1/tasks/:taskId/reset` | `toBotId`（执行者） | `accepted/processing/waiting_for_input` 且未耗尽重试 | 非执行者；状态非法；超过重试上限 |
 | `POST /api/v1/tasks/:taskId/track-session` | 任务参与者（`fromBotId` 或 `toBotId`） | 任意（只要任务存在） | `botId` 冒用；非任务参与者 |

@@ -116,7 +116,7 @@ export class TaskCompleter {
     if (task.fromBotId !== botId && !(isFailing && task.toBotId === botId)) {
       throw new UnauthorizedTaskError(taskId, botId);
     }
-    const validStates = ['accepted', 'processing', 'waiting_for_input', 'pending_review'];
+    const validStates = ['pending', 'accepted', 'processing', 'waiting_for_input', 'pending_review'];
     if (!validStates.includes(task.status)) {
       throw new InvalidTaskStateError(taskId, task.status, validStates);
     }
@@ -132,10 +132,16 @@ export class TaskCompleter {
         ? 'failed'
         : 'completed';
 
+    // Parent tasks must not be finalized while active child tasks still run,
+    // unless delegator explicitly chooses to force finalize.
+    if (finalStatus === 'completed' && req.force !== true) {
+      await this.assertNoActiveChildTasks(taskId);
+    }
+
     const updateResult = await this.db.query(
       `UPDATE tasks
        SET status = $1, result = $2, error = $3, completed_at = $4
-       WHERE id = $5 AND status IN ('accepted', 'processing', 'waiting_for_input', 'pending_review')`,
+       WHERE id = $5 AND status IN ('pending', 'accepted', 'processing', 'waiting_for_input', 'pending_review')`,
       [
         finalStatus,
         req.result ? JSON.stringify(req.result) : null,
@@ -715,6 +721,10 @@ export class TaskCompleter {
       throw new InvalidTaskStateError(taskId, task.status, ['pending_review']);
     }
 
+    // Approval completes the current task. Block if there are active children,
+    // so parent finalization remains an explicit delegator action.
+    await this.assertNoActiveChildTasks(taskId);
+
     const now = new Date();
     const finalResult = resultOverride ?? task.submittedResult;
 
@@ -855,6 +865,39 @@ export class TaskCompleter {
     }, task.toBotId);
 
     this.logger.info('Task cancelled', { taskId, botId, reason });
+  }
+
+  private async assertNoActiveChildTasks(taskId: string): Promise<void> {
+    const openCountRes = await this.db.query<{ cnt: string }>(
+      `SELECT COUNT(*)::int AS cnt
+         FROM tasks
+        WHERE parent_task_id = $1
+          AND status NOT IN ('completed', 'failed', 'timeout', 'cancelled')`,
+      [taskId],
+    );
+    const openCount = Number(openCountRes.rows[0]?.cnt || 0);
+    if (openCount <= 0) return;
+
+    const sampleRes = await this.db.query<{ id: string; status: string }>(
+      `SELECT id, status
+         FROM tasks
+        WHERE parent_task_id = $1
+          AND status NOT IN ('completed', 'failed', 'timeout', 'cancelled')
+        ORDER BY created_at ASC
+        LIMIT 20`,
+      [taskId],
+    );
+
+    throw new CoordinatorError(
+      `Task ${taskId} still has ${openCount} active child task(s); finalize after children are terminal or use force=true.`,
+      'PENDING_CHILD_TASKS',
+      409,
+      {
+        taskId,
+        openChildTaskCount: openCount,
+        openChildTasks: sampleRes.rows.map((row) => ({ id: row.id, status: row.status })),
+      },
+    );
   }
 
   private async loadTask(taskId: string): Promise<Task> {

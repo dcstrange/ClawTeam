@@ -236,6 +236,8 @@ interface TaskCompleteRequest {
   };
   /** 执行时间（毫秒） */
   executionTimeMs?: number;
+  /** 是否忽略子任务未终态门禁（仅 delegator 使用） */
+  force?: boolean;
 }
 ```
 
