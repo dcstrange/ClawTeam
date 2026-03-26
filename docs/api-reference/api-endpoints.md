@@ -39,6 +39,7 @@ API Server (localhost:3000)
 | POST | `/gateway/tasks/:taskId/accept` | 兜底 accept（`pending -> processing`） |
 | POST | `/gateway/tasks/:taskId/submit-result` | 执行者提交待审 |
 | POST | `/gateway/tasks/:taskId/approve` | 委托者审批通过 |
+| POST | `/gateway/tasks/:taskId/request-changes` | 委托者提出修改意见（回到 processing） |
 | POST | `/gateway/tasks/:taskId/reject` | 委托者驳回 |
 | POST | `/gateway/tasks/:taskId/complete` | 直接完成/失败 |
 | POST | `/gateway/tasks/:taskId/need-human-input` | 标记等待输入 |
@@ -119,6 +120,7 @@ API Server (localhost:3000)
 | POST | `/api/v1/tasks/:taskId/accept` | 接受（到 processing） |
 | POST | `/api/v1/tasks/:taskId/submit-result` | 执行者提交待审 |
 | POST | `/api/v1/tasks/:taskId/approve` | 委托者审批通过 |
+| POST | `/api/v1/tasks/:taskId/request-changes` | 委托者提出修改意见（回到 processing） |
 | POST | `/api/v1/tasks/:taskId/reject` | 委托者驳回返工 |
 | POST | `/api/v1/tasks/:taskId/complete` | 直接完成或失败 |
 | POST | `/api/v1/tasks/:taskId/cancel` | 委托者取消 |
@@ -139,6 +141,7 @@ API Server (localhost:3000)
 |------|------|------|
 | POST | `/api/v1/tasks/all/:taskId/cancel` | 管理取消 |
 | POST | `/api/v1/tasks/all/:taskId/approve` | 已禁用（403，需走 delegator bot 代理审批） |
+| POST | `/api/v1/tasks/all/:taskId/request-changes` | 已禁用（403，需走 delegator bot 代理审批） |
 | POST | `/api/v1/tasks/all/:taskId/reject` | 已禁用（403，需走 delegator bot 代理驳回） |
 | GET | `/api/v1/tasks/all` | 最近任务列表 |
 | GET | `/api/v1/tasks/metrics` | Prometheus 指标 |
@@ -154,6 +157,7 @@ pending/accepted/processing -> waiting_for_input (need-human-input)
 waiting_for_input -> processing (resume)
 processing/accepted/waiting_for_input -> pending_review (submit-result)
 pending_review -> completed (approve)
+pending_review -> processing (request-changes)
 pending_review -> processing (reject)
 active -> completed/failed (complete)
 active -> cancelled (cancel)
@@ -210,7 +214,7 @@ active -> timeout (timeout detector)
 | `POST /api/v1/tasks/:taskId/need-human-input` | 任务参与者 | `pending/accepted/processing/waiting_for_input` |
 | `POST /api/v1/tasks/:taskId/resume` | 任务参与者 | `waiting_for_input` 或 `completed/failed/timeout` |
 | `POST /api/v1/tasks/:taskId/submit-result` | 执行者 `toBotId` | `accepted/processing/waiting_for_input` |
-| `POST /api/v1/tasks/:taskId/approve` / `reject` | 委托者 `fromBotId` | `pending_review` |
+| `POST /api/v1/tasks/:taskId/approve` / `request-changes` / `reject` | 委托者 `fromBotId` | `pending_review` |
 | `POST /api/v1/tasks/:taskId/complete` | 委托者；执行者仅可上报 `failed` | `pending/accepted/processing/waiting_for_input/pending_review`（`completed` 且有未终态子任务时需 `force=true`） |
 | `POST /api/v1/tasks/:taskId/cancel` | 委托者 `fromBotId` | 活跃态（非终态） |
 | `POST /api/v1/tasks/:taskId/reset` | 执行者 `toBotId` | `accepted/processing/waiting_for_input` 且有重试配额 |

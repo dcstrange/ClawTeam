@@ -84,6 +84,10 @@ Step 5: When executor submits a final result, YOU (delegator bot) must review it
     curl -s -X POST {{GATEWAY_URL}}/gateway/tasks/{{TASK_ID}}/approve \
       -H 'Content-Type: application/json' \
       -d '{}'
+  If mostly correct but needs revision, request changes with concrete feedback:
+    curl -s -X POST {{GATEWAY_URL}}/gateway/tasks/{{TASK_ID}}/request-changes \
+      -H 'Content-Type: application/json' \
+      -d '{"feedback":"<what to revise>"}'
   If rework is needed, reject with reason:
     curl -s -X POST {{GATEWAY_URL}}/gateway/tasks/{{TASK_ID}}/reject \
       -H 'Content-Type: application/json' \
@@ -93,6 +97,9 @@ Step 5: When executor submits a final result, YOU (delegator bot) must review it
 Step 6: Finalize the parent task only after all required child outcomes are settled.
   - If there are unfinished child tasks, parent completion may be blocked by API.
   - Only finalize after you have enough accepted outputs for the task goal.
+  - If you receive a message that this task is pending_review, you MUST immediately call /approve or /request-changes or /reject.
+  - Do NOT keep sending status summaries while task remains pending_review.
+  - If the same terminal child-task reminder repeats (completed/failed/cancelled/timeout), reply with NO_REPLY and stop.
 
 Step 7: Once the task is approved/completed, report the task ID and STOP.
   Do NOT send further messages after the task is completed.

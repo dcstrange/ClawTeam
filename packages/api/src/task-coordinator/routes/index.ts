@@ -669,6 +669,39 @@ export function createTaskRoutes(deps: TaskRoutesDeps): FastifyPluginAsync {
       }
     );
 
+    /** POST /:taskId/request-changes — Delegator requests revision feedback */
+    fastify.post<{ Params: TaskParams; Body: { feedback?: string; reason?: string } }>(
+      '/:taskId/request-changes',
+      { preHandler: authPreHandlers },
+      async (request, reply) => {
+        const traceId = randomUUID();
+        const botId = getBotId(request);
+        const body = (request.body || {}) as any;
+        const rawFeedback = typeof body.feedback === 'string'
+          ? body.feedback
+          : (typeof body.reason === 'string' ? body.reason : '');
+        const feedback = rawFeedback.trim() || 'Please revise and resubmit.';
+
+        try {
+          await coordinator.requestChanges(request.params.taskId, botId, feedback);
+
+          return reply.send({
+            success: true,
+            data: {
+              taskId: request.params.taskId,
+              status: 'processing',
+              reviewAction: 'changes_requested',
+              feedback,
+              requestedAt: new Date().toISOString(),
+            },
+            traceId,
+          });
+        } catch (error) {
+          return handleError(error, reply, traceId);
+        }
+      }
+    );
+
     /** POST /:taskId/cancel */
     fastify.post<{ Params: TaskParams; Body: CancelBody }>(
       '/:taskId/cancel',
@@ -1108,6 +1141,22 @@ export function createTaskRoutes(deps: TaskRoutesDeps): FastifyPluginAsync {
           error: {
             code: 'DELEGATOR_PROXY_REQUIRED',
             message: 'Direct dashboard rejection is disabled. Use the delegator bot review path (/api/v1/tasks/:taskId/reject or /gateway/tasks/:taskId/reject).',
+          },
+          traceId,
+        });
+      }
+    );
+
+    /** POST /all/:taskId/request-changes (disabled — enforce delegator-bot proxy review) */
+    fastify.post<{ Params: TaskParams; Body: { feedback?: string; reason?: string } }>(
+      '/all/:taskId/request-changes',
+      async (_request, reply) => {
+        const traceId = randomUUID();
+        return reply.status(403).send({
+          success: false,
+          error: {
+            code: 'DELEGATOR_PROXY_REQUIRED',
+            message: 'Direct dashboard request-changes is disabled. Use the delegator bot review path (/api/v1/tasks/:taskId/request-changes or /gateway/tasks/:taskId/request-changes).',
           },
           traceId,
         });

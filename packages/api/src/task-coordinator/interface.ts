@@ -88,6 +88,12 @@ export interface ITaskCoordinator {
   reject(taskId: string, botId: string, reason: string): Promise<void>;
 
   /**
+   * Request changes on a pending_review task (delegator → processing).
+   * Semantically softer than reject; used for revision feedback loops.
+   */
+  requestChanges(taskId: string, botId: string, feedback: string): Promise<void>;
+
+  /**
    * Cancel a pending or accepted task.
    * Only the originating bot (fromBotId) can cancel.
    */

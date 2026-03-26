@@ -82,6 +82,10 @@ export class TaskCoordinatorImpl implements ITaskCoordinator {
     return this.completer.reject(taskId, botId, reason);
   }
 
+  async requestChanges(taskId: string, botId: string, feedback: string): Promise<void> {
+    return this.completer.requestChanges(taskId, botId, feedback);
+  }
+
   async cancel(taskId: string, reason: string, botId: string): Promise<void> {
     return this.completer.cancel(taskId, reason, botId);
   }

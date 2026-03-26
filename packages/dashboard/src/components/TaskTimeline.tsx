@@ -79,7 +79,8 @@ interface ParsedMessagePayload {
   submittedResult?: unknown;
   approvedResult?: unknown;
   rejectionReason?: string;
-  reviewAction?: 'approved' | 'rejected';
+  changeRequest?: string;
+  reviewAction?: 'approved' | 'changes_requested' | 'rejected';
 }
 
 function parseMessagePayload(content: any): ParsedMessagePayload {
@@ -101,7 +102,9 @@ function parseMessagePayload(content: any): ParsedMessagePayload {
     ? String(raw.text)
     : renderContent(content);
 
-  const reviewAction = raw?.reviewAction === 'approved' || raw?.reviewAction === 'rejected'
+  const reviewAction = raw?.reviewAction === 'approved'
+    || raw?.reviewAction === 'changes_requested'
+    || raw?.reviewAction === 'rejected'
     ? raw.reviewAction
     : undefined;
 
@@ -111,6 +114,7 @@ function parseMessagePayload(content: any): ParsedMessagePayload {
     submittedResult: raw?.submittedResult,
     approvedResult: raw?.approvedResult,
     rejectionReason: raw?.rejectionReason,
+    changeRequest: typeof raw?.changeRequest === 'string' ? raw.changeRequest : undefined,
     reviewAction,
   };
 }
@@ -150,7 +154,7 @@ function formatElapsedClock(ms: number): string {
 
 function normalizePreviewText(raw: string): string {
   let text = raw.trim();
-  text = text.replace(/^\[(Human Input for Task|Task Continuation for|Need Human Input|Human Reply|Task Continued|Task Pending Review|Task Review Approved|Task Review Rejected)[^\]]*\]\s*/i, '');
+  text = text.replace(/^\[(Human Input for Task|Task Continuation for|Need Human Input|Human Reply|Task Continued|Task Pending Review|Task Review Approved|Task Review Changes Requested|Task Review Rejected)[^\]]*\]\s*/i, '');
   text = text.replace(/Please continue working on the task(?: with these updated instructions| using this information)\.?$/i, '');
   text = text.replace(/\s+/g, ' ').trim();
   return text;
@@ -328,6 +332,10 @@ function messagePreview(msg: Message, payload?: ParsedMessagePayload): string {
     if (detail) return `${humanIntervention.label.toLowerCase()}: ${detail}`;
   }
 
+  if (parsed.reviewAction === 'changes_requested') {
+    const feedback = (parsed.changeRequest || parsed.rejectionReason || normalizePreviewText(parsed.text) || trG('请修改后重提', 'Please revise and resubmit')).trim();
+    return trG(`要求修改: ${feedback}`, `Changes requested: ${feedback}`);
+  }
   if (parsed.reviewAction === 'rejected') {
     const reason = (parsed.rejectionReason || normalizePreviewText(parsed.text) || trG('已拒绝', 'Rejected')).trim();
     return trG(`要求返工: ${reason}`, `Rework required: ${reason}`);
@@ -346,11 +354,12 @@ function messagePreview(msg: Message, payload?: ParsedMessagePayload): string {
   return normalized.length > 180 ? `${normalized.slice(0, 180)}...` : normalized;
 }
 
-type MessageVisualKind = 'normal' | 'submitted' | 'approved' | 'rejected';
+type MessageVisualKind = 'normal' | 'submitted' | 'approved' | 'changes_requested' | 'rejected';
 
 function getMessageVisualKind(msg: Message, payload?: ParsedMessagePayload): MessageVisualKind {
   const parsed = payload || parseMessagePayload(msg.content);
   if (parsed.reviewAction === 'approved') return 'approved';
+  if (parsed.reviewAction === 'changes_requested') return 'changes_requested';
   if (parsed.reviewAction === 'rejected') return 'rejected';
   if (parsed.submittedResult !== undefined) return 'submitted';
   return 'normal';
@@ -535,6 +544,8 @@ function MessageDetailPanel({ msg, onClose }: { msg: Message; onClose: () => voi
           ? 'bg-indigo-50'
           : visualKind === 'approved'
             ? 'bg-emerald-50'
+            : visualKind === 'changes_requested'
+              ? 'bg-amber-50'
             : visualKind === 'rejected'
               ? 'bg-rose-50'
               : 'bg-green-50'
@@ -554,6 +565,11 @@ function MessageDetailPanel({ msg, onClose }: { msg: Message; onClose: () => voi
           {visualKind === 'approved' && (
             <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-700">
               Approved
+            </span>
+          )}
+          {visualKind === 'changes_requested' && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-700">
+              Changes Requested
             </span>
           )}
           {visualKind === 'rejected' && (
@@ -748,6 +764,15 @@ function MessageDetailPanel({ msg, onClose }: { msg: Message; onClose: () => voi
           </div>
         )}
 
+        {payload.changeRequest && (
+          <div>
+            <h4 className="text-xs font-medium text-amber-700 mb-1">{tr('修改意见', 'Requested Changes')}</h4>
+            <p className="bg-amber-50 rounded p-2 text-xs text-amber-800 whitespace-pre-wrap break-words">
+              {payload.changeRequest}
+            </p>
+          </div>
+        )}
+
         {/* Linked task */}
         {msg.taskId && (
           <div>
@@ -808,7 +833,7 @@ export function TaskTimeline({ focusTaskId, focusTaskStatus, focusTaskPriority, 
     }
 
     const msgByTask = new Map<string, Message[]>();
-    const reviewFlags = new Map<string, { approved: boolean; rejected: boolean }>();
+    const reviewFlags = new Map<string, { approved: boolean; changesRequested: boolean; rejected: boolean }>();
     for (const m of messages) {
       if (m.taskId) {
         const arr = msgByTask.get(m.taskId) || [];
@@ -817,8 +842,9 @@ export function TaskTimeline({ focusTaskId, focusTaskStatus, focusTaskPriority, 
 
         const parsed = parseMessagePayload(m.content);
         if (parsed.reviewAction) {
-          const current = reviewFlags.get(m.taskId) || { approved: false, rejected: false };
+          const current = reviewFlags.get(m.taskId) || { approved: false, changesRequested: false, rejected: false };
           if (parsed.reviewAction === 'approved') current.approved = true;
+          if (parsed.reviewAction === 'changes_requested') current.changesRequested = true;
           if (parsed.reviewAction === 'rejected') current.rejected = true;
           reviewFlags.set(m.taskId, current);
         }
@@ -830,10 +856,10 @@ export function TaskTimeline({ focusTaskId, focusTaskStatus, focusTaskPriority, 
     // synthesize review events so APPROVED/REJECTED badges still show in Activity Tree.
     for (const task of tasks) {
       const taskId = task.id;
-      const flags = reviewFlags.get(taskId) || { approved: false, rejected: false };
+      const flags = reviewFlags.get(taskId) || { approved: false, changesRequested: false, rejected: false };
       const arr = msgByTask.get(taskId) || [];
 
-      if (task.rejectionReason && !flags.rejected) {
+      if (task.rejectionReason && !flags.rejected && !flags.changesRequested) {
         arr.push(buildSyntheticRejectedMessage(task));
         flags.rejected = true;
       }
@@ -1076,6 +1102,8 @@ export function TaskTimeline({ focusTaskId, focusTaskStatus, focusTaskPriority, 
       ? 'border-indigo-200 bg-indigo-50'
       : visualKind === 'approved'
         ? 'border-emerald-200 bg-emerald-50'
+        : visualKind === 'changes_requested'
+          ? 'border-amber-200 bg-amber-50'
         : visualKind === 'rejected'
           ? 'border-rose-200 bg-rose-50'
           : isHumanRequest
@@ -1089,6 +1117,8 @@ export function TaskTimeline({ focusTaskId, focusTaskStatus, focusTaskPriority, 
       ? 'ring-2 ring-indigo-300 border-indigo-300'
       : visualKind === 'approved'
         ? 'ring-2 ring-emerald-300 border-emerald-300'
+        : visualKind === 'changes_requested'
+          ? 'ring-2 ring-amber-300 border-amber-300'
         : visualKind === 'rejected'
           ? 'ring-2 ring-rose-300 border-rose-300'
           : isHumanRequest
@@ -1105,6 +1135,8 @@ export function TaskTimeline({ focusTaskId, focusTaskStatus, focusTaskPriority, 
       ? { label: tr('已提交', 'Submitted'), className: 'bg-indigo-100 text-indigo-700 border-indigo-200' }
       : visualKind === 'approved'
         ? { label: tr('已批准', 'Approved'), className: 'bg-emerald-100 text-emerald-700 border-emerald-200' }
+        : visualKind === 'changes_requested'
+          ? { label: tr('需修改', 'Changes Requested'), className: 'bg-amber-100 text-amber-700 border-amber-200' }
         : visualKind === 'rejected'
           ? { label: tr('已拒绝', 'Rejected'), className: 'bg-rose-100 text-rose-700 border-rose-200' }
           : null;

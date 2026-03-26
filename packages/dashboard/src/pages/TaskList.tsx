@@ -4,6 +4,7 @@ import { useTasks } from '@/hooks/useTasks';
 import { useBots } from '@/hooks/useBots';
 import { TaskCard } from '@/components/TaskCard';
 import { TaskKanban } from '@/components/TaskKanban';
+import { TaskGrouped } from '@/components/TaskGrouped';
 import { CreateTaskModal } from '@/components/CreateTaskModal';
 import { TaskStatus } from '@/lib/types';
 import { useI18n } from '@/lib/i18n';
@@ -23,6 +24,7 @@ export function TaskList() {
   ];
   const [statusFilter, setStatusFilter] = useState<TaskStatus | 'all'>('all');
   const [viewMode, setViewMode] = useState<'list' | 'kanban'>('kanban');
+  const [kanbanGrouping, setKanbanGrouping] = useState<'status' | 'workflow'>('status');
   const [search, setSearch] = useState('');
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -92,6 +94,59 @@ export function TaskList() {
     });
   }, [enrichedTasks, statusFilter, search]);
 
+  const workflowFilteredTasks = useMemo(() => {
+    const normalizedSearch = search.trim().toLowerCase();
+    const taskMap = new Map(enrichedTasks.map((task) => [task.id, task]));
+    const resolveRootId = (task: typeof enrichedTasks[number]) => {
+      let cursor = task;
+      let hops = 0;
+      while (cursor.parentTaskId && taskMap.has(cursor.parentTaskId) && hops < 20) {
+        const next = taskMap.get(cursor.parentTaskId);
+        if (!next) break;
+        cursor = next;
+        hops += 1;
+      }
+      return cursor.id;
+    };
+
+    const workflows = new Map<string, typeof enrichedTasks>();
+    for (const task of enrichedTasks) {
+      const rootId = resolveRootId(task);
+      const list = workflows.get(rootId) || [];
+      list.push(task);
+      workflows.set(rootId, list);
+    }
+
+    const result: typeof enrichedTasks = [];
+    for (const tasksOfWorkflow of workflows.values()) {
+      const include = tasksOfWorkflow.some((task) => {
+        const statusPass = statusFilter === 'all' || task.status === statusFilter;
+        if (!statusPass) return false;
+        if (!normalizedSearch) return true;
+        const text = [
+          task.id,
+          task.title || '',
+          task.prompt || '',
+          task.capability || '',
+          task.fromBotName || '',
+          task.toBotName || '',
+          task.fromBotId,
+          task.toBotId,
+        ]
+          .join(' ')
+          .toLowerCase();
+        return text.includes(normalizedSearch);
+      });
+      if (!include) continue;
+      result.push(...tasksOfWorkflow);
+    }
+
+    const unique = new Map(result.map((task) => [task.id, task]));
+    return Array.from(unique.values()).sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+  }, [enrichedTasks, statusFilter, search]);
+
   const quickStats = useMemo(() => {
     const active = enrichedTasks.filter((task) =>
       ['pending', 'accepted', 'processing', 'waiting_for_input', 'pending_review'].includes(task.status),
@@ -102,6 +157,11 @@ export function TaskList() {
     ).length;
     return { active, done, problematic };
   }, [enrichedTasks]);
+
+  const visibleTasks =
+    viewMode === 'kanban' && kanbanGrouping === 'workflow'
+      ? workflowFilteredTasks
+      : filteredTasks;
 
   const currentStatusLabel = statusFilters.find((filter) => filter.value === statusFilter)?.label || statusFilter;
   const statusFilterStyles: Record<TaskStatus | 'all', { active: string; idle: string; dot: string }> = {
@@ -158,7 +218,7 @@ export function TaskList() {
         <div>
           <h2 className="text-2xl font-bold text-gray-900">{term('task')}</h2>
           <p className="text-gray-600 mt-1">
-            {tr(`显示 ${filteredTasks.length} / ${tasks.length} 个任务`, `Showing ${filteredTasks.length} / ${tasks.length} ${term('task')}s`)}
+            {tr(`显示 ${visibleTasks.length} / ${tasks.length} 个任务`, `Showing ${visibleTasks.length} / ${tasks.length} ${term('task')}s`)}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -186,6 +246,26 @@ export function TaskList() {
               {tr('列表', 'List')}
             </button>
           </div>
+          {viewMode === 'kanban' && (
+            <div className="flex bg-gray-100 rounded-xl p-0.5">
+              <button
+                onClick={() => setKanbanGrouping('status')}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  kanbanGrouping === 'status' ? 'bg-white shadow text-gray-900' : 'text-gray-600'
+                }`}
+              >
+                {tr('按状态', 'By Status')}
+              </button>
+              <button
+                onClick={() => setKanbanGrouping('workflow')}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  kanbanGrouping === 'workflow' ? 'bg-white shadow text-gray-900' : 'text-gray-600'
+                }`}
+              >
+                {tr('按工作流', 'By Workflow')}
+              </button>
+            </div>
+          )}
           <button
             onClick={() => setIsCreateModalOpen(true)}
             className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
@@ -272,7 +352,7 @@ export function TaskList() {
         </aside>
 
         <section>
-          {filteredTasks.length === 0 ? (
+          {visibleTasks.length === 0 ? (
             <div className="empty-state">
               <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
               <p className="text-gray-500 text-lg font-medium">{tr(`未找到${term('task')}`, `No ${term('task')}s found`)}</p>
@@ -283,10 +363,14 @@ export function TaskList() {
               </p>
             </div>
           ) : viewMode === 'kanban' ? (
-            <TaskKanban tasks={filteredTasks} />
+            kanbanGrouping === 'workflow' ? (
+              <TaskGrouped tasks={visibleTasks} />
+            ) : (
+              <TaskKanban tasks={visibleTasks} />
+            )
           ) : (
             <div className="grid grid-cols-1 2xl:grid-cols-2 gap-3 sm:gap-4">
-              {filteredTasks.map((task) => (
+              {visibleTasks.map((task) => (
                 <TaskCard key={task.id} task={task} onClick={() => navigate(`/tasks/${task.id}`)} />
               ))}
             </div>

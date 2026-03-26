@@ -110,6 +110,16 @@ Authorization: Bearer <api-key>
 
 状态：`pending_review -> completed`
 
+#### `POST /api/v1/tasks/:taskId/request-changes`
+
+委托者提出修改意见（软驳回）：
+
+```json
+{ "feedback": "请补充边界测试并重提" }
+```
+
+状态：`pending_review -> processing`
+
 #### `POST /api/v1/tasks/:taskId/reject`
 
 委托者驳回返工：
@@ -145,7 +155,7 @@ Authorization: Bearer <api-key>
 说明（使用现状）：
 - 该接口仍在使用：委托者可直接完成，recovery 失败路径也会调用它上报 `failed`。
 - 兼容层（部分 SDK/示例/测试）仍会直接调用 `/complete`。
-- executor 推荐主路径：`submit-result -> approve/reject`，而不是直接 `complete`。
+- executor 推荐主路径：`submit-result -> approve/request-changes/reject`，而不是直接 `complete`。
 - 若存在未终态子任务，`status=completed` 会返回 `409 PENDING_CHILD_TASKS`；可由委托者显式传 `force=true` 覆盖。
 
 #### `POST /api/v1/tasks/:taskId/cancel`
@@ -184,7 +194,7 @@ Authorization: Bearer <api-key>
 - `POST /api/v1/tasks/all/:taskId/cancel`
 
 说明（2026-03-23）：
-- `POST /api/v1/tasks/all/:taskId/approve` 与 `POST /api/v1/tasks/all/:taskId/reject` 已禁用（返回 403）。
+- `POST /api/v1/tasks/all/:taskId/approve`、`POST /api/v1/tasks/all/:taskId/request-changes` 与 `POST /api/v1/tasks/all/:taskId/reject` 已禁用（返回 403）。
 - 原因：审批链路必须经过 delegator bot 代理，不允许 dashboard 直连绕过。
 
 ---
@@ -235,6 +245,7 @@ pending/accepted/processing -> waiting_for_input (need-human-input)
 waiting_for_input -> processing (resume)
 processing -> pending_review (submit-result)
 pending_review -> completed (approve)
+pending_review -> processing (request-changes)
 pending_review -> processing (reject)
 active -> completed/failed (complete)
 active -> cancelled (cancel)
@@ -259,13 +270,14 @@ active -> cancelled (cancel)
 | `POST /api/v1/tasks/:taskId/resume` | 任务参与者（`fromBotId` 或 `toBotId`） | `waiting_for_input` 或 `completed/failed/timeout` | 非参与者；状态不在允许集合 |
 | `POST /api/v1/tasks/:taskId/submit-result` | `toBotId`（执行者） | `accepted/processing/waiting_for_input`（`pending_review` 重复提交幂等） | 非执行者；状态非法；结果为空 |
 | `POST /api/v1/tasks/:taskId/approve` | `fromBotId`（委托者） | `pending_review` | 非委托者；状态非 `pending_review` |
+| `POST /api/v1/tasks/:taskId/request-changes` | `fromBotId`（委托者） | `pending_review` | 非委托者；状态非 `pending_review` |
 | `POST /api/v1/tasks/:taskId/reject` | `fromBotId`（委托者） | `pending_review` | 非委托者；状态非 `pending_review` |
 | `POST /api/v1/tasks/:taskId/complete` | `fromBotId`；或 `toBotId` 仅在上报 `failed` 时 | `pending/accepted/processing/waiting_for_input/pending_review` | 非授权角色；状态不在允许集合；有未终态子任务且未 `force` |
 | `POST /api/v1/tasks/:taskId/cancel` | `fromBotId`（委托者） | `pending/accepted/processing/waiting_for_input/pending_review` | 非委托者；状态已终态 |
 | `POST /api/v1/tasks/:taskId/reset` | `toBotId`（执行者） | `accepted/processing/waiting_for_input` 且未耗尽重试 | 非执行者；状态非法；超过重试上限 |
 | `POST /api/v1/tasks/:taskId/track-session` | 任务参与者（`fromBotId` 或 `toBotId`） | 任意（只要任务存在） | `botId` 冒用；非任务参与者 |
 | `POST /api/v1/tasks/all/:taskId/cancel`（公开管理口） | Dashboard/运维调用（非 bot 专属） | `pending/accepted/processing/waiting_for_input/pending_review` | 任务不存在或不可取消 |
-| `POST /api/v1/tasks/all/:taskId/approve` / `reject` | 无（已禁用） | 无 | 固定返回 403（必须走 delegator bot 代理审批） |
+| `POST /api/v1/tasks/all/:taskId/approve` / `request-changes` / `reject` | 无（已禁用） | 无 | 固定返回 403（必须走 delegator bot 代理审批） |
 
 补充说明：
 - `track-session` 的 `role` 由服务端根据调用者身份推断；body 里的 `role` 仅用于日志告警，不作为信任来源。

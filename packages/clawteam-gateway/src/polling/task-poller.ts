@@ -192,6 +192,26 @@ export class TaskPollingLoop extends EventEmitter {
             );
           }
         } else if (msg.type === 'direct_message') {
+          // direct_message associated with a terminal task should not be routed.
+          // Otherwise sender/executor sub-sessions can keep replying to stale
+          // "already completed" chatter and get stuck in conversational loops.
+          if (msg.taskId) {
+            try {
+              const task = await this.clawteamApi.getTask(msg.taskId);
+              if (task && TERMINAL_STATUSES.has(task.status)) {
+                this.logger.info(
+                  { taskId: msg.taskId, status: task.status, messageId: msg.messageId },
+                  'direct_message task is in terminal state, ACKing without routing',
+                );
+                skipped++;
+                await this.ackBestEffort(msg.messageId);
+                continue;
+              }
+            } catch {
+              // Best-effort check only; route message if task fetch fails.
+            }
+          }
+
           const result = await this.router.routeMessage(msg);
           if (result.success) {
             routed++;

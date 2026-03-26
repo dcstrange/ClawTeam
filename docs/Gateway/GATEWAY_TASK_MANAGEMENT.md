@@ -23,6 +23,7 @@ pending --accept--> processing --submit-result--> pending_review --approve--> co
    |                                                                              |
    +----------------------------------------------cancel--------------------------+
 
+pending_review --request-changes--> processing
 pending_review --reject--> processing
 processing --complete(failed)--> failed
 processing --timeout--> timeout
@@ -100,7 +101,7 @@ plugin 在 sender spawn 前验证：
 | `POST /gateway/tasks/:taskId/accept` | 自动携带本地 bot 身份；可自动补 `executorSessionKey` | 仅 `toBotId` 可调；状态必须 `pending` |
 | `POST /gateway/tasks/:taskId/need-human-input` | 自动携带本地 bot 身份；支持幂等提示和冲突纠正文案 | 仅参与者可调；状态允许 `pending/accepted/processing/waiting_for_input` |
 | `POST /gateway/tasks/:taskId/submit-result` | 空结果会在 gateway 层先拦截 | 仅 `toBotId` 可调；状态 `accepted/processing/waiting_for_input` |
-| `POST /gateway/tasks/:taskId/approve` / `reject` | 自动携带本地 bot 身份 | 仅 `fromBotId` 可调；状态必须 `pending_review` |
+| `POST /gateway/tasks/:taskId/approve` / `request-changes` / `reject` | 自动携带本地 bot 身份 | 仅 `fromBotId` 可调；状态必须 `pending_review` |
 | `POST /gateway/tasks/:taskId/complete` | 对 executor 返回清晰错误提示（应走 submit-result） | `fromBotId` 可完成；`toBotId` 仅可上报失败；状态须活跃 |
 | `POST /gateway/tasks/:taskId/reset` | 无额外网关特殊逻辑 | 仅 `toBotId` 可调；需未耗尽重试配额 |
 | `POST /gateway/track-session` | 仅负责绑定映射，不推进任务状态 | API 会校验调用者必须是任务参与者，并按调用者推断 role |
@@ -133,6 +134,7 @@ plugin 在 sender spawn 前验证：
 | POST | `/gateway/tasks/:taskId/accept` | 兜底 accept（pending->processing） |
 | POST | `/gateway/tasks/:taskId/submit-result` | 执行者提交待审 |
 | POST | `/gateway/tasks/:taskId/approve` | 委托者审批通过 |
+| POST | `/gateway/tasks/:taskId/request-changes` | 委托者提出修改意见 |
 | POST | `/gateway/tasks/:taskId/reject` | 委托者驳回返工 |
 | POST | `/gateway/tasks/:taskId/complete` | 直接终结（委托者主用） |
 | POST | `/gateway/tasks/:taskId/need-human-input` | 标记等待人类输入 |
@@ -146,7 +148,7 @@ plugin 在 sender spawn 前验证：
 关于 `/complete` 的现状：
 - `/complete` 仍在用，不是废弃接口。
 - 主要用于 delegator 直接终结任务、以及 recovery 的失败落地（`status=failed`）。
-- executor 正常交付路径应走 `/submit-result` 后等待 `approve/reject`。
+- executor 正常交付路径应走 `/submit-result` 后等待 `approve/request-changes/reject`。
 
 ## Router API（Dashboard 管理端）
 

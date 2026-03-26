@@ -52,7 +52,7 @@ TaskPollingLoop.pollOnce()
 ## Routing 与状态机关系
 
 - Routing 阶段仅处理“投递/重试/降级”，不直接做 `accept/start/complete`。
-- 任务状态由 API 生命周期接口推进（`accept`, `submit-result`, `approve/reject`, `complete` 等）。
+- 任务状态由 API 生命周期接口推进（`accept`, `submit-result`, `approve/request-changes/reject`, `complete` 等）。
 
 ## 相关代码
 

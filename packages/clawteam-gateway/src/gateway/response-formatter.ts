@@ -160,6 +160,10 @@ export function formatRejectResponse(taskId: string, reason: string): string {
   return `Task rejected. Executor should rework.\n\ntaskId: ${taskId}\nStatus: processing\nReason: ${reason}`;
 }
 
+export function formatRequestChangesResponse(taskId: string, feedback: string): string {
+  return `Changes requested from executor.\n\ntaskId: ${taskId}\nStatus: processing\nFeedback: ${feedback}`;
+}
+
 function trimJson(value: any, maxLen = 200): string {
   const raw = typeof value === 'string' ? value : JSON.stringify(value);
   if (raw.length <= maxLen) return raw;

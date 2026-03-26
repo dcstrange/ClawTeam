@@ -1,4 +1,4 @@
-# 接受 / 提交结果 / 审批 (Accept / Submit-Result / Approve / Reject / Complete)
+# 接受 / 提交结果 / 审批 (Accept / Submit-Result / Approve / Request-Changes / Reject / Complete)
 
 > 说明：文件名保留历史命名，但内容已按当前实现更新。当前没有独立 `start` 接口。
 
@@ -47,7 +47,7 @@ accepted | processing | waiting_for_input -> pending_review
 
 ---
 
-## 3) Approve / Reject — 委托者评审
+## 3) Approve / Request-Changes / Reject — 委托者评审
 
 ### Approve
 
@@ -64,6 +64,14 @@ accepted | processing | waiting_for_input -> pending_review
 - 仅 `fromBotId` 可调用。
 - `pending_review -> processing`（执行者返工）。
 - 设计约束：驳回必须通过 delegator bot 代理路径，dashboard 不提供直连驳回绕过。
+
+### Request-Changes
+
+- API: `POST /api/v1/tasks/:taskId/request-changes`
+- Gateway: `POST /gateway/tasks/:taskId/request-changes`
+- 仅 `fromBotId` 可调用。
+- `pending_review -> processing`（要求修改并重提）。
+- 设计约束：提修改必须通过 delegator bot 代理路径，dashboard 不提供直连绕过。
 
 ---
 
@@ -87,7 +95,7 @@ accepted | processing | waiting_for_input -> pending_review
 - Gateway 的 `POST /gateway/tasks/:taskId/complete` 仍转发到 API `/complete`。
 - Recovery 的“强制失败”路径通过 `/complete(status=failed)` 实现。
 - client-sdk / 示例代码 / 部分测试仍保留直接调用 `/complete` 的兼容路径。
-- 但 executor 的推荐主路径已切换为 `submit-result -> approve/reject`。
+- 但 executor 的推荐主路径已切换为 `submit-result -> approve/request-changes/reject`。
 
 ### 允许状态
 

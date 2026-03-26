@@ -640,7 +640,7 @@ export function TaskDetail() {
               <div className="flex-1">
                 <h3 className="text-sm font-semibold text-indigo-800 mb-1">{tr('待审核', 'Pending Review')}</h3>
                 <p className="text-sm text-indigo-700 mb-3">
-                  {tr(`执行方已提交结果。审核决策必须通过你的委托${term('bot')}${term('session')}进行（仅代理），不能直接在仪表盘批准或拒绝。`, `Executor submitted results. Review decisions must go through your delegating ${term('bot')} ${term('session')} (proxy only), not directly approved/rejected in dashboard.`)}
+                  {tr(`执行方已提交结果。审核决策必须通过你的委托${term('bot')}${term('session')}进行（仅代理），不能直接在仪表盘批准、提修改或拒绝。`, `Executor submitted results. Review decisions must go through your delegating ${term('bot')} ${term('session')} (proxy only), not directly approve/request-changes/reject in dashboard.`)}
                 </p>
                 {task.submittedResult !== undefined && task.submittedResult !== null && (
                   <div className="mb-3">
@@ -657,7 +657,7 @@ export function TaskDetail() {
                   <p className="text-xs text-red-600 mb-3">{tr('上次拒绝原因', 'Last rejection reason')}: {task.rejectionReason}</p>
                 )}
                 <p className="text-xs text-indigo-600">
-                  {tr(`如果需要返工，请让你的${term('bot')}带理由拒绝；如果通过，请让你的${term('bot')}批准。`, `If rework is needed, ask your ${term('bot')} to reject with reason; if acceptable, ask your ${term('bot')} to approve.`)}
+                  {tr(`如果需要修改，请让你的${term('bot')}发起 request-changes 并附反馈；如果通过，请让你的${term('bot')}批准；如需强制驳回再用 reject。`, `If revision is needed, ask your ${term('bot')} to call request-changes with feedback; if acceptable, ask your ${term('bot')} to approve; use reject only for hard rejection.`)}
                 </p>
               </div>
             </div>

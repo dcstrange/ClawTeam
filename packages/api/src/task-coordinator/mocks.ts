@@ -186,6 +186,16 @@ export class MockTaskCoordinator implements ITaskCoordinator {
     task.rejectionReason = reason;
   }
 
+  async requestChanges(taskId: string, botId: string, feedback: string): Promise<void> {
+    const task = this.getTaskOrThrow(taskId);
+    if (task.fromBotId !== botId) throw new UnauthorizedTaskError(taskId, botId);
+    if (task.status !== ('pending_review' as TaskStatus)) {
+      throw new InvalidTaskStateError(taskId, task.status, ['pending_review']);
+    }
+    task.status = 'processing';
+    task.rejectionReason = feedback;
+  }
+
   async cancel(taskId: string, reason: string, botId: string): Promise<void> {
     const task = this.getTaskOrThrow(taskId);
 

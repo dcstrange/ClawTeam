@@ -380,7 +380,17 @@ export class TaskRouter extends EventEmitter {
     );
 
     const TERMINAL_STATES = new Set(['completed', 'failed', 'cancelled', 'timeout']);
-    if (task && TERMINAL_STATES.has(task.status)) {
+    if (task?.status === 'pending_review' && message.taskId) {
+      lines.push(
+        '',
+        'ACTION REQUIRED: This task is in pending_review.',
+        'Do NOT send status chatter. Make a review decision now:',
+        `- Approve: curl -s -X POST ${this.gatewayUrl}/gateway/tasks/${message.taskId}/approve -H 'Content-Type: application/json' -d '{}'`,
+        `- Request changes: curl -s -X POST ${this.gatewayUrl}/gateway/tasks/${message.taskId}/request-changes -H 'Content-Type: application/json' -d '{"feedback":"<what to revise>"}'`,
+        `- Reject:  curl -s -X POST ${this.gatewayUrl}/gateway/tasks/${message.taskId}/reject -H 'Content-Type: application/json' -d '{"reason":"<what must be fixed>"}'`,
+        'If approve/request-changes/reject returns terminal/409, STOP and do not send additional messages for this task.',
+      );
+    } else if (task && TERMINAL_STATES.has(task.status)) {
       lines.push(
         '',
         `NOTE: This task is already in a terminal state (${task.status}). Do NOT send further messages about this task.`,

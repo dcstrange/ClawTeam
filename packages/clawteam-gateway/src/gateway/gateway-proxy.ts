@@ -29,6 +29,7 @@ import {
   formatSubmitResultResponse,
   formatApproveResponse,
   formatRejectResponse,
+  formatRequestChangesResponse,
   formatFilesListResponse,
   formatFileNodeResponse,
   formatFileDeleteResponse,
@@ -800,6 +801,29 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
 
       log.info({ taskId, reason: body.reason }, 'Task rejected via gateway proxy');
       textReply(reply, formatRejectResponse(taskId, body.reason || 'Rejected'));
+    } catch (err) {
+      textReply(reply, formatErrorResponse((err as Error).message), 502);
+    }
+  });
+
+  // 7a4. POST /gateway/tasks/:taskId/request-changes — delegator asks executor to revise
+  server.post<{ Params: { taskId: string } }>('/gateway/tasks/:taskId/request-changes', async (req, reply) => {
+    const { taskId } = req.params;
+    const body = autoTrack((req.body || {}) as Record<string, any>, taskId);
+    const feedback = typeof body.feedback === 'string'
+      ? body.feedback
+      : (typeof body.reason === 'string' ? body.reason : 'Please revise and resubmit.');
+
+    try {
+      const res = await proxyFetch(`${apiBase}/api/v1/tasks/${taskId}/request-changes`, {
+        method: 'POST',
+        headers: authHeaders(key, deps.clawteamBotId),
+        body: JSON.stringify({ feedback }),
+      });
+      if (!res.ok) { textReply(reply, formatErrorResponse(`Request-changes failed (HTTP ${res.status})`), res.status); return; }
+
+      log.info({ taskId, feedback }, 'Task request-changes via gateway proxy');
+      textReply(reply, formatRequestChangesResponse(taskId, feedback));
     } catch (err) {
       textReply(reply, formatErrorResponse((err as Error).message), 502);
     }

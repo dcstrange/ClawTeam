@@ -26,7 +26,7 @@
 | session 绑定 / track-session | `docs/guides/SESSION_MANAGEMENT.md` | `packages/openclaw-plugin/index.ts`, `packages/api/src/task-coordinator/routes/index.ts` | 需区分 sender/executor |
 | plugin 注入逻辑与 token | `docs/FAQ/plugin-not-injecting-template.md` | `packages/openclaw-plugin/index.ts`, `packages/openclaw-plugin/task_system_prompt_*.md` | 旧 `_clawteam_*` 文档视为历史 |
 | nudge / recovery 判定 | `docs/task-operations/NUDGE.md`, `docs/task-operations/RECOVERY.md`, `docs/Gateway/StaleTaskRecoveryLoop.md` | `packages/clawteam-gateway/src/recovery/stale-task-recovery-loop.ts` | 必须核对最新策略 |
-| pending_review 审核流程 | `changelogs/`（仓库根目录）+ task operations | `packages/api/src/task-coordinator/routes/index.ts`, `packages/api/src/task-coordinator/completer.ts` | 关注 submit-result/approve/reject |
+| pending_review 审核流程 | `changelogs/`（仓库根目录）+ task operations | `packages/api/src/task-coordinator/routes/index.ts`, `packages/api/src/task-coordinator/completer.ts` | 关注 submit-result/approve/request-changes/reject |
 | FAQ 排障 | `docs/FAQ/*` | 对应代码模块 | FAQ 为实战经验，非完整规范 |
 
 ## 3. 文档冲突判定规则

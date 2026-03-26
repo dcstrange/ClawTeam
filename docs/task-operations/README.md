@@ -11,7 +11,7 @@ create/delegate
     v
  pending --accept--> processing --submit-result--> pending_review --approve--> completed
     |                    |   ^                            |
-    |                    |   |                            +--reject--> processing
+    |                    |   |                            +--request-changes/reject--> processing
     |                    |   +--resume(waiting_for_input) |
     |                    +------need-human-input----------+
     |                                                      
@@ -31,6 +31,7 @@ processing --timeout------------------> timeout
 | `waiting_for_input` | `resume` | `processing` |
 | `accepted/processing/waiting_for_input` | `submit-result` | `pending_review` |
 | `pending_review` | `approve` | `completed` |
+| `pending_review` | `request-changes` | `processing` |
 | `pending_review` | `reject` | `processing` |
 | 活跃态 | `complete(status=completed)` | `completed` |
 | 活跃态 | `complete(status=failed)` | `failed` |
@@ -40,7 +41,7 @@ processing --timeout------------------> timeout
 补充说明：
 - 术语：`活跃态` 指 `pending/accepted/processing/waiting_for_input/pending_review`；`非终态` 指除 `completed/failed/timeout/cancelled` 外的状态。
 - `accepted` 是兼容状态值；当前主路径里 `accept` 直接推进到 `processing`（无独立 `start`）。
-- 推荐主路径：执行者 `submit-result` -> 委托者 `approve/reject`。
+- 推荐主路径：执行者 `submit-result` -> 委托者 `approve/request-changes/reject`。
 - `complete` 是直接终结路径，通常不作为主审阅流。
 - 当任务存在未终态子任务时，`complete(status=completed)` / `approve` 会返回 `PENDING_CHILD_TASKS`（409）。
 - 如需强制结束父任务，可由委托者在 `/complete` 请求体使用 `force: true`（需谨慎使用）。
@@ -63,6 +64,7 @@ processing --timeout------------------> timeout
 | 接受 (`accept`) | Executor | `pending` → `processing` | [ACCEPT_START_COMPLETE.md](./ACCEPT_START_COMPLETE.md) |
 | 提交结果 (`submit-result`) | Executor | `processing`/`waiting_for_input` → `pending_review` | [ACCEPT_START_COMPLETE.md](./ACCEPT_START_COMPLETE.md) |
 | 审批 (`approve`) | Delegator | `pending_review` → `completed` | [ACCEPT_START_COMPLETE.md](./ACCEPT_START_COMPLETE.md) |
+| 提修改 (`request-changes`) | Delegator | `pending_review` → `processing` | [ACCEPT_START_COMPLETE.md](./ACCEPT_START_COMPLETE.md) |
 | 驳回 (`reject`) | Delegator | `pending_review` → `processing` | [ACCEPT_START_COMPLETE.md](./ACCEPT_START_COMPLETE.md) |
 | 直接完成/失败 (`complete`) | Delegator / Executor(失败场景) | 活跃态 → `completed`/`failed` | [ACCEPT_START_COMPLETE.md](./ACCEPT_START_COMPLETE.md) |
 | 请求人类输入 (`need-human-input`) | Sender/Executor | 活跃态 → `waiting_for_input` | [NEED_HUMAN_INPUT.md](./NEED_HUMAN_INPUT.md) |
@@ -85,4 +87,4 @@ processing --timeout------------------> timeout
 
 - Dashboard 上所有“需要人类介入”的任务消息，必须来自**当前用户自己的 bot**。
 - 跨用户 bot 的结果/问题不能直接落到对方人类；必须先经过该人类的 delegator bot 代理转发。
-- `submit-result` 后进入 `pending_review` 的审批链路必须由 delegator bot 执行（`approve/reject`），不允许 dashboard 直连绕过。
+- `submit-result` 后进入 `pending_review` 的审批链路必须由 delegator bot 执行（`approve/request-changes/reject`），不允许 dashboard 直连绕过。

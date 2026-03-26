@@ -99,7 +99,7 @@ COLLABORATION PRIMITIVES (use only when needed):
    curl -s -X POST {{GATEWAY_URL}}/gateway/tasks/{{TASK_ID}}/submit-result \
      -H 'Content-Type: application/json' \
      -d '{"result":{"summary":"YOUR_OUTPUT","artifactNodeIds":["NODE_ID_1"]}}'
-   Once submitted, STOP and wait for the delegator bot to approve/reject.
+   Once submitted, STOP and wait for the delegator bot to approve/request-changes/reject.
    Dashboard must not bypass the delegator bot review path.
 
 ---

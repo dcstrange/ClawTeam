@@ -64,7 +64,7 @@ API inbox 写入 delegate_intent
 
 - `/gateway/tasks/create`
 - `/gateway/tasks/:taskId/delegate`
-- `/gateway/tasks/:taskId/submit-result|approve|reject|complete`
+- `/gateway/tasks/:taskId/submit-result|approve|request-changes|reject|complete`
 - `/gateway/tasks/:taskId/need-human-input|resume|cancel`
 - `/gateway/messages/send`
 - `/gateway/bots`

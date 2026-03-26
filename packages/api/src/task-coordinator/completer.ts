@@ -565,7 +565,7 @@ export class TaskCompleter {
       text:
         `[Task Pending Review]\n\n` +
         `Task ${task.id} has entered pending_review.\n` +
-        `The executor submitted a final result. Review must be done via your delegator bot session (approve/reject).`,
+        `The executor submitted a final result. Review must be done via your delegator bot session (approve/request-changes/reject).`,
       submittedResult,
       submittedAt: submittedAt.toISOString(),
     };
@@ -601,11 +601,12 @@ export class TaskCompleter {
   /**
    * Write review decision event to executor inbox for full activity history:
    * - approved: delegator accepted submitted result
+   * - changes_requested: delegator asks for revision with concrete feedback
    * - rejected: delegator requested rework with reason
    */
   private async writeReviewDecisionToInbox(
     task: Task,
-    decision: { action: 'approved' | 'rejected'; reason?: string; result?: any },
+    decision: { action: 'approved' | 'changes_requested' | 'rejected'; reason?: string; result?: any },
     reviewedAt: Date,
   ): Promise<void> {
     const messageId = randomUUID();
@@ -621,6 +622,16 @@ export class TaskCompleter {
           approvedResult: decision.result ?? null,
           reviewedAt: reviewedAt.toISOString(),
         }
+        : decision.action === 'changes_requested'
+          ? {
+            text:
+              `[Task Review Changes Requested]\n\n` +
+              `Task ${task.id} needs revisions requested by delegator ${task.fromBotId}.\n` +
+              `Feedback: ${decision.reason || 'Please revise and resubmit.'}`,
+            reviewAction: 'changes_requested',
+            changeRequest: decision.reason || 'Please revise and resubmit.',
+            reviewedAt: reviewedAt.toISOString(),
+          }
         : {
           text:
             `[Task Review Rejected]\n\n` +
@@ -677,6 +688,44 @@ export class TaskCompleter {
     }
 
     const now = new Date();
+
+    // Self-submit path: delegator and executor are the same bot.
+    // In this case review would deadlock (bot reviewing itself), so auto-complete.
+    if (task.fromBotId === botId) {
+      await this.assertNoActiveChildTasks(taskId);
+
+      const updateSelfResult = await this.db.query(
+        `UPDATE tasks
+         SET status = 'completed',
+             result = $1,
+             submitted_result = $1,
+             submitted_at = $2,
+             completed_at = $2,
+             updated_at = NOW()
+         WHERE id = $3 AND status IN ('accepted', 'processing', 'waiting_for_input')`,
+        [JSON.stringify(result), now, taskId],
+      );
+
+      if (updateSelfResult.rowCount === 0) {
+        throw new InvalidTaskStateError(taskId, task.status, validStates);
+      }
+
+      tasksCompletedTotal.inc({ status: 'completed', capability: task.capability });
+      const durationSeconds = (now.getTime() - new Date(task.createdAt).getTime()) / 1000;
+      taskDuration.observe({ capability: task.capability, status: 'completed' }, durationSeconds);
+
+      await this.redis.zrem(REDIS_KEYS.PROCESSING_SET, taskId);
+      await this.redis.del(`${REDIS_KEYS.TASK_CACHE}:${taskId}`);
+
+      await this.safePublish('task_completed', {
+        taskId,
+        status: 'completed',
+        result,
+      }, task.toBotId);
+
+      this.logger.info('Task auto-completed from self submit (no review needed)', { taskId, botId });
+      return;
+    }
 
     const updateResult = await this.db.query(
       `UPDATE tasks
@@ -819,6 +868,49 @@ export class TaskCompleter {
     }, task.toBotId);
 
     this.logger.info('Task rejected', { taskId, botId, reason });
+  }
+
+  async requestChanges(taskId: string, botId: string, feedback: string): Promise<void> {
+    const task = await this.loadTask(taskId);
+
+    // Only delegator (fromBotId) can request changes
+    if (task.fromBotId !== botId) {
+      throw new UnauthorizedTaskError(taskId, botId);
+    }
+    if (task.status !== 'pending_review') {
+      throw new InvalidTaskStateError(taskId, task.status, ['pending_review']);
+    }
+
+    const normalizedFeedback = (typeof feedback === 'string' ? feedback.trim() : '') || 'Please revise and resubmit.';
+    const updateResult = await this.db.query(
+      `UPDATE tasks
+       SET status = 'processing', rejection_reason = $1, updated_at = NOW()
+       WHERE id = $2 AND status = 'pending_review'`,
+      [normalizedFeedback, taskId],
+    );
+
+    if (updateResult.rowCount === 0) {
+      throw new InvalidTaskStateError(taskId, task.status, ['pending_review']);
+    }
+
+    await this.updateCacheStatus(taskId, 'processing');
+
+    // Persist review decision event in message history for Activity Tree.
+    try {
+      await this.writeReviewDecisionToInbox(task, { action: 'changes_requested', reason: normalizedFeedback }, new Date());
+    } catch (err) {
+      this.logger.error('Failed to write request-changes decision message', { taskId, err });
+    }
+
+    // Keep using task_rejected event for backward compatibility with existing subscribers.
+    await this.safePublish('task_rejected', {
+      taskId,
+      status: 'processing',
+      reviewAction: 'changes_requested',
+      changeRequest: normalizedFeedback,
+    }, task.toBotId);
+
+    this.logger.info('Task changes requested', { taskId, botId, feedback: normalizedFeedback });
   }
 
   async cancel(taskId: string, reason: string, botId: string): Promise<void> {
