@@ -14,12 +14,12 @@
 import { EventEmitter } from 'node:events';
 import type { Logger } from 'pino';
 import type { IClawTeamApiClient } from '../clients/clawteam-api.js';
-import type { SessionStatusResolver } from './session-status-resolver.js';
+import type { ISessionResolver } from '../providers/types.js';
 import type { SessionTracker } from '../routing/session-tracker.js';
 import type { HeartbeatPayload, TaskSessionStatus } from './types.js';
 
 export interface HeartbeatLoopOptions {
-  resolver: SessionStatusResolver;
+  resolver: ISessionResolver;
   clawteamApi: IClawTeamApiClient;
   sessionTracker: SessionTracker;
   intervalMs: number;
@@ -27,7 +27,7 @@ export interface HeartbeatLoopOptions {
 }
 
 export class HeartbeatLoop extends EventEmitter {
-  private readonly resolver: SessionStatusResolver;
+  private readonly resolver: ISessionResolver;
   private readonly clawteamApi: IClawTeamApiClient;
   private readonly sessionTracker: SessionTracker;
   private readonly intervalMs: number;

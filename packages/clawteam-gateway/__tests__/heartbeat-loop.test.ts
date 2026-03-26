@@ -7,7 +7,7 @@
 import type { IClawTeamApiClient } from '../src/clients/clawteam-api';
 import type { HeartbeatPayload } from '../src/monitoring/types';
 import { HeartbeatLoop } from '../src/monitoring/heartbeat-loop';
-import { SessionStatusResolver } from '../src/monitoring/session-status-resolver';
+import type { ISessionResolver } from '../src/providers/types';
 import { SessionTracker } from '../src/routing/session-tracker';
 import pino from 'pino';
 
@@ -34,17 +34,17 @@ function createMockApi(): jest.Mocked<IClawTeamApiClient> {
   };
 }
 
-function createMockResolver(): jest.Mocked<Pick<SessionStatusResolver, 'resolveForTasks' | 'fetchCliSessions'>> {
+function createMockResolver(): jest.Mocked<ISessionResolver> {
   return {
+    resolveAll: jest.fn().mockResolvedValue([]),
     resolveForTasks: jest.fn().mockResolvedValue([]),
-    fetchCliSessions: jest.fn().mockResolvedValue([]),
   };
 }
 
 describe('HeartbeatLoop', () => {
   let loop: HeartbeatLoop;
   let mockApi: jest.Mocked<IClawTeamApiClient>;
-  let mockResolver: jest.Mocked<Pick<SessionStatusResolver, 'resolveForTasks' | 'fetchCliSessions'>>;
+  let mockResolver: jest.Mocked<ISessionResolver>;
   let tracker: SessionTracker;
 
   beforeEach(() => {
