@@ -497,7 +497,5 @@ export class OpenClawSessionCliClient implements ISessionClient {
   }
 }
 
-// Re-export the interfaces for convenience
+// Re-export the interface for convenience
 export type { ISessionClient } from '../types.js';
-/** @deprecated Use ISessionClient instead */
-export type { IOpenClawSessionClient } from './openclaw-session.js';

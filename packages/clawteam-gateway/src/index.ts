@@ -13,7 +13,6 @@ import { createLogger } from './utils/logger.js';
 import { printStartupBanner } from './utils/startup-banner.js';
 import { ClawTeamApiClient } from './clients/clawteam-api.js';
 import { createProvider } from './providers/provider-factory.js';
-import type { SessionStatusResolver } from './monitoring/session-status-resolver.js';
 import { SessionTracker } from './routing/session-tracker.js';
 import { RoutedTasksTracker } from './routing/routed-tasks.js';
 import { TaskRouter } from './routing/router.js';
@@ -95,7 +94,7 @@ async function main() {
   let recoveryLoop: StaleTaskRecoveryLoop | null = null;
   if (config.recoveryEnabled && provider.resolver) {
     recoveryLoop = new StaleTaskRecoveryLoop({
-      resolver: provider.concreteResolver as SessionStatusResolver,
+      resolver: provider.resolver!,
       clawteamApi,
       sessionClient: provider.client,
       sessionTracker,
@@ -121,7 +120,7 @@ async function main() {
       router,
       poller,
       heartbeatLoop,
-      resolver: (provider.concreteResolver as SessionStatusResolver) ?? null,
+      resolver: provider.concreteResolver ?? null,
       sessionClient: provider.client,
       clawteamApi,
       clawteamApiUrl: config.clawteamApiUrl,

@@ -18,6 +18,11 @@ export class RecoveryAttemptTracker {
     this.maxAttempts = maxAttempts;
   }
 
+  /** Maximum recovery attempts allowed per task. */
+  get maxAttemptsValue(): number {
+    return this.maxAttempts;
+  }
+
   /** Record a recovery attempt for a task */
   recordAttempt(taskId: string, sessionState: SessionState): void {
     const existing = this.records.get(taskId);

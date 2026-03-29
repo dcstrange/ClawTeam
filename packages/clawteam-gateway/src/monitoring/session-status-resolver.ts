@@ -65,7 +65,8 @@ export interface SessionStatusResolverOptions {
   openclawBin: string;
   openclawHome: string;
   sessionAliveThresholdMs: number;
-  sessionTracker: SessionTracker;
+  /** Optional — retained for future use but not currently referenced by any resolver method. */
+  sessionTracker?: SessionTracker;
   logger: Logger;
 }
 
@@ -73,7 +74,7 @@ export class SessionStatusResolver {
   private readonly openclawBin: string;
   private readonly openclawHome: string;
   private readonly sessionAliveThresholdMs: number;
-  private readonly sessionTracker: SessionTracker;
+  private readonly sessionTracker?: SessionTracker;
   private readonly logger: Logger;
 
   constructor(options: SessionStatusResolverOptions) {

@@ -14,14 +14,7 @@ import type { SessionSendResponse, SessionStatusResponse } from '../../types.js'
 import type { Logger } from 'pino';
 
 
-export { type ISessionClient } from '../types.js';
 import type { ISessionClient } from '../types.js';
-
-/**
- * @deprecated Use ISessionClient from '../types.js' instead.
- * Kept as a re-export alias for backward compatibility during migration.
- */
-export type IOpenClawSessionClient = ISessionClient;
 
 export class OpenClawSessionClient implements ISessionClient {
   private readonly baseUrl: string;

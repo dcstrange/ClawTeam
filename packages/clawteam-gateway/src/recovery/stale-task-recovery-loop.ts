@@ -13,11 +13,10 @@
 import type { Task } from '@clawteam/shared/types';
 import type { Logger } from 'pino';
 import type { IClawTeamApiClient } from '../clients/clawteam-api.js';
-import type { ISessionClient, IMessageBuilder } from '../providers/types.js';
-import type { SessionStatusResolver } from '../monitoring/session-status-resolver.js';
+import type { ISessionClient, ISessionResolver, IMessageBuilder } from '../providers/types.js';
 import type { SessionTracker } from '../routing/session-tracker.js';
 import type { RoutedTasksTracker } from '../routing/routed-tasks.js';
-import type { TaskSessionStatus } from '../monitoring/types.js';
+import type { SessionState, TaskSessionStatus } from '../monitoring/types.js';
 import { STALE_SESSION_STATES } from './types.js';
 import type { RecoveryResult } from './types.js';
 import { RecoveryAttemptTracker } from './recovery-tracker.js';
@@ -31,7 +30,7 @@ import {
 import type { RecoveryStep } from '../utils/visual-log.js';
 
 export interface StaleTaskRecoveryLoopOptions {
-  resolver: SessionStatusResolver;
+  resolver: ISessionResolver;
   clawteamApi: IClawTeamApiClient;
   sessionClient: ISessionClient;
   sessionTracker: SessionTracker;
@@ -51,7 +50,7 @@ export interface StaleTaskRecoveryLoopOptions {
 }
 
 export class StaleTaskRecoveryLoop {
-  private readonly resolver: SessionStatusResolver;
+  private readonly resolver: ISessionResolver;
   private readonly clawteamApi: IClawTeamApiClient;
   private readonly sessionClient: ISessionClient;
   private readonly sessionTracker: SessionTracker;
@@ -471,7 +470,7 @@ export class StaleTaskRecoveryLoop {
   private async processStaleSession(
     taskId: string,
     sessionKey: string,
-    effectiveState: string,
+    effectiveState: SessionState,
     status: TaskSessionStatus,
   ): Promise<RecoveryResult> {
     const idleMs = status.lastActivityAt
@@ -612,7 +611,7 @@ export class StaleTaskRecoveryLoop {
   private async executeRecovery(
     taskId: string,
     sessionKey: string,
-    sessionState: string,
+    sessionState: SessionState,
     task: Task,
     idleMs: number | null,
   ): Promise<RecoveryResult> {
@@ -641,7 +640,7 @@ export class StaleTaskRecoveryLoop {
     this.attemptTracker.recordAttempt(taskId, 'dead');
     const steps: RecoveryStep[] = [];
 
-    const maxAttempts = this.attemptTracker['maxAttempts'];
+    const maxAttempts = this.attemptTracker.maxAttemptsValue;
     const emitBlock = (outcome: { success: boolean; summary: string }): void => {
       printRecoveryBlock({
         taskId, capability: task.capability || 'general', sessionKey,
@@ -660,7 +659,7 @@ export class StaleTaskRecoveryLoop {
         if (restored) {
           this.logger.info({ taskId, sessionKey }, `${c.bgGreen(' RESTORE OK ')} Session restored, sending nudge`);
           steps.push({ label: 'Restore session', ok: true, detail: 'restored' });
-          const nudgeMsg = this.messageBuilder.buildNudgeMessage(taskId, task, 'dead', attemptNum, this.attemptTracker['maxAttempts']);
+          const nudgeMsg = this.messageBuilder.buildNudgeMessage(taskId, task, 'dead', attemptNum, this.attemptTracker.maxAttemptsValue);
           const sent = await this.sessionClient.sendToSession(sessionKey, nudgeMsg);
           steps.push({ label: 'Nudge', ok: sent, detail: sent ? 'sent' : 'send failed' });
           const result: RecoveryResult = {
@@ -743,14 +742,14 @@ export class StaleTaskRecoveryLoop {
   private async handleNudge(
     taskId: string,
     sessionKey: string,
-    sessionState: string,
+    sessionState: SessionState,
     task: Task,
     attemptNum: number,
     idleMs: number | null,
   ): Promise<RecoveryResult> {
-    this.attemptTracker.recordAttempt(taskId, sessionState as any);
+    this.attemptTracker.recordAttempt(taskId, sessionState);
 
-    const nudgeMsg = this.messageBuilder.buildNudgeMessage(taskId, task, sessionState, attemptNum, this.attemptTracker['maxAttempts']);
+    const nudgeMsg = this.messageBuilder.buildNudgeMessage(taskId, task, sessionState, attemptNum, this.attemptTracker.maxAttemptsValue);
     const sent = await this.sessionClient.sendToSession(sessionKey, nudgeMsg);
 
     this.logger.info(
@@ -760,7 +759,7 @@ export class StaleTaskRecoveryLoop {
         : `${c.red('NUDGE FAILED')} Nudge send failed (attempt ${attemptNum})`,
     );
 
-    const maxAttempts = this.attemptTracker['maxAttempts'];
+    const maxAttempts = this.attemptTracker.maxAttemptsValue;
     const nudgeResult: RecoveryResult = {
       taskId, sessionKey,
       action: 'nudge', success: sent,

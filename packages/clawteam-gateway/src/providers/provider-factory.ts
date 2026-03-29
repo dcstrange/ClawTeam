@@ -47,7 +47,7 @@ export interface SessionProvider {
    * 由 index.ts 从此字段取值传入。非 OpenClaw provider 时为 null，
    * 调试端点返回空结果。
    */
-  readonly concreteResolver?: unknown;
+  readonly concreteResolver?: SessionStatusResolver;
 }
 
 /**
@@ -118,7 +118,7 @@ function createOpenClawProvider(
       openclawBin: config.openclawBin,
       openclawHome: config.openclawHome,
       sessionAliveThresholdMs: config.sessionAliveThresholdMs,
-      sessionTracker: null as any, // 由 index.ts 在使用时注入
+      // sessionTracker is optional — not currently used by resolver methods
       logger,
     });
     const openclawResolver = new OpenClawSessionResolver(statusResolver);
