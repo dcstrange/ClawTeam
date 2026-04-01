@@ -10,7 +10,7 @@
  */
 
 import { EventEmitter } from 'node:events';
-import { OpenClawSessionCliClient } from '../src/clients/openclaw-session-cli';
+import { OpenClawSessionCliClient } from '../src/providers/openclaw/openclaw-session-cli';
 import pino from 'pino';
 
 // --- Build a fake ChildProcess for spawn ---

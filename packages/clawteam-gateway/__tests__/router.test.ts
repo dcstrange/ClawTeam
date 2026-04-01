@@ -7,9 +7,10 @@
 import type { Task } from '@clawteam/shared/types';
 import type { InboxMessage } from '../src/types';
 import type { IClawTeamApiClient } from '../src/clients/clawteam-api';
-import type { IOpenClawSessionClient } from '../src/clients/openclaw-session';
+import type { ISessionClient } from '../src/providers/types';
 import { TaskRouter } from '../src/routing/router';
 import { SessionTracker } from '../src/routing/session-tracker';
+import { OpenClawMessageBuilder } from '../src/providers/openclaw/openclaw-message-builder';
 import pino from 'pino';
 
 function makeTask(overrides: Partial<Task> = {}): Task {
@@ -37,13 +38,20 @@ function createMockClawTeamApi(): jest.Mocked<IClawTeamApiClient> {
     acceptTask: jest.fn().mockResolvedValue(undefined),
     startTask: jest.fn().mockResolvedValue(undefined),
     getTask: jest.fn().mockResolvedValue(null),
+    getBot: jest.fn().mockResolvedValue(null),
     sendHeartbeat: jest.fn().mockResolvedValue(undefined),
     resetTask: jest.fn().mockResolvedValue(true),
+    failTask: jest.fn().mockResolvedValue(true),
+    cancelTask: jest.fn().mockResolvedValue(true),
     ackMessage: jest.fn().mockResolvedValue(true),
+    updateSessionKey: jest.fn().mockResolvedValue(undefined),
+    trackSession: jest.fn().mockResolvedValue(true),
+    getSessionForTaskBot: jest.fn().mockResolvedValue(null),
+    getSessionsForBot: jest.fn().mockResolvedValue([]),
   };
 }
 
-function createMockOpenClawSession(): jest.Mocked<Required<IOpenClawSessionClient>> {
+function createMockOpenClawSession(): jest.Mocked<Required<ISessionClient>> {
   return {
     sendToSession: jest.fn().mockResolvedValue(true),
     sendToMainSession: jest.fn().mockResolvedValue(true),
@@ -59,7 +67,7 @@ const logger = pino({ level: 'silent' });
 describe('TaskRouter', () => {
   let router: TaskRouter;
   let mockApi: jest.Mocked<IClawTeamApiClient>;
-  let mockSession: jest.Mocked<Required<IOpenClawSessionClient>>;
+  let mockSession: jest.Mocked<Required<ISessionClient>>;
   let sessionTracker: SessionTracker;
 
   beforeEach(() => {
@@ -69,9 +77,10 @@ describe('TaskRouter', () => {
 
     router = new TaskRouter({
       clawteamApi: mockApi,
-      openclawSession: mockSession,
+      sessionClient: mockSession,
       sessionTracker,
-      clawteamApiUrl: 'http://localhost:3000',
+      messageBuilder: new OpenClawMessageBuilder('http://localhost:3100'),
+      gatewayUrl: 'http://localhost:3100',
       logger,
     });
   });
@@ -217,7 +226,7 @@ describe('TaskRouter', () => {
       expect(result.fallback).toBe(true);
       expect(result.sessionKey).toBe('main');
       expect(mockSession.sendToMainSession).toHaveBeenCalledWith(
-        expect.stringContaining('SUB-SESSION INSTRUCTIONS'),
+        expect.stringContaining('Spawn a sub-session with this task value'),
         'task-001',
       );
     });
@@ -359,7 +368,7 @@ describe('TaskRouter', () => {
       expect(result.fallback).toBe(true);
       expect(mockSession.restoreSession).toHaveBeenCalledWith('session-archived');
       expect(mockSession.sendToMainSession).toHaveBeenCalledWith(
-        expect.stringContaining('SUB-SESSION INSTRUCTIONS'),
+        expect.stringContaining('Spawn a sub-session with this task value'),
         'task-001',
       );
     });
@@ -397,7 +406,7 @@ describe('TaskRouter', () => {
       expect(result.fallback).toBe(true);
       expect(mockSession.restoreSession).toHaveBeenCalledWith('session-error');
       expect(mockSession.sendToMainSession).toHaveBeenCalledWith(
-        expect.stringContaining('SUB-SESSION INSTRUCTIONS'),
+        expect.stringContaining('Spawn a sub-session with this task value'),
         'task-001',
       );
     });
@@ -443,7 +452,7 @@ describe('TaskRouter', () => {
       expect(result.sessionKey).toBe('agent:executor:sub:abc');
       expect(mockSession.sendToSession).toHaveBeenCalledWith(
         'agent:executor:sub:abc',
-        expect.stringContaining('[ClawTeam Message — Task Context]'),
+        expect.stringContaining('[ClawTeam Message -- Task Context]'),
       );
       expect(mockSession.sendToMainSession).not.toHaveBeenCalled();
     });
@@ -472,7 +481,7 @@ describe('TaskRouter', () => {
       expect(result.action).toBe('send_to_main');
       expect(result.sessionKey).toBe('main');
       expect(mockSession.sendToMainSession).toHaveBeenCalledWith(
-        expect.stringContaining('[ClawTeam Message — Task Context]'),
+        expect.stringContaining('[ClawTeam Message -- Task Context]'),
       );
       expect(mockSession.sendToSession).not.toHaveBeenCalled();
     });
@@ -582,7 +591,7 @@ describe('TaskRouter', () => {
       expect(result.fallback).toBe(true);
       expect(mockSession.sendToSession).toHaveBeenCalled();
       expect(mockSession.sendToMainSession).toHaveBeenCalledWith(
-        expect.stringContaining('[ClawTeam Message — Task Context]'),
+        expect.stringContaining('[ClawTeam Message -- Task Context]'),
       );
     });
 

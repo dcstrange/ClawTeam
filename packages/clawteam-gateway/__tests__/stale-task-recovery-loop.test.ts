@@ -6,13 +6,16 @@
  */
 
 import type { IClawTeamApiClient } from '../src/clients/clawteam-api';
-import type { IOpenClawSessionClient } from '../src/clients/openclaw-session';
+import type { ISessionClient } from '../src/providers/types';
 import type { TaskSessionStatus, SessionState } from '../src/monitoring/types';
 import { StaleTaskRecoveryLoop } from '../src/recovery/stale-task-recovery-loop';
 import { SessionStatusResolver } from '../src/monitoring/session-status-resolver';
 import { SessionTracker } from '../src/routing/session-tracker';
 import { RoutedTasksTracker } from '../src/routing/routed-tasks';
+import { OpenClawMessageBuilder } from '../src/providers/openclaw/openclaw-message-builder';
 import pino from 'pino';
+
+const GATEWAY_URL = 'http://localhost:3100';
 
 const logger = pino({ level: 'silent' });
 
@@ -32,9 +35,16 @@ function createMockApi(): jest.Mocked<IClawTeamApiClient> {
       priority: 'normal',
       parameters: {},
     }),
+    getBot: jest.fn().mockResolvedValue(null),
     sendHeartbeat: jest.fn().mockResolvedValue(undefined),
     resetTask: jest.fn().mockResolvedValue(true),
+    failTask: jest.fn().mockResolvedValue(true),
+    cancelTask: jest.fn().mockResolvedValue(true),
     ackMessage: jest.fn().mockResolvedValue(true),
+    updateSessionKey: jest.fn().mockResolvedValue(undefined),
+    trackSession: jest.fn().mockResolvedValue(true),
+    getSessionForTaskBot: jest.fn().mockResolvedValue(null),
+    getSessionsForBot: jest.fn().mockResolvedValue([]),
   };
 }
 
@@ -45,7 +55,7 @@ function createMockResolver(): jest.Mocked<Pick<SessionStatusResolver, 'resolveF
   };
 }
 
-function createMockOpenClaw(): jest.Mocked<Required<IOpenClawSessionClient>> {
+function createMockOpenClaw(): jest.Mocked<Required<ISessionClient>> {
   return {
     sendToSession: jest.fn().mockResolvedValue(true),
     sendToMainSession: jest.fn().mockResolvedValue(true),
@@ -86,7 +96,7 @@ describe('StaleTaskRecoveryLoop', () => {
   let loop: StaleTaskRecoveryLoop;
   let mockApi: jest.Mocked<IClawTeamApiClient>;
   let mockResolver: jest.Mocked<Pick<SessionStatusResolver, 'resolveForTasks' | 'fetchCliSessions'>>;
-  let mockOpenClaw: jest.Mocked<Required<IOpenClawSessionClient>>;
+  let mockOpenClaw: jest.Mocked<Required<ISessionClient>>;
   let tracker: SessionTracker;
   let routedTasks: RoutedTasksTracker;
 
@@ -101,13 +111,14 @@ describe('StaleTaskRecoveryLoop', () => {
     loop = new StaleTaskRecoveryLoop({
       resolver: mockResolver as any,
       clawteamApi: mockApi,
-      openclawSession: mockOpenClaw,
+      sessionClient: mockOpenClaw,
       sessionTracker: tracker,
+      messageBuilder: new OpenClawMessageBuilder(GATEWAY_URL),
       routedTasks,
       intervalMs: 120_000,
       stalenessThresholdMs: 300_000, // 5 min
       maxRecoveryAttempts: 3,
-      clawteamApiUrl: 'http://localhost:3000',
+      gatewayUrl: 'http://localhost:3100',
       mainSessionKey: 'agent:main:main',
       logger,
     });
@@ -235,22 +246,36 @@ describe('StaleTaskRecoveryLoop', () => {
       });
 
       it('tracks stale pending task without executorSessionKey against main session', async () => {
-        const staleCreatedAt = new Date(Date.now() - 6 * 60 * 1000).toISOString(); // 6 min ago
-
+        // syncUntrackedTasks uses gateway first-seen time (not task.createdAt).
+        // First tick registers firstSeenAt; second tick (after threshold) syncs the task.
         mockApi.pollActiveTasks.mockResolvedValue([
           {
             id: 'task-pending-stale',
             status: 'pending',
             capability: 'code_review',
-            createdAt: staleCreatedAt,
-            // no executorSessionKey — routed to main but main hasn't spawned sub-session
+            createdAt: new Date().toISOString(),
           } as any,
         ]);
-
+        mockApi.getTask.mockResolvedValue({
+          id: 'task-pending-stale',
+          status: 'pending',
+          capability: 'code_review',
+          fromBotId: 'bot-a',
+          toBotId: 'bot-b',
+          priority: 'normal',
+          parameters: {},
+        } as any);
         mockResolver.resolveForTasks.mockResolvedValue([]);
 
+        // First tick: registers firstSeenAt timestamp
         await loop.tick();
+        expect(tracker.isTracked('task-pending-stale')).toBe(false);
 
+        // Advance past staleness threshold (5 min)
+        jest.advanceTimersByTime(301_000);
+
+        // Second tick: seenDuration > stalenessThresholdMs → syncs
+        await loop.tick();
         expect(tracker.isTracked('task-pending-stale')).toBe(true);
         expect(tracker.getSessionForTask('task-pending-stale')).toBe('agent:main:main');
       });
@@ -297,25 +322,41 @@ describe('StaleTaskRecoveryLoop', () => {
       });
 
       it('tracks stale pending sub-task with targetSessionKey against that sub-session', async () => {
-        const staleCreatedAt = new Date(Date.now() - 6 * 60 * 1000).toISOString();
-
+        // syncUntrackedTasks uses gateway first-seen time (not task.createdAt).
+        // First tick registers firstSeenAt; second tick (after threshold) syncs the task.
         mockApi.pollActiveTasks.mockResolvedValue([
           {
             id: 'task-sub-1',
             status: 'pending',
             type: 'sub-task',
             capability: 'code_review',
-            createdAt: staleCreatedAt,
+            createdAt: new Date().toISOString(),
             parentTaskId: 'task-parent-1',
             parameters: { targetSessionKey: 'agent:main:subagent:xyz' },
-            // no executorSessionKey — routed to sub-session but not accepted
           } as any,
         ]);
-
+        mockApi.getTask.mockResolvedValue({
+          id: 'task-sub-1',
+          status: 'pending',
+          type: 'sub-task',
+          capability: 'code_review',
+          fromBotId: 'bot-a',
+          toBotId: 'bot-b',
+          priority: 'normal',
+          parentTaskId: 'task-parent-1',
+          parameters: { targetSessionKey: 'agent:main:subagent:xyz' },
+        } as any);
         mockResolver.resolveForTasks.mockResolvedValue([]);
 
+        // First tick: registers firstSeenAt
         await loop.tick();
+        expect(tracker.isTracked('task-sub-1')).toBe(false);
 
+        // Advance past staleness threshold
+        jest.advanceTimersByTime(301_000);
+
+        // Second tick: syncs the stale sub-task
+        await loop.tick();
         expect(tracker.isTracked('task-sub-1')).toBe(true);
         expect(tracker.getSessionForTask('task-sub-1')).toBe('agent:main:subagent:xyz');
       });
@@ -330,8 +371,10 @@ describe('StaleTaskRecoveryLoop', () => {
 
       await loop.tick();
 
-      expect(mockApi.getTask).not.toHaveBeenCalled();
+      // No recovery action: no nudge, no restore, no reset
       expect(mockOpenClaw.sendToSession).not.toHaveBeenCalled();
+      expect(mockOpenClaw.sendToMainSession).not.toHaveBeenCalled();
+      expect(mockApi.resetTask).not.toHaveBeenCalled();
     });
 
     it('skips tool_calling sessions under timeout', async () => {
@@ -345,7 +388,9 @@ describe('StaleTaskRecoveryLoop', () => {
 
       await loop.tick();
 
-      expect(mockApi.getTask).not.toHaveBeenCalled();
+      // No recovery action taken for tool_calling under timeout
+      expect(mockOpenClaw.sendToSession).not.toHaveBeenCalled();
+      expect(mockApi.resetTask).not.toHaveBeenCalled();
     });
 
     it('skips waiting sessions', async () => {
@@ -357,7 +402,9 @@ describe('StaleTaskRecoveryLoop', () => {
 
       await loop.tick();
 
-      expect(mockApi.getTask).not.toHaveBeenCalled();
+      // No recovery action taken for waiting sessions
+      expect(mockOpenClaw.sendToSession).not.toHaveBeenCalled();
+      expect(mockApi.resetTask).not.toHaveBeenCalled();
     });
 
     describe('tool_calling timeout', () => {
@@ -367,14 +414,15 @@ describe('StaleTaskRecoveryLoop', () => {
         loopWithTimeout = new StaleTaskRecoveryLoop({
           resolver: mockResolver as any,
           clawteamApi: mockApi,
-          openclawSession: mockOpenClaw,
+          sessionClient: mockOpenClaw,
           sessionTracker: tracker,
+          messageBuilder: new OpenClawMessageBuilder(GATEWAY_URL),
           routedTasks,
           intervalMs: 120_000,
           stalenessThresholdMs: 300_000,
           toolCallingTimeoutMs: 600_000, // 10 min
           maxRecoveryAttempts: 3,
-          clawteamApiUrl: 'http://localhost:3000',
+          gatewayUrl: GATEWAY_URL,
           mainSessionKey: 'agent:main:main',
           logger,
         });
@@ -412,8 +460,9 @@ describe('StaleTaskRecoveryLoop', () => {
 
         await loopWithTimeout.tick();
 
-        // null lastActivityAt means we can't determine duration — skip
-        expect(mockApi.getTask).not.toHaveBeenCalled();
+        // null lastActivityAt means we can't determine duration — no recovery action
+        expect(mockOpenClaw.sendToSession).not.toHaveBeenCalled();
+        expect(mockApi.resetTask).not.toHaveBeenCalled();
       });
 
       it('resets task via API when tool_calling session is stuck and restore fails', async () => {
@@ -446,7 +495,9 @@ describe('StaleTaskRecoveryLoop', () => {
 
       await loop.tick();
 
-      expect(mockApi.getTask).not.toHaveBeenCalled();
+      // No recovery action: idle but under threshold
+      expect(mockOpenClaw.sendToSession).not.toHaveBeenCalled();
+      expect(mockApi.resetTask).not.toHaveBeenCalled();
     });
 
     it('nudges idle session over staleness threshold', async () => {
@@ -774,7 +825,7 @@ describe('StaleTaskRecoveryLoop', () => {
       expect(msg).toContain('Task ID: task-1');
       expect(msg).toContain('Capability: code_review');
       expect(msg).toContain('Recovery Attempt: 1/3');
-      expect(msg).toContain('POST $CLAWTEAM_API_URL/api/v1/tasks/task-1/complete');
+      expect(msg).toContain('POST http://localhost:3100/gateway/tasks/task-1/complete');
     });
   });
 
@@ -805,7 +856,7 @@ describe('StaleTaskRecoveryLoop', () => {
       expect(msg).toContain('[ClawTeam Task Received]');
       expect(msg).toContain('From Bot: bot-originator');
       expect(msg).toContain('Priority: high');
-      expect(msg).toContain('SUB-SESSION INSTRUCTIONS');
+      expect(msg).toContain('SUB-SESSION TASK DETAILS');
       expect(msg).toContain('my-repo');
       expect(msg).toContain('DO NOT call any /tasks/ API endpoints yourself');
     });

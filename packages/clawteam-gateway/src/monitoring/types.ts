@@ -65,7 +65,11 @@ export interface HeartbeatPayload {
   details: SessionStatusDetails;
 }
 
-/** CLI session info from `openclaw sessions --json` */
+/**
+ * CLI session info from `openclaw sessions --json`.
+ * OpenClaw-specific — used by SessionStatusResolver and cli-status.ts.
+ * Future cleanup: may migrate to providers/openclaw/types.ts.
+ */
 export interface CliSessionInfo {
   key: string;
   sessionId?: string;

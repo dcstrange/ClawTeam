@@ -559,11 +559,12 @@ export function registerGatewayRoutes(server: FastifyInstance, deps: GatewayProx
       });
       if (!acceptRes.ok) { textReply(reply, formatErrorResponse(`Accept failed (HTTP ${acceptRes.status})`), acceptRes.status); return; }
 
-      // Track session — but don't overwrite if plugin already set a valid key
+      // Track session — but don't overwrite existing valid tracking
+      // (provider-agnostic: any existing key is preserved, regardless of format)
       const executorSessionKey = body.executorSessionKey as string | undefined;
       if (executorSessionKey) {
         const existing = deps.sessionTracker.getSessionForTask(taskId);
-        if (!existing || !existing.startsWith('agent:')) {
+        if (!existing) {
           deps.sessionTracker.track(taskId, executorSessionKey);
         }
       }

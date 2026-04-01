@@ -62,6 +62,10 @@ dump.rdb
 # Docker
 .dockerignore
 
+# Test environment
+tests/openclaw-config/
+.env.test
+
 # Misc
 .turbo
 *.bak

@@ -59,6 +59,7 @@ export function printStartupBanner(config: GatewayConfig): void {
     line('ClawTeam Gateway'),
     line(`Started: ${now}`),
     separator(),
+    line(formatKv('Provider', config.sessionProvider ?? 'openclaw')),
     line(formatKv('Mode', config.openclawMode)),
     line(formatKv('Agent', config.mainAgentId)),
     line(formatKv('API', config.clawteamApiUrl)),

@@ -19,7 +19,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { JsonlAnalysis } from './types.js';
+import type { JsonlAnalysis } from '../../monitoring/types.js';
 
 /** How many bytes to read from the tail of the JSONL file */
 const TAIL_BYTES = 64 * 1024; // 64KB

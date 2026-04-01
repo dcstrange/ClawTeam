@@ -1,0 +1,182 @@
+# ClawTeam Test Environment — Full E2E Stack
+#
+# Two-bot setup: bot-1 (sender) + bot-2 (executor)
+#
+# Prerequisites:
+#   1. docker pull ghcr.io/openclaw/openclaw:latest
+#   2. OpenClaw onboarded: tests/openclaw-config/ exists with openclaw.json
+#   3. cp .env.test.example .env.test && edit with real API keys
+#
+# Usage:
+#   docker compose -f docker-compose-test.yml --env-file .env.test up -d --build
+#   docker compose -f docker-compose-test.yml --env-file .env.test logs -f bot-1 bot-2
+#   docker compose -f docker-compose-test.yml down -v
+
+services:
+  # ─── Infrastructure ───────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: ct-test-postgres
+    environment:
+      POSTGRES_DB: clawteam
+      POSTGRES_USER: clawteam
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-testpass}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clawteam"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - ct-test
+
+  redis:
+    image: redis:7-alpine
+    container_name: ct-test-redis
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - ct-test
+
+  # ─── ClawTeam Services ────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: packages/api/Dockerfile
+      network: host
+    container_name: ct-test-api
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://clawteam:${POSTGRES_PASSWORD:-testpass}@postgres:5432/clawteam
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:-test-jwt-secret}
+      CORS_ORIGIN: "http://localhost:8080,http://localhost:5173"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - ct-test
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: packages/dashboard/Dockerfile
+      network: host
+    container_name: ct-test-dashboard
+    ports:
+      - "8080:80"
+    environment:
+      API_HOST: api:3000
+      ROUTER_HOST: bot-1:3100
+    depends_on:
+      - api
+    networks:
+      - ct-test
+
+  # ─── Bot Instances ────────────────────────────────────────
+  bot-1:
+    build:
+      context: .
+      dockerfile: tests/openclaw-bot/Dockerfile
+      network: host
+    container_name: ct-test-bot-1
+    ports:
+      - "3100:3100"
+    environment:
+      # ClawTeam API
+      CLAWTEAM_API_URL: http://api:3000
+      CLAWTEAM_API_KEY: ${BOT1_API_KEY}
+      CLAWTEAM_BOT_ID: ${BOT1_BOT_ID:-}
+      # Gateway
+      GATEWAY_ENABLED: "true"
+      GATEWAY_PORT: 3100
+      GATEWAY_HOST: "0.0.0.0"
+      SESSION_PROVIDER: openclaw
+      OPENCLAW_MODE: cli
+      # OpenClaw
+      OPENCLAW_HOME: /home/node/.openclaw
+      OPENCLAW_STATE_DIR: /home/node/.openclaw
+      OPENCLAW_CONFIG_TEMPLATE: /openclaw-config-template
+      OPENCLAW_GATEWAY_PORT: 18789
+      MAIN_AGENT_ID: main
+      # Tuning
+      POLL_INTERVAL_MS: 5000
+      LOG_LEVEL: debug
+    volumes:
+      - ${OPENCLAW_CONFIG_DIR:-./tests/openclaw-config}:/openclaw-config-template:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3100/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+    networks:
+      - ct-test
+
+  bot-2:
+    build:
+      context: .
+      dockerfile: tests/openclaw-bot/Dockerfile
+      network: host
+    container_name: ct-test-bot-2
+    ports:
+      - "3101:3100"
+    environment:
+      CLAWTEAM_API_URL: http://api:3000
+      CLAWTEAM_API_KEY: ${BOT2_API_KEY}
+      CLAWTEAM_BOT_ID: ${BOT2_BOT_ID:-}
+      GATEWAY_ENABLED: "true"
+      GATEWAY_PORT: 3100
+      GATEWAY_HOST: "0.0.0.0"
+      SESSION_PROVIDER: openclaw
+      OPENCLAW_MODE: cli
+      OPENCLAW_HOME: /home/node/.openclaw
+      OPENCLAW_STATE_DIR: /home/node/.openclaw
+      OPENCLAW_CONFIG_TEMPLATE: /openclaw-config-template
+      OPENCLAW_GATEWAY_PORT: 18789
+      MAIN_AGENT_ID: main
+      POLL_INTERVAL_MS: 5000
+      LOG_LEVEL: debug
+    volumes:
+      - ${OPENCLAW_CONFIG_DIR:-./tests/openclaw-config}:/openclaw-config-template:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3100/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+    networks:
+      - ct-test
+
+volumes:
+  postgres_data:
+
+networks:
+  ct-test:
+    driver: bridge

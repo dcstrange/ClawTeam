@@ -23,9 +23,9 @@ import type {
   SessionStatusDetails,
   TaskSessionStatus,
 } from './types.js';
-import { analyzeTail, buildJsonlPath } from './jsonl-analyzer.js';
+import { analyzeTail, buildJsonlPath } from '../providers/openclaw/openclaw-jsonl-analyzer.js';
 import type { SessionTracker } from '../routing/session-tracker.js';
-import { buildOpenclawCliEnv } from '../utils/openclaw-env.js';
+import { buildOpenclawCliEnv } from '../providers/openclaw/openclaw-env.js';
 
 /** On Windows, execFile needs shell:true to resolve .cmd shims */
 const IS_WINDOWS = os.platform() === 'win32';
@@ -65,7 +65,8 @@ export interface SessionStatusResolverOptions {
   openclawBin: string;
   openclawHome: string;
   sessionAliveThresholdMs: number;
-  sessionTracker: SessionTracker;
+  /** Optional — retained for future use but not currently referenced by any resolver method. */
+  sessionTracker?: SessionTracker;
   logger: Logger;
 }
 
@@ -73,7 +74,7 @@ export class SessionStatusResolver {
   private readonly openclawBin: string;
   private readonly openclawHome: string;
   private readonly sessionAliveThresholdMs: number;
-  private readonly sessionTracker: SessionTracker;
+  private readonly sessionTracker?: SessionTracker;
   private readonly logger: Logger;
 
   constructor(options: SessionStatusResolverOptions) {

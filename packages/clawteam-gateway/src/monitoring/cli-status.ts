@@ -21,8 +21,8 @@ import * as path from 'node:path';
 import * as readline from 'node:readline';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { analyzeTail, buildJsonlPath, readLastMessages } from './jsonl-analyzer.js';
-import type { ParsedMessage, ContentBlock } from './jsonl-analyzer.js';
+import { analyzeTail, buildJsonlPath, readLastMessages } from '../providers/openclaw/openclaw-jsonl-analyzer.js';
+import type { ParsedMessage, ContentBlock } from '../providers/openclaw/openclaw-jsonl-analyzer.js';
 import { deriveState } from './session-status-resolver.js';
 import type { SessionState, JsonlAnalysis } from './types.js';
 

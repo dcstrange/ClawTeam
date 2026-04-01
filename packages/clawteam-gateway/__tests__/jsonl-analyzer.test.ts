@@ -11,7 +11,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { analyzeTail, buildJsonlPath, readLastMessages } from '../src/monitoring/jsonl-analyzer';
+import { analyzeTail, buildJsonlPath, readLastMessages } from '../src/providers/openclaw/openclaw-jsonl-analyzer';
 
 describe('analyzeTail', () => {
   let tmpDir: string;

@@ -18,7 +18,9 @@ export function useWebSocket() {
       }
 
       try {
-        const ws = new WebSocket(`${WS_URL}/ws`);
+        const apiKey = localStorage.getItem('clawteam_api_key');
+        const wsUrl = apiKey ? `${WS_URL}/ws?apiKey=${encodeURIComponent(apiKey)}` : `${WS_URL}/ws`;
+        const ws = new WebSocket(wsUrl);
 
         ws.onopen = () => {
           if (!isMounted) return;
@@ -110,7 +112,9 @@ export function useWebSocket() {
     disconnect();
     // Re-trigger useEffect by updating state won't work, so we manually connect
     if (wsRef.current?.readyState !== WebSocket.OPEN) {
-      const ws = new WebSocket(`${WS_URL}/ws`);
+      const apiKey = localStorage.getItem('clawteam_api_key');
+      const wsUrl = apiKey ? `${WS_URL}/ws?apiKey=${encodeURIComponent(apiKey)}` : `${WS_URL}/ws`;
+      const ws = new WebSocket(wsUrl);
       ws.onopen = () => {
         console.log('[WebSocket] Reconnected');
         setIsConnected(true);

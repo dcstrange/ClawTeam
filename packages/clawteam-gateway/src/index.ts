@@ -12,42 +12,19 @@ import { loadConfig } from './config.js';
 import { createLogger } from './utils/logger.js';
 import { printStartupBanner } from './utils/startup-banner.js';
 import { ClawTeamApiClient } from './clients/clawteam-api.js';
-import { OpenClawSessionClient, type IOpenClawSessionClient } from './clients/openclaw-session.js';
-import { OpenClawSessionCliClient } from './clients/openclaw-session-cli.js';
+import { createProvider } from './providers/provider-factory.js';
 import { SessionTracker } from './routing/session-tracker.js';
 import { RoutedTasksTracker } from './routing/routed-tasks.js';
 import { TaskRouter } from './routing/router.js';
 import { TaskPollingLoop } from './polling/task-poller.js';
-import { SessionStatusResolver } from './monitoring/session-status-resolver.js';
 import { HeartbeatLoop } from './monitoring/heartbeat-loop.js';
 import { StaleTaskRecoveryLoop } from './recovery/stale-task-recovery-loop.js';
 import { RouterApiServer } from './server/router-api.js';
-import type { GatewayConfig } from './config.js';
-import type { Logger } from 'pino';
 
 // Load monorepo root .env (packages/clawteam-gateway/src -> ../../../.env)
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 loadEnv({ path: resolve(__dirname, '../../../.env') });
-
-/** Create the appropriate OpenClaw session client based on config mode */
-function createOpenClawClient(config: GatewayConfig, logger: Logger): IOpenClawSessionClient {
-  if (config.openclawMode === 'cli') {
-    return new OpenClawSessionCliClient(config.mainAgentId, logger, {
-      openclawBin: config.openclawBin,
-      sessionAliveThresholdMs: config.sessionAliveThresholdMs,
-      openclawHome: config.openclawHome,
-    });
-  }
-
-  // HTTP mode (fallback, for custom OpenClaw API implementations)
-  return new OpenClawSessionClient(
-    config.openclawApiUrl,
-    `agent:${config.mainAgentId}:main`,
-    logger,
-    config.openclawApiKey,
-  );
-}
 
 async function main() {
   // 1. Load config
@@ -72,30 +49,26 @@ async function main() {
     config.clawteamBotId,
   );
 
-  const openclawSession = createOpenClawClient(config, logger);
-  logger.info({ mode: config.openclawMode, mainAgentId: config.mainAgentId }, 'OpenClaw client created');
+  // 4. Create session provider (OpenClaw or Claude)
+  const gatewayUrl = `http://localhost:${config.gatewayPort}`;
+  const provider = createProvider(config, logger, gatewayUrl);
 
-  // 4. Create session tracker and shared routed-tasks tracker
+  // 5. Create session tracker and shared routed-tasks tracker
   const sessionTracker = new SessionTracker();
   const routedTasks = new RoutedTasksTracker();
 
-  // 4b. Spawn detection is now handled by the clawteam-auto-tracker OpenClaw plugin
-  // (before_tool_call / after_tool_call hooks on sessions_spawn).
-  // The plugin calls /gateway/track-session which handles accept + start + notify.
-
-  // 5. Create router
-  const gatewayUrl = `http://localhost:${config.gatewayPort}`;
-
+  // 6. Create router
   const router = new TaskRouter({
     clawteamApi,
-    openclawSession,
+    sessionClient: provider.client,
     sessionTracker,
+    messageBuilder: provider.messageBuilder,
     logger,
     gatewayUrl,
     botId: config.clawteamBotId,
   });
 
-  // 6. Create polling loop (shares routedTasks with recovery loop)
+  // 7. Create polling loop (shares routedTasks with recovery loop)
   const poller = new TaskPollingLoop({
     clawteamApi,
     router,
@@ -105,19 +78,11 @@ async function main() {
     routedTasks,
   });
 
-  // 7. Create heartbeat loop (optional, independent of polling)
+  // 8. Create heartbeat loop (optional, requires resolver support)
   let heartbeatLoop: HeartbeatLoop | null = null;
-  if (config.heartbeatEnabled && config.openclawMode === 'cli') {
-    const resolver = new SessionStatusResolver({
-      openclawBin: config.openclawBin,
-      openclawHome: config.openclawHome,
-      sessionAliveThresholdMs: config.sessionAliveThresholdMs,
-      sessionTracker,
-      logger,
-    });
-
+  if (config.heartbeatEnabled && provider.resolver) {
     heartbeatLoop = new HeartbeatLoop({
-      resolver,
+      resolver: provider.resolver,
       clawteamApi,
       sessionTracker,
       intervalMs: config.heartbeatIntervalMs,
@@ -125,56 +90,38 @@ async function main() {
     });
   }
 
-  // 8. Create stale task recovery loop (optional, independent of polling)
+  // 9. Create stale task recovery loop (optional, requires resolver support)
   let recoveryLoop: StaleTaskRecoveryLoop | null = null;
-  if (config.recoveryEnabled && config.openclawMode === 'cli') {
-    const recoveryResolver = new SessionStatusResolver({
-      openclawBin: config.openclawBin,
-      openclawHome: config.openclawHome,
-      sessionAliveThresholdMs: config.sessionAliveThresholdMs,
-      sessionTracker,
-      logger,
-    });
-
+  if (config.recoveryEnabled && provider.resolver) {
     recoveryLoop = new StaleTaskRecoveryLoop({
-      resolver: recoveryResolver,
+      resolver: provider.resolver!,
       clawteamApi,
-      openclawSession,
+      sessionClient: provider.client,
       sessionTracker,
+      messageBuilder: provider.messageBuilder,
       routedTasks,
       intervalMs: config.recoveryIntervalMs,
       stalenessThresholdMs: config.stalenessThresholdMs,
       toolCallingTimeoutMs: config.toolCallingTimeoutMs,
       maxRecoveryAttempts: config.maxRecoveryAttempts,
-      mainSessionKey: `agent:${config.mainAgentId}:main`,
+      mainSessionKey: provider.mainSessionKey,
       gatewayUrl,
       botId: config.clawteamBotId,
       logger,
     });
   }
 
-  // 9. Create Gateway API server (optional, for local-client + gateway proxy)
+  // 10. Create Gateway API server (optional, for local-client + gateway proxy)
   let routerApi: RouterApiServer | null = null;
-  let apiResolver: SessionStatusResolver | null = null;
 
   if (config.gatewayEnabled) {
-    if (config.openclawMode === 'cli') {
-      apiResolver = new SessionStatusResolver({
-        openclawBin: config.openclawBin,
-        openclawHome: config.openclawHome,
-        sessionAliveThresholdMs: config.sessionAliveThresholdMs,
-        sessionTracker,
-        logger,
-      });
-    }
-
     routerApi = new RouterApiServer({
       sessionTracker,
       router,
       poller,
       heartbeatLoop,
-      resolver: apiResolver,
-      openclawSession,
+      resolver: provider.concreteResolver ?? null,
+      sessionClient: provider.client,
       clawteamApi,
       clawteamApiUrl: config.clawteamApiUrl,
       clawteamApiKey: config.clawteamApiKey,
