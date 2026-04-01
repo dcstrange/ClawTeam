@@ -507,7 +507,8 @@ export class RouterApiServer {
   }
 
   async start(port: number): Promise<void> {
-    await this.server.listen({ port, host: '127.0.0.1' });
+    const host = process.env.GATEWAY_HOST || '127.0.0.1';
+    await this.server.listen({ port, host });
     this.logger.info({ port }, 'Gateway API server started');
   }
 
